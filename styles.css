@@ -158,3 +158,18 @@ table.lista tr.detalle td{background:#F8FAFB;padding:12px 14px}
   .parada{grid-template-columns:36px 1fr;gap:8px}
   .contenido{padding:10px 12px 40px}
 }
+
+/* Listado operacional imprimible */
+.listado-print{font-size:11px}
+.titulo-print{font-weight:700;font-size:13px;margin:4px 0 8px}
+.listado-print h3{font-size:12px;margin:12px 0 4px}
+table.impresion{border:1px solid #999}
+table.impresion th,table.impresion td{border:1px solid #BBB;padding:3px 5px;font-size:10px;vertical-align:middle}
+table.impresion th{background:#E9EDEF;position:static}
+table.impresion tr.atrasado td{color:var(--rojo-txt);font-weight:600}
+@media print{
+  @page{size:letter landscape;margin:12mm}
+  .listado-print{padding:0}
+  .listado-print h3.salto{page-break-before:always}
+  table.impresion{width:100%}
+}

@@ -104,6 +104,7 @@ async function render() {
     else if (h === '#/clientes' && !esOp) await vClientes();
     else if (h === '#/bandeja' && !esOp) await vBandeja();
     else if (h === '#/ruta') await vRuta();
+    else if (h === '#/imprimir-listado') await vImprimirListado();
     else if (h === '#/taller' || esOp) await vTaller();
     else if (h === '#/clave') vClave();
     else await vLista();
@@ -140,7 +141,7 @@ async function vLista() {
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:220px"></label>
       <button class="btn" id="b-nuevo">+ Nuevo pedido</button>
       <button class="btn" id="b-export">Exportar a Excel (CSV)</button>
-      <button class="btn" onclick="window.print()">Imprimir</button>
+      <a class="btn" href="#/imprimir-listado">Imprimir listado operacional</a>
       <span id="resumen-lista" style="margin-left:auto;color:var(--gris-3)"></span>
     </div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
   $('#f-estado').onchange = e => { cache.filtro = e.target.value; vLista(); };
@@ -180,13 +181,48 @@ function abrirDetalleFila(tr) {
   activarPiezas(d, () => vLista());
   const bc = $('[data-confirmar]', d); if (bc) bc.onclick = async () => { try { await rpc('confirmar_despacho', { p_pedido_id: p.id }); aviso('Despacho programado'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
 }
-function waLink(p, tipo) {
-  const tel = (p.cliente_telefono || '').replace(/\D/g, ''); const nombre = (p.cliente || '').split(' ')[0];
-  const f = p.despacho_propuesto ? fecha(p.despacho_propuesto, true) : 'esta semana';
-  let t = tipo === 'despacho'
-    ? `Hola ${nombre}, te escribe Harold de Santino Design. Tu pedido ${p.numero} (${p.resumen || 'mesa'}) ya está listo en el taller. ¿Te acomoda que lo despachemos el ${f}?${p.saldo > 0 ? ` Te recuerdo que queda un saldo de ${pesos(p.saldo)} que se paga antes del despacho.` : ''} Quedo atento.`
-    : `Hola ${nombre}, te escribe Harold de Santino Design por tu pedido ${p.numero}.`;
-  return `https://wa.me/${tel}?text=${encodeURIComponent(t)}`;
+const CUENTA_SANTINO = 'Santino Design SpA\nRUT 77.551.022-6\nBanco Santander\nCuenta Corriente 87727157\nhola@santinodesign.cl';
+const WEBPAY_LINK = 'https://www.webpay.cl/form-pay/80544';
+const NOMBRE_MODELO = { VEN: 'Venecia', ROM: 'Roma', MYKHONOS: 'Mykonos', 'MESA EXT': 'Mesa exterior', MON: 'Mónaco', GONQUI: 'Gonqui', NOTHOFAGUS: 'Nothofagus', PRAGA: 'Praga', SANTORINI: 'Santorini', 'MONTE.C': 'Mesa Monte Carlo', FIO: 'Fiorella', X: 'Mesa X', ORIGEN: 'Origen', 'TIERRA DEL FUEGO': 'Tierra del Fuego', TIVOLI: 'Tivoli', 'MESA.C': 'Mesa de centro', REMANSO: 'Remanso', TRAMA: 'Trama', SOBREMESA: 'Sobremesa', AMORA: 'Amora', DUNA: 'Duna', LENA: 'Lena' };
+const NOMBRE_MATERIAL = { PINO: 'pino', LENGA: 'lenga', LENG: 'lenga', 'V.T': 'vidrio templado', 'V.C': 'vidrio', 'ROB.US': 'roble americano', 'ROB US': 'roble americano', 'ROB.HUALLE': 'roble hualle', HAYA: 'haya', TRAVERTINO: 'travertino', METAL: 'metal' };
+const NOMBRE_COLOR = { NGR: 'negro', NAT: 'natural', BL: 'blanco', GRIS: 'gris', NOG: 'nogal' };
+function nombrePila(p) { return ((p.cliente || '').trim().split(' ')[0] || '').replace(/^./, c => c.toUpperCase()); }
+function telWa(p) { return (p.cliente_telefono || '').replace(/\D/g, ''); }
+// Mensaje 1 de Mensajes_Despacho_e_Instalacion_v1_0.md (confirmación de despacho)
+function mensajeDespacho(p) {
+  const f = p.despacho_propuesto || p.fecha_comprometida;
+  const dia = f ? 'el ' + fecha(f, true).replace(/^([^ ]+)/, m => ({ lun: 'lunes', mar: 'martes', 'mié': 'miércoles', jue: 'jueves', vie: 'viernes', 'sáb': 'sábado', dom: 'domingo' }[m] || m)) : 'este viernes';
+  return `Hola! Confirmamos el despacho 🚚 de tu pedido ${dia} entre las 10 y 20 hrs. No manejamos un horario fijo por la cantidad de pedidos del día, pero los chicos te pueden avisar con al menos 30 minutos de anticipación.\n\n▶️ Importante: confirma que puedes recibir el pedido, o avísanos si prefieres que lo dejen en conserjería. Saludos! 👋`;
+}
+// Formato exacto de la skill mensajes-saldo-pendiente v1.2
+function mensajeSaldo(p, abonos) {
+  const pz = p.piezas || []; const cub = pz.find(x => ['Cubierta', 'Mesa', 'Mueble'].includes(x.tipo)) || {}; const sil = pz.find(x => x.tipo === 'Silla' || x.tipo === 'Banca');
+  const modelo = NOMBRE_MODELO[cub.modelo_cubierta] || NOMBRE_MODELO[(pz.find(x => x.tipo === 'Base') || {}).modelo_base] || cub.modelo_cubierta || cub.descripcion || '';
+  const L = [`${nombrePila(p)}, te dejamos por acá el detalle de tu pedido con el saldo pendiente.`, ''];
+  L.push(`${modelo}${cub.personas ? ' ' + cub.personas + ' personas' : ''}`.trim());
+  const det = [cub.material_cubierta ? `${NOMBRE_MATERIAL[cub.material_cubierta] || cub.material_cubierta}${cub.espesor_mm ? ' ' + cub.espesor_mm + 'mm' : ''}` : null, cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''} cm` : null, cub.color ? (NOMBRE_COLOR[cub.color] || cub.color) : null, cub.tono ? (/^\d$/.test(cub.tono) ? 'barniz ' + ({ 1: 'natural', 2: '2 manos', 4: '4 manos' }[cub.tono] || 'tono ' + cub.tono) : 'barniz ' + (NOMBRE_COLOR[cub.tono] || cub.tono)) : null].filter(Boolean);
+  if (det.length) L.push(det.join(' · '));
+  if (sil) L.push(`${sil.cantidad} sillas ${(sil.tipo_silla || '').toLowerCase().replace(/^./, c => c.toUpperCase())} ${({ NGR: 'negras', NAT: 'naturales', BL: 'blancas' }[sil.color_silla] || sil.color_silla || '')}`.trim());
+  L.push('');
+  L.push(`${sil ? 'Valor comedor' : 'Valor mesa'}: ${pesos(p.precio_venta)}`);
+  L.push(`Despacho: ${pesos(p.precio_despacho)}`);
+  L.push(`Instalación: ${p.precio_instalacion ? pesos(p.precio_instalacion) : 'n/a'}`);
+  L.push('');
+  L.push(`Total: ${pesos(p.total)}`);
+  const positivos = (abonos || []).filter(a => a.monto > 0);
+  if (positivos.length > 1) positivos.forEach((a, i) => L.push(`Abono${i + 1}: ${pesos(a.monto)}`)); else L.push(`Abono: ${pesos(p.abonado)}`);
+  L.push('');
+  if (p.saldo > 0) { L.push(`Saldo pendiente: ${pesos(p.saldo)}`, '', 'Datos para transferencia:', '', CUENTA_SANTINO, '', 'O paga con Webpay (agrega tu correo y el monto):', WEBPAY_LINK); }
+  else L.push('Saldo pendiente: $0 ✓ Pagado');
+  return L.join('\n');
+}
+function waLink(p, tipo) { return `https://wa.me/${telWa(p)}?text=${encodeURIComponent(tipo === 'despacho' ? mensajeDespacho(p) : `Hola ${nombrePila(p)}, te escribe Harold de Santino Design por tu pedido ${p.numero}.`)}`; }
+async function abrirWaSaldo(p) {
+  const { data: abonos } = await sb.from('abono').select('monto').eq('pedido_id', p.id).order('fecha');
+  const texto = mensajeSaldo(p, abonos || []);
+  const alertas = []; if (p.precio_instalacion > 80000) alertas.push(`Instalación ${pesos(p.precio_instalacion)} parece alta (¿un cero de más?)`); if (p.precio_despacho > 60000) alertas.push(`Despacho ${pesos(p.precio_despacho)} parece alto`);
+  if (alertas.length) aviso('Revisa antes de enviar: ' + alertas.join(' · '), true);
+  window.open(`https://wa.me/${telWa(p)}?text=${encodeURIComponent(texto)}`, '_blank');
 }
 function activarPiezas(raiz, despues) {
   $$('[data-pieza]', raiz).forEach(b => b.onclick = async ev => {
@@ -239,7 +275,7 @@ function tarjeta(p) {
     <div class="gris ${p.atrasado ? 'num' : ''}" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${esc(p.comuna || '')} · ${p.estado === 'ENTREGADO' ? 'entregado ' + fecha(p.entregado_en) : (p.fecha_comprometida ? 'comprometida ' : 'estimada ') + fecha(p.fecha_comprometida || p.fecha_estimada)}${p.atrasado ? ` · ${p.dias_atraso} días de atraso` : ''}</div>
     ${piezas}${sub ? `<div>${sub}</div>` : ''}
     ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' ? `<div><span class="chip prop">PROPUESTO ${fecha(p.despacho_propuesto, true)}</span> <button class="btn chico borde" data-confirmar="${p.id}">Confirmar</button> <a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp</a></div>` : ''}
-    ${p.estado === 'LISTO EN TALLER' && p.saldo > 0 ? `<a class="btn chico borde" target="_blank" href="${waLink(p, 'despacho')}">Mensaje de saldo</a>` : ''}
+    ${p.saldo > 0 && !p.pago_pendiente && p.estado !== 'ENTREGADO' ? `<button class="btn chico borde" data-saldo="${p.id}">Mensaje de saldo</button>` : ''}
   </div>`;
 }
 function activarArrastre() {
@@ -263,6 +299,7 @@ function activarArrastre() {
     };
   });
   $$('[data-confirmar]').forEach(b => b.onclick = async () => { try { await rpc('confirmar_despacho', { p_pedido_id: Number(b.dataset.confirmar) }); aviso('Despacho programado'); vTablero(); } catch (e) { aviso(errorDe(e), true); } });
+  $$('[data-saldo]').forEach(b => b.onclick = () => abrirWaSaldo(cache.pedidos.find(p => p.id === Number(b.dataset.saldo))));
 }
 
 /* ---------- Ficha de pedido ---------- */
@@ -294,7 +331,8 @@ async function vFicha(id) {
         </tbody></table></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn primario" id="b-listo" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas listas</span>` : ''}
-          ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" id="f-prop" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" id="b-prop">Proponer</button>${!esOp ? `<button class="btn primario" id="b-conf">Cliente confirmó: programar</button><a class="btn" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp al cliente</a>` : ''}` : ''}
+          ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" id="f-prop" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" id="b-prop">Proponer</button>${!esOp ? `<button class="btn primario" id="b-conf">Cliente confirmó: programar</button>` : ''}` : ''}
+          ${!esOp && p.cliente_telefono ? `<a class="btn" target="_blank" href="${waLink(p, 'despacho')}" title="Mensaje 1 de las plantillas de despacho">WhatsApp: confirmar despacho</a>${p.saldo > 0 ? `<button class="btn" id="b-wa-saldo">WhatsApp: saldo pendiente</button>` : ''}` : ''}
           ${p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn primario" id="b-entregar">Marcar ENTREGADO</button>` : ''}
           ${p.cotizacion_numero ? `<span style="font-size:12px;color:var(--gris-2)">Cotización ${esc(p.cotizacion_numero)}</span>` : ''}
         </div>
@@ -331,6 +369,7 @@ async function vFicha(id) {
   on('#b-prop', async () => { const f = $('#f-prop').value; if (!f) return aviso('Elige una fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: Number(id), p_fecha: f }); aviso('Propuesta guardada; Harold envía el mensaje'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-conf', async () => { try { await rpc('confirmar_despacho', { p_pedido_id: Number(id), p_fecha: $('#f-prop').value || null }); aviso('Despacho programado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-entregar', () => formEntregar(p, recargar));
+  on('#b-wa-saldo', () => abrirWaSaldo(p));
   if (!esOp) {
     $('#s-estado').onchange = async ev => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: ev.target.value }); aviso('Estado: ' + ev.target.value); } catch (e) { aviso(errorDe(e), true); } recargar(); };
     $('#c-urgente').onchange = async ev => { const { error } = await sb.from('pedido').update({ urgente: ev.target.checked }).eq('id', id); aviso(error ? errorDe(error) : (ev.target.checked ? 'Marcado urgente' : 'Ya no es urgente'), !!error); };
@@ -534,7 +573,7 @@ async function vTaller() {
   app.innerHTML = barra('#/taller') + `<div class="sub no-imprimir">
       <label>Ver <select id="ver"><option value="pendientes" ${cache.opVer === 'pendientes' ? 'selected' : ''}>Pendientes por semana</option><option value="semana" ${cache.opVer === 'semana' ? 'selected' : ''}>Solo esta semana</option><option value="listos" ${cache.opVer === 'listos' ? 'selected' : ''}>Listos y programados</option><option value="entregados" ${cache.opVer === 'entregados' ? 'selected' : ''}>Entregados recientes</option></select></label>
       <label>Buscar <input type="search" id="f-busca" value="${esc(cache.busqueda)}" style="width:200px"></label>
-      <button class="btn borde" onclick="window.print()">Imprimir listado</button>
+      <a class="btn borde" href="#/imprimir-listado">Imprimir listado</a>
       <span style="color:var(--gris-3)">Toca una fila y se abre ahí mismo. Toca una pieza y queda lista.</span></div>
     <div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
   $('#ver').onchange = e => { cache.opVer = e.target.value; pintarTaller(); };
@@ -578,6 +617,30 @@ function abrirDetalleTaller(tr) {
   const bl = $('[data-listo]', d); if (bl) bl.onclick = async () => { try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller ✓'); vTaller(); } catch (e) { aviso(errorDe(e), true); } };
   const bp = $('[data-prop]', d); if (bp) bp.onclick = async () => { const f = $('[data-fecha]', d).value; if (!f) return aviso('Elige la fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Propuesta enviada a Harold'); vTaller(); } catch (e) { aviso(errorDe(e), true); } };
   const be = $('[data-entregar]', d); if (be) be.onclick = () => formEntregar(p, () => vTaller());
+}
+
+/* ---------- Listado operacional imprimible (mismo formato que el PDF de auto-pedidodespacho v3.1) ---------- */
+async function vImprimirListado() {
+  const esOp = yo.rol === 'operacion';
+  if (esOp) await cargarOperacion(); else { cache.filtro = 'pendientes'; await cargarPedidos(); }
+  const UMBRAL_PLANO = 25;
+  const activos = cache.pedidos.filter(p => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado) && !p.pago_pendiente);
+  const fe = p => p.fecha_comprometida || p.fecha_estimada || null;
+  const con = activos.filter(p => fe(p)).sort((a, b) => fe(a).localeCompare(fe(b))), sin = activos.filter(p => !fe(p));
+  const hoy = new Date(); const titulo = `LISTADO OPERACIONAL - Santino Design  |  ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}  |  ${activos.length} pedidos activos`;
+  const cab = ['Envio', 'Inst.', 'Cliente', 'Cant.', 'Modelo', 'Color Est', 'Formato', 'Forma', 'Material', 'Esp.', 'Med. Esp', 'Barniz', 'Tipo Silla', 'Color Silla', 'Cant. Silla', 'F. Entrega'];
+  const fila = p => { const r = rasgos(p); const pz = p.piezas || []; const cub = pz.find(x => ['Cubierta', 'Mesa', 'Mueble', 'Repuesto'].includes(x.tipo)) || {}; const sil = pz.find(x => x.tipo === 'Silla' || x.tipo === 'Banca');
+    const envio = p.tipo_entrega === 'Despacho regiones' ? 'REGIONES' : p.tipo_entrega === 'Retiro en taller' ? 'RETIRO' : 'RM';
+    return [envio, p.instalacion ? 'SI' : '-', p.cliente, cub.cantidad || 1, r.modelo, r.color, cub.personas ? cub.personas + ' PER' : '-', r.forma, r.cubierta + (r.base !== '-' && r.base !== r.cubierta ? ' / ' + r.base : ''), r.esp, r.medida === '-' ? '-' : r.medida + ' cm', r.tono, sil ? (sil.tipo_silla || '-') : 'n/a', sil ? (sil.color_silla || '-') : 'n/a', sil ? sil.cantidad : 'n/a', fecha(fe(p))]; };
+  const tabla = lista => `<table class="lista impresion"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${lista.map(p => `<tr class="${p.atrasado ? 'atrasado' : ''}">${fila(p).map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  let cuerpo = '';
+  if (activos.length < UMBRAL_PLANO) { cuerpo = tabla(con) + (sin.length ? `<h3 class="salto">Sin fecha estimada</h3>${tabla(sin)}` : ''); }
+  else {
+    const grupos = {}; con.forEach(p => { const k = lunesDe(fe(p)).toISOString().slice(0, 10); (grupos[k] = grupos[k] || []).push(p); });
+    cuerpo = Object.keys(grupos).sort().map(k => `<h3>${etiquetaSemana(new Date(k + 'T12:00:00'))}</h3>${tabla(grupos[k])}`).join('') + (sin.length ? `<h3 class="salto">Sin fecha estimada</h3>${tabla(sin)}` : '');
+  }
+  app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir"><a href="${esOp ? '#/taller' : '#/lista'}">‹ Volver</a><button class="btn primario" onclick="window.print()">Imprimir</button><span style="color:var(--gris-3)">Mismo formato que el Listado Operacional en PDF (carta horizontal, ${activos.length < UMBRAL_PLANO ? 'una sola tabla' : 'agrupado por semana'}).</span></div>
+    <div class="contenido listado-print"><div class="titulo-print">${esc(titulo)}</div>${cuerpo}</div>`;
 }
 
 /* ---------- Ruta ---------- */
