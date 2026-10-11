@@ -1,0 +1,1 @@
+window.SANTINO_CONFIG = { url: "https://arqsfrtcvpptksquimmf.supabase.co", anon: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFycXNmcnRjdnBwdGtzcXVpbW1mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1OTcxODYsImV4cCI6MjEwNzE3MzE4Nn0.81fQSvPr0clqAFsfDwzBGf4uK6gepM2EAKs9fTMMB9M" };
