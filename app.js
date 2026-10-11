@@ -480,7 +480,7 @@ async function formPedido() {
     <div class="campos">
       <label class="campo">Número (vacío = siguiente W) <input name="numero" placeholder="W3141 o #2090"></label>
       <label class="campo">Tipo de pedido <select name="tipo_pedido"><option>Venta catálogo</option><option>Mesa a medida</option><option>Mueble a medida</option><option>Postventa</option><option>Repuesto</option></select></label>
-      <label class="campo">Origen <select name="origen"><option>WhatsApp</option><option>Instagram</option><option>Shopify</option><option>Tienda</option><option>Cliente directo</option><option>Correo</option><option>Colaborador</option><option>Interno</option></select></label>
+      <label class="campo">Origen <select name="origen"><option>WhatsApp</option><option>Instagram</option><option>Shopify</option><option>Fábrica</option><option>Tienda</option><option>Cliente directo</option><option>Correo</option><option>Colaborador</option><option>Interno</option></select></label>
       <label class="campo">Fecha de compra <input name="fecha_compra" type="date" value="${hoyISO()}" required></label>
       <label class="campo">Precio de venta <input name="precio_venta" type="number" required></label>
       <label class="campo">Despacho <input name="precio_despacho" type="number" value="19980"></label>
