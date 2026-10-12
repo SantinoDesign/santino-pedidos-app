@@ -85,7 +85,7 @@ function pantallaLogin() {
   document.body.classList.remove('tablet');
   app.innerHTML = `<form class="login" id="f-login">
     <h1>SANTINO · Pedidos</h1>
-    <div style="font-size:13px;color:var(--gris-2)">Prototipo con datos de prueba. Entra con tu correo y clave.</div>
+    <div style="font-size:13px;color:var(--gris-2)">Pedidos reales de Santino Design (desde el 12-oct-2026). Entra con tu correo y clave.</div>
     <label>Correo <input type="email" name="email" required autocomplete="username"></label>
     <label>Clave <input type="password" name="password" required autocomplete="current-password"></label>
     <button class="btn primario" type="submit">Entrar</button>
