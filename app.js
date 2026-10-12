@@ -59,22 +59,25 @@ function estadoHtml(e, corto) { return `<span class="estado e-${e.replace(/ /g, 
 function tipoHtml(t) { return `<span class="cod" title="${esc(NOMBRE_TIPO[t] || t)}">${esc(COD_TIPO[t] || t)}</span>`; }
 function rasgos(p) {
   const pz = p.piezas || [];
-  const cub = pz.find(x => ['Cubierta', 'Mesa', 'Mueble', 'Repuesto'].includes(x.tipo)) || {};
+  // Pieza principal: cubierta, mesa, mueble o repuesto; si no hay, la banca; si no, el servicio (retapizado, instalación). Nunca tratar una banca como "sillas".
+  const cub = pz.find(x => ['Cubierta', 'Mesa', 'Mueble', 'Repuesto'].includes(x.tipo)) || pz.find(x => x.tipo === 'Banca') || pz.find(x => x.tipo === 'Servicio') || {};
   const base = pz.find(x => x.tipo === 'Base') || {};
-  const sil = pz.find(x => x.tipo === 'Silla' || x.tipo === 'Banca');
+  const sil = pz.find(x => x.tipo === 'Silla') || (cub.tipo !== 'Banca' ? pz.find(x => x.tipo === 'Banca') : null);
   const modelos = [cub.modelo_cubierta, base.modelo_base].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
   // Modelo a la vista siempre (Harold 12-oct): catálogo = código; especial = ESPECIAL más el inicio de la descripción;
   // pedido solo de sillas = código de la silla (WISH, CROSS, S.SANTINO), aunque se repita en la columna Sillas.
   let modeloTxt = modelos.join(' + ');
-  if (modeloTxt === 'ESPECIAL' || modeloTxt === 'ESPECIAL + ESPECIAL') modeloTxt = 'ESPECIAL · ' + (cub.descripcion || '').replace(/especial/ig, '').replace(/^[\s·]+|[\s·]+$/g, '').slice(0, 26);
+  const sinMedidas = t => (t || '').replace(/\d+([.,]\d+)?\s*[xX×]\s*\d+([.,]\d+)?(\s*[xX×]\s*\d+([.,]\d+)?)?\s*(cm)?/g, '').replace(/\b(cm|diam|radio)\b/gi, '').replace(/[·,\s]+/g, ' ').trim();
+  if (modeloTxt === 'ESPECIAL' || modeloTxt === 'ESPECIAL + ESPECIAL') modeloTxt = (cub.tipo === 'Banca' ? 'BANCA ESPECIAL' : 'ESPECIAL') + ' · ' + sinMedidas((cub.descripcion || '').replace(/especial/ig, '').replace(/a medida/ig, '')).slice(0, 26);
+  else if (cub.tipo === 'Banca' && !modeloTxt) modeloTxt = 'BANCA';
   if (!modeloTxt && !cub.tipo && sil) modeloTxt = sil.tipo_silla || 'Sillas';
-  if (!modeloTxt) modeloTxt = (cub.descripcion || '').slice(0, 28);
+  if (!modeloTxt) modeloTxt = sinMedidas(cub.descripcion).slice(0, 28);
   return {
     modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + modeloTxt,
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
-    cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono)],
+    cubierta2: [codMaterial(cub.material_cubierta) || '-', [!cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono), cub.tipo !== 'Silla' && cub.color_silla ? 'tapiz ' + cub.color_silla : ''].filter(Boolean).join(' · ')],
     baseTipo: tipoBase(cub, base),
     base2: [codMaterial(base.material_base || cub.material_base) || tipoBase(cub, base) || '-', [base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? 'tono ' + cub.tono : ''].filter(Boolean).join(' ')],
     medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
@@ -182,7 +185,12 @@ async function cargarPedidos() {
   else if (cache.filtro === 'todos') q = q.order('fecha_compra', { ascending: false }).limit(500);
   else q = q.eq('estado', cache.filtro).order('prioridad').order('fecha_comprometida');
   const { data, error } = await q; if (error) throw error;
-  if (cache.filtro === 'pendientes') data.sort((a, b) => String(a.fecha_comprometida || a.fecha_estimada || '9').localeCompare(String(b.fecha_comprometida || b.fecha_estimada || '9')) || ESTADOS.indexOf(a.estado) - ESTADOS.indexOf(b.estado) || (a.prioridad || 999) - (b.prioridad || 999));  // manda la fecha de entrega (Harold 12-oct)
+  if (cache.filtro === 'pendientes') {
+    // Manda la fecha de entrega (Harold 12-oct); los pedidos del MISMO CLIENTE van juntos, en el lugar del más próximo (Harold 12-oct, Liliana).
+    const clave = p => String(p.fecha_comprometida || p.fecha_estimada || '9');
+    const primera = {}; data.forEach(p => { const k = clave(p); if (!primera[p.cliente_id] || k < primera[p.cliente_id]) primera[p.cliente_id] = k; });
+    data.sort((a, b) => primera[a.cliente_id].localeCompare(primera[b.cliente_id]) || a.cliente_id - b.cliente_id || clave(a).localeCompare(clave(b)) || ESTADOS.indexOf(a.estado) - ESTADOS.indexOf(b.estado) || (a.prioridad || 999) - (b.prioridad || 999));
+  }
   cache.pedidos = data; return data;
 }
 function filtrar(lista) {
