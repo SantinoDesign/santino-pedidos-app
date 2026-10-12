@@ -64,7 +64,7 @@ function rasgos(p) {
   const sil = pz.find(x => x.tipo === 'Silla' || x.tipo === 'Banca');
   const modelos = [cub.modelo_cubierta, base.modelo_base].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
   return {
-    modelo: modelos.join(' + ') || (cub.descripcion || '').slice(0, 28),
+    modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + (modelos.join(' + ') || (cub.descripcion || '').slice(0, 28)),  // cantidad delante solo si es más de 1 (Harold 12-oct)
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
@@ -530,7 +530,7 @@ function camposLinea(prefijo = '') {
     <label class="campo">Alto cm <input name="${prefijo}alto_cm" type="number" step="0.5" value="76"></label>
     <label class="campo">Forma <select name="${prefijo}forma"><option value="">-</option><option>RECT</option><option>CUA</option><option>CIRC</option><option>OVAL</option></select></label>
     <label class="campo">Personas <input name="${prefijo}personas" type="number"></label>
-    <label class="campo">Tono o barniz <select name="${prefijo}tono"><option value="">-</option>${['1', '2', '3', '4', '5', 'NAT', 'NGR', 'BL', 'GRIS', 'NOG', 'SIN BARNIZ', 'ESPECIAL'].map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Tono o barniz <select name="${prefijo}tono"><option value="">-</option>${['1', '2', '3', '4', '5', 'NGR', 'BL', 'GRIS', 'NOG', 'SIN BARNIZ', 'ESPECIAL'].map(t => `<option>${t}</option>`).join('')}</select></label>
     <label class="campo">Nota de acabado <input name="${prefijo}nota_acabado"></label>
     <label class="campo">Tipo silla <input name="${prefijo}tipo_silla" placeholder="TULIP, WISH, CROSS"></label>
     <label class="campo">Color silla <input name="${prefijo}color_silla"></label>
