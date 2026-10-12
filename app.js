@@ -37,10 +37,11 @@ const COD_TIPO = { 'Venta catálogo': 'CATAL', 'Mesa a medida': 'MESA.M', 'Muebl
 const A_MEDIDA = ['Mesa a medida', 'Mueble a medida', 'Proyecto'];  // opción A, Harold 12-oct
 const NOMBRE_TIPO = { 'Mueble a medida': 'Mueble a medida (pieza suelta: repisa, sofá modular, poste)', 'Proyecto': 'Proyecto a medida (cocina, clóset, mueble de muro; antes en VENTAS_Proyectos_medida.xlsx)' };
 const COD_MATERIAL = { TRAVERTINO: 'TRAV', 'ROB.HUALLE': 'ROB.H', 'ROB.US': 'ROB.US', MELAMINA: 'MEL', 'PINO OREGON': 'P.OREG', CARVALLO: 'CARV', NEOLITH: 'NEOL', ENCINA: 'ENC', CUARZO: 'CUARZ' };
-const codMaterial = m => m ? (COD_MATERIAL[m] || m) : '';
+const codigoDe = (tipo, c) => ((cache.codigos || {})[tipo] || {})[String(c || '').toUpperCase()];
+const codMaterial = m => m ? ((codigoDe('material', m) || {}).abreviatura || COD_MATERIAL[m] || m) : '';  // tabla codigo manda
 const ES_VIDRIO = m => ['V.T', 'V.C'].includes(m);
 const NO_MADERA = ['V.T', 'V.C', 'TRAVERTINO', 'NEOLITH', 'CUARZO', 'MELAMINA', 'RATAN', 'METAL', 'FIERRO', 'ACERO', 'MDF', 'ENCHAPADO'];
-const ES_MADERA = m => !!m && !NO_MADERA.includes(String(m).toUpperCase());
+const ES_MADERA = m => !!m && (codigoDe('material', m) ? codigoDe('material', m).es_madera : !NO_MADERA.includes(String(m).toUpperCase()));
 /* Base de madera cuando la línea no trae material propio: la misma madera de la cubierta, salvo los modelos que en NEGRO
    llevan otra base (tabla modelo.base_negro, fuente motor_precios.js: Gonqui y Trama = pino pintado). */
 function maderaBase(cub, base) {
@@ -54,6 +55,8 @@ const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en pr
    del modelo en la tabla modelo (Soldadura = metal, Carpintería = madera, Armado muebles = MDF enchapado). Sin dato = vacío. */
 async function cargarModelos() {
   if (cache.modelos) return;
+  const { data: cods } = await sb.from('codigo').select('*');
+  cache.codigos = { material: {}, color: {} }; (cods || []).forEach(c => { cache.codigos[c.tipo][c.codigo] = c; });
   const { data } = await sb.from('modelo').select('codigo,nombre,area_base,bultos,base_negro');
   cache.modelos = Object.fromEntries((data || []).map(m => [m.codigo, m.area_base]));
   cache.modelosBultos = Object.fromEntries((data || []).map(m => [m.codigo, m.bultos]));
@@ -291,6 +294,8 @@ const nombreModelo = cod => (cache.modelosNombre || {})[cod] || NOMBRE_MODELO[co
 const NOMBRE_MODELO = { VEN: 'Venecia', ROM: 'Roma', MYKHONOS: 'Mykonos', 'MESA EXT': 'Mesa exterior', MON: 'Mónaco', GONQUI: 'Gonqui', NOTHOFAGUS: 'Nothofagus', PRAGA: 'Praga', SANTORINI: 'Santorini', 'MONTE.C': 'Mesa Monte Carlo', FIO: 'Fiorella', X: 'Mesa X', ORIGEN: 'Origen', 'TIERRA DEL FUEGO': 'Tierra del Fuego', TIVOLI: 'Tivoli', 'MESA.C': 'Mesa de centro', REMANSO: 'Remanso', TRAMA: 'Trama', SOBREMESA: 'Sobremesa', AMORA: 'Amora', DUNA: 'Duna', LENA: 'Lena' };
 const NOMBRE_MATERIAL = { PINO: 'pino', LENGA: 'lenga', LENG: 'lenga', 'V.T': 'vidrio templado', 'V.C': 'vidrio', 'ROB.US': 'roble americano', 'ROB US': 'roble americano', 'ROB.HUALLE': 'roble hualle', HAYA: 'haya', TRAVERTINO: 'travertino', METAL: 'metal' };
 const NOMBRE_COLOR = { NGR: 'negro', NAT: 'natural', BL: 'blanco', GRIS: 'gris', NOG: 'nogal' };
+const nombreMaterial = m => (codigoDe('material', m) || {}).nombre || NOMBRE_MATERIAL[m] || (m || '').toLowerCase();
+const nombreColor = c => (codigoDe('color', c) || {}).nombre || NOMBRE_COLOR[c] || c;
 function nombrePila(p) { return ((p.cliente || '').trim().split(' ')[0] || '').replace(/^./, c => c.toUpperCase()); }
 function telWa(p) { return (p.cliente_telefono || '').replace(/\D/g, ''); }
 // Mensaje 1 de Mensajes_Despacho_e_Instalacion_v1_0.md (confirmación de despacho)
@@ -815,17 +820,17 @@ function descProducto(x) {
   if (['Mueble', 'Repuesto', 'Servicio'].includes(x.tipo)) return x.descripcion || x.tipo;
   const cod = x.modelo_cubierta || x.modelo_base; const mat = x.material_cubierta || x.material_base;
   const medida = x.largo_cm ? `${num(x.largo_cm)}x${num(x.ancho_cm)}${x.alto_cm ? 'x' + num(x.alto_cm) : ''} cm` : '';
-  const partes = [`${x.tipo === 'Mesa' || x.tipo === 'Cubierta' ? 'Mesa ' : ''}${nombreModelo(cod) || ''} ${cap(NOMBRE_MATERIAL[mat] || (mat || '').toLowerCase())}`.trim()];
+  const partes = [`${x.tipo === 'Mesa' || x.tipo === 'Cubierta' ? 'Mesa ' : ''}${nombreModelo(cod) || ''} ${cap(nombreMaterial(mat))}`.trim()];
   const tras = [medida, x.personas ? `[${x.personas} personas]` : ''].filter(Boolean).join(' ');
   if (tras) partes.push(tras);
   let d = partes.join(' · ');
-  if (x.color) d += ' / ' + cap(NOMBRE_COLOR[x.color] || x.color) + (x.tono && !ES_VIDRIO(mat) ? ' ' + tonoTxt(x.tono) : '');
+  if (x.color) d += ' / ' + cap(nombreColor(x.color)) + (x.tono && !ES_VIDRIO(mat) ? ' ' + tonoTxt(x.tono) : '');
   return d;
 }
 function productosGuia(p) {
   const pz = p.piezas || []; const lineas = [];
   pz.filter(x => !['Silla', 'Banca', 'Servicio'].includes(x.tipo)).forEach((x, i) => lineas.push({ desc: descProducto(x), valor: i === 0 ? pesos(p.precio_venta) : '' }));
-  pz.filter(x => ['Silla', 'Banca'].includes(x.tipo)).forEach(x => lineas.push({ desc: `${x.cantidad || 1} ${x.tipo === 'Banca' ? 'banca' : 'sillas'} ${x.tipo_silla || ''} ${x.color_silla ? '/ ' + cap(NOMBRE_COLOR[x.color_silla] || x.color_silla) : ''}`.replace(/\s+/g, ' ').trim(), valor: 'incluidas' }));
+  pz.filter(x => ['Silla', 'Banca'].includes(x.tipo)).forEach(x => lineas.push({ desc: `${x.cantidad || 1} ${x.tipo === 'Banca' ? 'banca' : 'sillas'} ${x.tipo_silla || ''} ${x.color_silla ? '/ ' + cap(nombreColor(x.color_silla)) : ''}`.replace(/\s+/g, ' ').trim(), valor: 'incluidas' }));
   if (!lineas.length) lineas.push({ desc: p.resumen || 'Pedido ' + p.numero, valor: pesos(p.precio_venta) });
   if (p.precio_despacho > 0) lineas.push({ desc: 'Despacho', valor: pesos(p.precio_despacho) });
   if (p.precio_instalacion > 0) lineas.push({ desc: 'Instalación', valor: pesos(p.precio_instalacion) });
