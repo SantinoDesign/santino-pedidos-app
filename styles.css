@@ -259,3 +259,19 @@ table.lista.compacta td.piezas-col{min-width:130px}
 .logo-barra{height:30px;display:block}
 .tablet .logo-barra{height:34px}
 .l2.parcial{color:var(--rojo-txt);font-weight:700;font-size:11px}
+/* Tanda 19 (12-oct): despliegue útil, acabado por pieza, ODT */
+.despliegue{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.desp-col{display:flex;flex-direction:column;gap:8px;font-size:13px}
+.desp-datos{max-width:360px}
+.desp-datos .gris,.despliegue .gris{color:var(--gris-2)}
+.desp-estado{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--gris-2)}
+.desp-estado select{font-size:13px;font-weight:700;color:var(--gris)}
+.sel-acabado{font-size:12px;padding:2px 4px;min-height:26px}
+.sel-acabado.falta{border:1.5px solid var(--rojo-txt);color:var(--rojo-txt);font-weight:700}
+.etapa-chip.falta-acabado{border-color:var(--rojo-txt)}
+.etapa-chip.falta-acabado small{color:var(--rojo-txt)}
+table.odt td{vertical-align:middle}
+.caja-ok{width:28px}
+@media print{.caja-ok{border:1.5px solid #333!important}}
+@media print{th.solo-impresion,td.solo-impresion{display:table-cell!important}span.solo-impresion{display:inline!important}}
+.solo-impresion{display:none}
