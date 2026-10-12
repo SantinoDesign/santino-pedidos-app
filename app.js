@@ -100,17 +100,43 @@ function rasgos(p) {
     entrega: (p.tipo_entrega === 'Despacho regiones' ? 'REG' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
   };
 }
-function piezasHtml(p, editable) {
-  // Piezas del pedido: una fila por cada parte que fabrica el taller, con su área y su estado (Harold 12-oct: los chips sueltos no se entendían)
+/* Etapa por pieza (Harold 12-oct): cada pieza avanza por las etapas de su área (carpintería: Por hacer → Fabricación → Barniz → Embalado;
+   soldadura: → Soldadura → Pintura → Embalado; compras: Por pedir → Pedido → Recibido → Embalado...). Un toque avanza; clic derecho
+   o mantener apretado vuelve atrás. Embalado = pieza lista. Las etapas las define la base (privado.etapas_de). */
+function etapaChip(x, pedidoId) {
+  const et = x.etapas || []; const i = et.indexOf(x.etapa); const ultima = i >= 0 && i === et.length - 1;
+  const cls = ultima ? 'lista' : i > 0 ? 'proceso' : '';
+  const sig = !ultima ? et[i + 1] : null;
+  return `<button class="etapa-chip ${cls}" data-etapa="${x.id}" data-pedido="${pedidoId}" title="${esc((x.descripcion || '') + (x.area ? ' · ' + x.area : ''))}. ${sig ? 'Toca: pasa a ' + esc(sig) + '.' : 'Pieza lista.'} Clic derecho o mantener apretado: vuelve atrás.">${esc(x.tipo === 'Servicio' ? 'Instalación' : x.tipo)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}<small>${esc(x.etapa || et[0] || '')}${ultima ? ' ✓' : ''}</small></button>`;
+}
+function etapasHtml(p) { return `<div class="etapas">${(p.piezas || []).filter(x => x.area).map(x => etapaChip(x, p.id)).join('')}</div>`; }
+function piezasHtml(p) {
   const pz = (p.piezas || []).filter(x => x.area);
   if (!pz.length) return '';
-  return `<div class="piezas-caja"><div class="piezas-titulo">Piezas del pedido (${pz.length}) · cada una es una parte que fabrica el taller${editable ? ' · toca "Marcar lista" cuando esté terminada' : ''}</div>
+  return `<div class="piezas-caja"><div class="piezas-titulo">Piezas del pedido (${pz.length}) · toca una para pasarla a la etapa siguiente · clic derecho o mantener apretado para volver</div>
     <table class="piezas-tabla"><tbody>${pz.map(x => `<tr>
-      <td><strong>${esc(x.tipo === 'Servicio' ? 'Instalación' : x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td>
+      <td>${etapaChip(x, p.id)}</td>
       <td>${esc(x.descripcion || '')}${x.color || x.tono ? ` <span class="gris">· ${esc([x.color ? 'base ' + x.color : null, x.tono ? tonoTxt(x.tono) : null].filter(Boolean).join(' · '))}</span>` : ''}</td>
       <td class="nw gris">${esc(x.area)}</td>
-      <td class="nw">${editable ? `<button class="pieza chica ${x.estado === 'Lista' ? 'lista' : x.estado === 'En proceso' ? 'proceso' : ''}" data-pieza="${x.id}" data-estado="${x.estado}" data-pedido="${p.id}">${x.estado === 'Lista' ? 'Lista ✓' : 'Marcar lista'}</button>` : `<span class="estado-pieza ${x.estado === 'Lista' ? 'lista' : ''}">${esc(x.estado)}</span>`}</td>
     </tr>`).join('')}</tbody></table></div>`;
+}
+function activarEtapas(raiz, despues) {
+  $$('[data-etapa]', raiz).forEach(b => {
+    let timer = null, largo = false;
+    const mover = async atras => {
+      try {
+        const r = await rpc('avanzar_etapa', { p_linea_id: Number(b.dataset.etapa), p_atras: atras });
+        const p = cache.pedidos.find(x => x.id === r.pedido_id);
+        if (p) { p.piezas = r.piezas; p.estado = r.estado; p.piezas_listas = r.piezas.filter(x => x.area && x.estado === 'Lista').length; }
+        if (r.todas_listas) aviso('Todas las piezas embaladas: se puede marcar LISTO EN TALLER');
+        despues && despues(r);
+      } catch (e) { aviso(errorDe(e), true); }
+    };
+    b.onclick = ev => { ev.stopPropagation(); if (largo) { largo = false; return; } mover(false); };
+    b.oncontextmenu = ev => { ev.preventDefault(); ev.stopPropagation(); mover(true); };
+    b.ontouchstart = () => { largo = false; timer = setTimeout(() => { largo = true; mover(true); }, 600); };
+    b.ontouchend = b.ontouchcancel = () => clearTimeout(timer);
+  });
 }
 /* Deshacer: pila de los últimos 20 cambios hechos en ESTA sesión (estado, fecha de entrega, urgente, observación).
    Los cambios de sesiones anteriores no se deshacen desde aquí: están en el historial de cada ficha. (Harold 12-oct) */
@@ -179,7 +205,7 @@ async function render() {
     else if (h === '#/bandeja' && !esOp) await vBandeja();
     else if (h === '#/ruta') await vRuta();
     else if (h === '#/imprimir-listado') await vImprimirListado();
-    else if (h === '#/taller' || esOp) await vTaller();
+    else if (h === '#/taller' || esOp) await vLista();
     else if (h === '#/clave') vClave();
     else await vLista();
   } catch (e) { app.innerHTML = barra(h) + `<div class="contenido"><div class="seccion"><h2>Error</h2><p>${esc(errorDe(e))}</p></div></div>`; }
@@ -194,7 +220,8 @@ function vClave() {
 /* ---------- datos ---------- */
 async function cargarPedidos() {
   await cargarModelos();
-  let q = sb.from('v_pedido').select('*');
+  // La misma Lista para Harold y Alexis (Harold 12-oct): solo cambia la vista (la de operación no trae precios)
+  let q = sb.from(yo.rol === 'operacion' ? 'v_pedido_operacion' : 'v_pedido').select('*');
   if (cache.filtro === 'pendientes') q = q.not('estado', 'in', '("ENTREGADO","CANCELADO","DEVUELTO")').order('fecha_comprometida', { ascending: true, nullsFirst: false }).order('fecha_estimada');
   else if (cache.filtro === 'entregados') q = q.eq('estado', 'ENTREGADO').order('entregado_en', { ascending: false }).limit(200);
   else if (cache.filtro === 'todos') q = q.order('fecha_compra', { ascending: false }).limit(500);
@@ -220,34 +247,33 @@ function filtrar(lista) {
 
 /* ---------- Harold · Lista densa ---------- */
 async function vLista() {
+  const esOp = yo.rol === 'operacion';
   await cargarPedidos();
   if (!['pendientes', 'entregados', 'todos'].includes(cache.filtro)) cache.filtro = 'pendientes';
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
   const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : cache.bases;
   const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${setDe(grupo).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
-  app.innerHTML = barra('#/lista') + `<div class="sub no-imprimir">
+  app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
       <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
       <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['ENCHAPADO', 'Base de MDF enchapado (armado de muebles, ej. Montecarlo)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
-      <button class="btn" id="b-nuevo">+ Nuevo pedido</button>
-      <button class="btn" id="b-export">Exportar a Excel (CSV)</button>
+      ${esOp ? '' : '<button class="btn" id="b-nuevo">+ Nuevo pedido</button><button class="btn" id="b-export">Exportar a Excel (CSV)</button>'}
       <a class="btn" href="#/imprimir-listado">Imprimir listado operacional</a>
       <span id="resumen-lista" style="margin-left:auto;color:var(--gris-3)"></span>
     </div><div class="sub no-imprimir leyenda">Se pueden marcar varios estados y tipos a la vez; sin marcar = todos. Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado (según el material de la línea o, si falta, el modelo).</div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
   $('#f-modo').onchange = e => { cache.filtro = e.target.value; cache.estados.clear(); vLista(); };
   $$('.ftog').forEach(b => b.onclick = () => { const set = setDe(b.dataset.grupo); set.has(b.dataset.valor) ? set.delete(b.dataset.valor) : set.add(b.dataset.valor); b.classList.toggle('on'); pintarLista(); });
   $('#f-busca').oninput = e => { cache.busqueda = e.target.value; pintarLista(); };
-  $('#b-nuevo').onclick = () => formPedido();
-  $('#b-export').onclick = exportarCSV;
+  if (!esOp) { $('#b-nuevo').onclick = () => formPedido(); $('#b-export').onclick = exportarCSV; }
   pintarLista();
 }
 function pintarLista() {
   const lista = filtrar(cache.pedidos);
   $('#resumen-lista').textContent = `${lista.length} pedidos`;
   // Columnas acotadas (Harold 12-oct): códigos cortos con el nombre completo al pasar el mouse, celdas en dos líneas, Ficha a la izquierda.
-  const cab = [['', 'Abrir la ficha del pedido'], ['Est.', 'Estado (ver leyenda arriba)'], ['N°', ''], ['Cliente', ''], ['Tipo', 'Tipo de pedido (ver leyenda arriba)'], ['Modelo', ''], ['Pers.', 'Personas'], ['Forma', ''], ['Cubierta', 'Material de la cubierta y tono'], ['Base', 'Material de la base y color'], ['Esp.', 'Espesor en mm'], ['Medida', 'Largo x ancho (x alto) en cm'], ['Sillas', ''], ['Compra', ''], ['Entrega', 'Fecha de entrega comprometida; "est." = estimada automática. Clic para cambiarla aquí mismo'], ['Envío', 'RM, REG o Retiro'], ['Comuna', ''], ['Saldo', ''], ['Etiq.', 'Etiquetas automáticas']];
+  const cab = [['', 'Abrir la ficha del pedido'], ['Est.', 'Estado (ver leyenda arriba)'], ['N°', ''], ['Cliente', ''], ['Tipo', 'Tipo de pedido (ver leyenda arriba)'], ['Modelo', ''], ['Pers.', 'Personas'], ['Forma', ''], ['Cubierta', 'Material de la cubierta y tono'], ['Base', 'Material de la base y color'], ['Esp.', 'Espesor en mm'], ['Medida', 'Largo x ancho (x alto) en cm'], ['Sillas', ''], ['Compra', ''], ['Entrega', 'Fecha de entrega comprometida; "est." = estimada automática. Clic para cambiarla aquí mismo'], ['Envío', 'RM, REG o Retiro'], ['Comuna', ''], ['Piezas', 'Etapa de cada pieza: toca para avanzar; clic derecho o mantener apretado para volver'], ...(yo.rol === 'operacion' ? [] : [['Saldo', '']]), ['Etiq.', 'Etiquetas automáticas']];
   const dos = (...lineas) => lineas.flat().filter(Boolean).map((t, i) => `<div class="${i ? 'l2' : 'l1'}">${esc(t)}</div>`).join('');
   $('#tabla').innerHTML = `<table class="lista compacta"><thead><tr>${cab.map(([c, t]) => `<th title="${esc(t)}">${c}</th>`).join('')}</tr></thead><tbody>${lista.map(p => {
     const r = rasgos(p);
@@ -255,9 +281,10 @@ function pintarLista() {
       <td><a class="ficha-link" href="#/pedido/${p.id}" title="Abrir ficha">Ficha</a></td><td>${estadoHtml(p.estado, true)}</td><td class="num">${esc(p.numero)}</td><td class="cliente">${esc(p.cliente)}</td><td>${tipoHtml(p.tipo_pedido)}</td>
       <td class="modelo" title="${esc(r.descripcion || '')}">${esc(r.modelo)}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td class="celda-lineas">${dos(r.cubierta2)}</td><td class="celda-lineas">${dos(r.base2)}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
       <td class="nw">${fecha(p.fecha_compra)}</td><td class="nw fecha-ent ${p.atrasado ? 'num' : ''}" data-id="${p.id}" title="Clic para cambiar la fecha de entrega" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${p.fecha_comprometida || p.fecha_estimada ? fecha(p.fecha_comprometida || p.fecha_estimada) + (p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>') : '<span class="sin-fecha">sin fecha</span>'}</td><td class="nw">${esc(r.entrega)}</td><td class="comuna">${esc(p.comuna || '')}</td>
-      <td class="nw mono">${pesos(p.saldo)}</td><td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}</td></tr>`;
+      <td class="piezas-col">${etapasHtml(p)}</td>${yo.rol === 'operacion' ? '' : `<td class="nw mono">${pesos(p.saldo)}</td>`}<td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}${yo.rol === 'operacion' && p.saldo_por_cobrar > 0 ? ' ' + chip('COBRAR ' + pesos(p.saldo_por_cobrar)) : ''}</td></tr>`;
   }).join('')}</tbody></table>`;
   $$('#tabla a.ficha-link').forEach(a => a.onclick = ev => ev.stopPropagation());
+  activarEtapas($('#tabla'), () => pintarLista());
   activarArrastreHorizontal($('#tabla'));
   if (yo.rol === 'admin') $$('#tabla td.fecha-ent').forEach(td => td.onclick = ev => {
     ev.stopPropagation(); if (td.querySelector('input')) return;
@@ -276,17 +303,25 @@ function abrirDetalleFila(tr) {
   $$('#tabla tr.detalle').forEach(x => x.remove());
   const p = cache.pedidos.find(x => x.id == tr.dataset.id);
   const d = document.createElement('tr'); d.className = 'detalle';
-  d.innerHTML = `<td colspan="20"><div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
-    <a class="btn chico primario" href="#/pedido/${p.id}">Abrir ficha</a>
-    ${piezasHtml(p, yo.rol === 'admin')}
+  const esOp = yo.rol === 'operacion';
+  d.innerHTML = `<td colspan="21"><div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+    <a class="btn chico primario" href="#/pedido/${p.id}">Abrir ficha${p.planos ? ` · planos (${p.planos})` : ''}</a>
+    ${piezasHtml(p)}
     <span style="color:var(--gris-2)">${esc(p.resumen || '')}</span>
+    ${esOp ? `<span>Entrega: ${esc(p.direccion || '')}${p.comuna ? ', ' + esc(p.comuna) : ''}</span>${p.cliente_telefono ? `<span>${esc(p.cliente_telefono)}</span>` : ''}${p.saldo_por_cobrar > 0 ? `<span class="chip saldo" style="font-size:13px">COBRAR ${pesos(p.saldo_por_cobrar)} AL ENTREGAR</span>` : ''}` : ''}
+    ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn chico primario" data-listo="${p.id}" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas embaladas</span>` : ''}
+    ${esOp && p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" data-fecha="${p.id}" value="${p.despacho_propuesto || ''}"></label><button class="btn chico borde" data-prop="${p.id}">Proponer</button>` : ''}
+    ${esOp && p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn chico primario" data-entregar="${p.id}">Entregar</button>` : ''}
     ${p.observacion ? `<span>Obs.: ${esc(p.observacion)}</span>` : ''}
     ${p.nota_entrega ? `<span>Entrega: ${esc(p.nota_entrega)}</span>` : ''}
     ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' ? `<span class="chip prop">Alexis propone despacho ${fecha(p.despacho_propuesto, true)}</span><button class="btn chico borde" data-confirmar="${p.id}">Cliente confirmó: programar</button><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp al cliente</a>` : ''}
     </div></td>`;
   tr.after(d);
-  activarPiezas(d, () => vLista());
+  activarEtapas(d, () => pintarLista());
   const bc = $('[data-confirmar]', d); if (bc) bc.onclick = async () => { try { await rpc('confirmar_despacho', { p_pedido_id: p.id }); aviso('Despacho programado'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
+  const bl = $('[data-listo]', d); if (bl) bl.onclick = async () => { try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller ✓'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } };
+  const bp = $('[data-prop]', d); if (bp) bp.onclick = async () => { const f = $('[data-fecha]', d).value; if (!f) return aviso('Elige la fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Propuesta enviada a Harold'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
+  const be = $('[data-entregar]', d); if (be) be.onclick = () => formEntregar(p, () => vLista());
 }
 const CUENTA_SANTINO = 'Santino Design SpA\nRUT 77.551.022-6\nBanco Santander\nCuenta Corriente 87727157\nhola@santinodesign.cl';
 const WEBPAY_LINK = 'https://www.webpay.cl/form-pay/80544';
@@ -333,14 +368,6 @@ async function abrirWaSaldo(p) {
   const alertas = []; if (p.precio_instalacion > 80000) alertas.push(`Instalación ${pesos(p.precio_instalacion)} parece alta (¿un cero de más?)`); if (p.precio_despacho > 60000) alertas.push(`Despacho ${pesos(p.precio_despacho)} parece alto`);
   if (alertas.length) aviso('Revisa antes de enviar: ' + alertas.join(' · '), true);
   window.open(`https://wa.me/${telWa(p)}?text=${encodeURIComponent(texto)}`, '_blank');
-}
-function activarPiezas(raiz, despues) {
-  $$('[data-pieza]', raiz).forEach(b => b.onclick = async ev => {
-    ev.stopPropagation();
-    const nuevo = b.dataset.estado === 'Lista' ? 'Pendiente' : 'Lista';
-    try { const r = await rpc('marcar_pieza', { p_linea_id: Number(b.dataset.pieza), p_estado: nuevo }); if (r.todas_listas) aviso('Todas las piezas listas: se puede marcar LISTO EN TALLER'); despues && despues(r); }
-    catch (e) { aviso(errorDe(e), true); }
-  });
 }
 function exportarCSV() {
   const lista = filtrar(cache.pedidos);
@@ -435,13 +462,13 @@ async function vFicha(id) {
     </div>
     ${aMedida && !esOp ? `<div class="pasos" style="margin-bottom:12px">${['VISITA TÉCNICA', 'DIBUJO 3D', 'DISEÑO APROBADO', 'EN FABRICACIÓN', 'LISTO EN TALLER', 'DESPACHO PROGRAMADO', 'ENTREGADO'].map(e => `<span class="${e === p.estado ? 'activo' : ''}">${e}</span>`).join('')}<span style="background:none">La fabricación solo parte con DISEÑO APROBADO (R-139)</span></div>` : ''}
     <div class="grid-ficha"><div class="columna">
-      <section class="seccion"><div class="cab"><h2>Piezas del pedido · toca para marcar lista</h2>${esOp ? '' : `<button class="btn chico" id="b-linea">+ Agregar línea</button>`}</div>
+      <section class="seccion"><div class="cab"><h2>Piezas del pedido · toca una para avanzar de etapa (clic derecho: volver)</h2>${esOp ? '' : `<button class="btn chico" id="b-linea">+ Agregar línea</button>`}</div>
         <div class="tabla-env"><table class="lista"><thead><tr><th>Pieza</th><th>Descripción</th><th>Diseño</th><th>Material</th><th>Medida</th><th title="Color de la base (estructura) y tono de la cubierta, por separado">Color base / tono cubierta</th><th>Área</th><th>Estado</th></tr></thead><tbody>
         ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.alto_cm ? ' x ' + num(x.alto_cm) : ''}` : '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color ? 'base ' + x.color : null, x.tono ? tonoTxt(x.tono) : null, x.color_silla ? 'silla ' + x.color_silla : null].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
-          <td>${x.area ? `<button class="pieza ${x.estado === 'Lista' ? 'lista' : x.estado === 'En proceso' ? 'proceso' : ''}" data-pieza="${x.id}" data-estado="${x.estado}">${x.estado}${x.estado === 'Lista' ? ' ✓' : ''}</button>${x.estado === 'Pendiente' ? ` <button class="btn chico" data-proceso="${x.id}">En proceso</button>` : ''}` : '-'}</td></tr>`).join('')}
+          <td>${x.area ? etapaChip(x, p.id) : '-'}</td></tr>`).join('')}
         </tbody></table></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn primario" id="b-listo" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas listas</span>` : ''}
+          ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn primario" id="b-listo" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas embaladas</span>` : ''}
           ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" id="f-prop" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" id="b-prop">Proponer</button>${!esOp ? `<button class="btn primario" id="b-conf">Cliente confirmó: programar</button>` : ''}` : ''}
           ${!esOp && p.cliente_telefono ? `<a class="btn" target="_blank" href="${waLink(p, 'despacho')}" title="Mensaje 1 de las plantillas de despacho">WhatsApp: confirmar despacho</a>${p.saldo > 0 ? `<button class="btn" id="b-wa-saldo">WhatsApp: saldo pendiente</button>` : ''}` : ''}
           ${p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn primario" id="b-entregar">Marcar ENTREGADO</button>` : ''}
@@ -475,8 +502,8 @@ async function vFicha(id) {
     </aside></div></div>`;
   // acciones
   const recargar = () => vFicha(id);
-  activarPiezas(app, recargar);
-  $$('[data-proceso]').forEach(b => b.onclick = async () => { try { await rpc('marcar_pieza', { p_linea_id: Number(b.dataset.proceso), p_estado: 'En proceso' }); recargar(); } catch (e) { aviso(errorDe(e), true); } });
+  cache.pedidos = cache.pedidos || []; if (!cache.pedidos.find(x => x.id === p.id)) cache.pedidos.push(p);
+  activarEtapas(app, recargar);
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
   on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
@@ -684,57 +711,6 @@ async function cargarOperacion() {
 }
 function lunesDe(s) { const d = new Date(s + 'T12:00:00'); const dia = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dia); return d; }
 function etiquetaSemana(lunes) { const v = new Date(lunes); v.setDate(v.getDate() + 4); return `Semana del ${String(lunes.getDate()).padStart(2, '0')} al ${String(v.getDate()).padStart(2, '0')} de ${MESES_L[v.getMonth()]}`; }
-async function vTaller() {
-  await cargarOperacion();
-  app.innerHTML = barra('#/taller') + `<div class="sub no-imprimir">
-      <label>Ver <select id="ver"><option value="pendientes" ${cache.opVer === 'pendientes' ? 'selected' : ''}>Pendientes por semana</option><option value="semana" ${cache.opVer === 'semana' ? 'selected' : ''}>Solo esta semana</option><option value="listos" ${cache.opVer === 'listos' ? 'selected' : ''}>Listos y programados</option><option value="entregados" ${cache.opVer === 'entregados' ? 'selected' : ''}>Entregados recientes</option></select></label>
-      <label>Buscar <input type="search" id="f-busca" value="${esc(cache.busqueda)}" style="width:200px"></label>
-      <a class="btn borde" href="#/imprimir-listado">Imprimir listado</a>
-      <span style="color:var(--gris-3)">Toca una fila y se abre ahí mismo. Toca una pieza y queda lista.</span></div>
-    <div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
-  $('#ver').onchange = e => { cache.opVer = e.target.value; pintarTaller(); };
-  $('#f-busca').oninput = e => { cache.busqueda = e.target.value; pintarTaller(); };
-  pintarTaller();
-}
-function pintarTaller() {
-  let lista = filtrar(cache.pedidos);
-  const lunesHoy = lunesDe(hoyISO());
-  if (cache.opVer === 'pendientes') lista = lista.filter(p => p.estado !== 'ENTREGADO');
-  else if (cache.opVer === 'semana') lista = lista.filter(p => p.estado !== 'ENTREGADO' && p.fecha_entrega && lunesDe(p.fecha_entrega) <= lunesHoy);
-  else if (cache.opVer === 'listos') lista = lista.filter(p => ['LISTO EN TALLER', 'DESPACHO PROGRAMADO'].includes(p.estado));
-  else lista = lista.filter(p => p.estado === 'ENTREGADO');
-  const grupos = {}; lista.forEach(p => { const k = p.fecha_entrega ? lunesDe(p.fecha_entrega).toISOString().slice(0, 10) : 'zz'; (grupos[k] = grupos[k] || []).push(p); });
-  const cab = ['N°', 'Cliente', 'Modelo', 'Medida', 'Material', 'Color / tono', 'Sillas', 'Entrega', 'Piezas (toca para marcar)'];
-  $('#tabla').innerHTML = `<table class="lista"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${Object.keys(grupos).sort().map(k => `<tr class="semana"><td colspan="9">${k === 'zz' ? 'Pedidos sin fecha de entrega' : etiquetaSemana(new Date(k + 'T12:00:00'))}</td></tr>` + grupos[k].map(p => {
-    const r = rasgos(p); const bloqueado = ['POR FABRICAR', 'VISITA TÉCNICA', 'DIBUJO 3D'].includes(p.estado) && A_MEDIDA.includes(p.tipo_pedido);
-    return `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}"><td class="num">${esc(p.numero)}${p.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td><strong>${esc(p.cliente)}</strong><br><span style="color:var(--gris-2);font-size:12px">${esc(p.comuna || '')} · ${fecha(p.fecha_entrega, true)}${p.instalacion ? ' · instalación' : ''}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones' : ''}</span></td><td class="nw">${esc(r.modelo)}${r.pers !== '-' ? ' ' + r.pers + 'P' : ''}</td><td class="nw">${esc(r.medida)}</td><td class="nw">${esc(r.cubierta)}${r.esp !== '-' ? ' ' + r.esp : ''}${r.base !== '-' && r.base !== r.cubierta ? ' / ' + esc(r.base) : ''}</td><td class="nw">${esc(r.color)}${r.tono !== '-' ? ' · ' + esc(tonoTxt(r.tono)) : ''}</td><td class="nw">${esc(r.sillas)}</td><td class="nw">${esc(r.entrega)}</td>
-      <td class="no-imprimir">${p.estado === 'LISTO EN TALLER' ? `<span class="estado e-LISTO_EN_TALLER">LISTO EN TALLER</span>${p.despacho_propuesto ? ` <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}` : p.estado === 'DESPACHO PROGRAMADO' ? `<span class="estado e-DESPACHO_PROGRAMADO">DESPACHO ${fecha(p.fecha_comprometida, true)}</span>` : p.estado === 'ENTREGADO' ? `<span class="estado e-ENTREGADO">ENTREGADO</span>` : bloqueado ? `<span class="chip">${esc(p.estado)} · aún no entra</span>` : piezasHtml(p, true)}</td></tr>`;
-  }).join('')).join('')}</tbody></table>`;
-  $$('#tabla tr.fila').forEach(tr => tr.onclick = ev => { if (ev.target.closest('button')) return; abrirDetalleTaller(tr); });
-  activarPiezas($('#tabla'), r => { const p = cache.pedidos.find(x => x.id === r.pedido_id); if (p) { p.piezas = r.piezas; p.estado = r.estado; p.piezas_listas = r.piezas.filter(x => x.area && x.estado === 'Lista').length; } pintarTaller(); });
-}
-function abrirDetalleTaller(tr) {
-  const sig = tr.nextElementSibling; if (sig && sig.classList.contains('detalle')) { sig.remove(); return; }
-  $$('#tabla tr.detalle').forEach(x => x.remove());
-  const p = cache.pedidos.find(x => x.id == tr.dataset.id); const acab = (p.piezas || []).filter(x => x.nota_acabado).map(x => x.nota_acabado).join(' · ');
-  const d = document.createElement('tr'); d.className = 'detalle no-imprimir';
-  d.innerHTML = `<td colspan="9"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:14px">
-    ${acab ? `<span>Acabado: ${esc(acab)}</span>` : ''}
-    <span>Entrega: ${esc(p.direccion || '')}${p.nota_entrega ? ' · ' + esc(p.nota_entrega) : ''}</span>
-    ${p.cliente_telefono ? `<span>${esc(p.cliente_telefono)}</span>` : ''}
-    ${p.saldo_por_cobrar > 0 ? `<span class="chip saldo" style="font-size:13px">COBRAR ${pesos(p.saldo_por_cobrar)}</span>` : ''}
-    ${p.observacion ? `<span>Obs.: ${esc(p.observacion)}</span>` : ''}
-    <a class="btn" href="#/pedido/${p.id}">Ficha${p.planos ? ` · planos (${p.planos})` : ''}</a>
-    ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn primario" data-listo="${p.id}" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">se activa con las ${p.piezas_total} piezas listas</span>` : ''}
-    ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" data-fecha="${p.id}" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" data-prop="${p.id}">Proponer</button>` : ''}
-    ${p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn primario" data-entregar="${p.id}">Entregar</button>` : ''}
-  </div></td>`;
-  tr.after(d);
-  const bl = $('[data-listo]', d); if (bl) bl.onclick = async () => { try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller ✓'); vTaller(); } catch (e) { aviso(errorDe(e), true); } };
-  const bp = $('[data-prop]', d); if (bp) bp.onclick = async () => { const f = $('[data-fecha]', d).value; if (!f) return aviso('Elige la fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Propuesta enviada a Harold'); vTaller(); } catch (e) { aviso(errorDe(e), true); } };
-  const be = $('[data-entregar]', d); if (be) be.onclick = () => formEntregar(p, () => vTaller());
-}
-
 /* ---------- Listado operacional imprimible (mismo formato que el PDF de auto-pedidodespacho v3.1) ---------- */
 async function vImprimirListado() {
   const esOp = yo.rol === 'operacion';
