@@ -41,11 +41,11 @@ const codMaterial = m => m ? (COD_MATERIAL[m] || m) : '';
 const ES_VIDRIO = m => ['V.T', 'V.C'].includes(m);
 const NO_MADERA = ['V.T', 'V.C', 'TRAVERTINO', 'NEOLITH', 'CUARZO', 'MELAMINA', 'RATAN', 'METAL', 'FIERRO', 'ACERO', 'MDF', 'ENCHAPADO'];
 const ES_MADERA = m => !!m && !NO_MADERA.includes(String(m).toUpperCase());
-/* Base de madera cuando la línea no trae material propio (Harold 12-oct-2026): la misma madera de la cubierta,
-   salvo Gonqui y Trama en NEGRO, cuya base es de pino pintado (en los demás tonos la base es la misma madera de la cubierta). */
+/* Base de madera cuando la línea no trae material propio: la misma madera de la cubierta, salvo los modelos que en NEGRO
+   llevan otra base (tabla modelo.base_negro, fuente motor_precios.js: Gonqui y Trama = pino pintado). */
 function maderaBase(cub, base) {
   const mod = base.modelo_base || cub.modelo_base || cub.modelo_cubierta; const col = String(base.color || cub.color || '').toUpperCase();
-  if (['GONQUI', 'TRAMA'].includes(mod) && col.startsWith('NGR')) return 'PINO';  // solo Gonqui y Trama (Harold 12-oct)
+  const bn = (cache.modelosBaseNegro || {})[mod]; if (bn && col.startsWith('NGR')) return bn;
   return ES_MADERA(cub.material_cubierta) ? codMaterial(cub.material_cubierta) : '';
 }
 const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en proyectos; el vidrio de catálogo es incoloro y no lleva tono (Harold 12-oct)
@@ -54,9 +54,10 @@ const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en pr
    del modelo en la tabla modelo (Soldadura = metal, Carpintería = madera, Armado muebles = MDF enchapado). Sin dato = vacío. */
 async function cargarModelos() {
   if (cache.modelos) return;
-  const { data } = await sb.from('modelo').select('codigo,area_base,bultos');
+  const { data } = await sb.from('modelo').select('codigo,area_base,bultos,base_negro');
   cache.modelos = Object.fromEntries((data || []).map(m => [m.codigo, m.area_base]));
   cache.modelosBultos = Object.fromEntries((data || []).map(m => [m.codigo, m.bultos]));
+  cache.modelosBaseNegro = Object.fromEntries((data || []).filter(m => m.base_negro).map(m => [m.codigo, m.base_negro]));
 }
 function tipoBase(cub, base) {
   const mb = base.material_base || cub.material_base;
