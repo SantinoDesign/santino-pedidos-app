@@ -33,8 +33,9 @@ function chip(t) {
 }
 /* Códigos cortos para la Lista (Harold 12-oct-2026: columnas acotadas). El nombre completo va en el title (pasar el mouse). */
 const COD_ESTADO = { 'POR FABRICAR': 'POR FAB', 'VISITA TÉCNICA': 'VIS TEC', 'DIBUJO 3D': 'DIB 3D', 'DISEÑO APROBADO': 'DIS APR', 'EN FABRICACIÓN': 'EN FAB', 'LISTO EN TALLER': 'LISTO T', 'DESPACHO PROGRAMADO': 'DESP PR', 'ENTREGADO': 'ENTREG', 'CANCELADO': 'CANCEL', 'DEVUELTO': 'DEVUEL' };  // opción B, Harold 12-oct
-const COD_TIPO = { 'Venta catálogo': 'CATAL', 'Mesa a medida': 'MESA.M', 'Mueble a medida': 'MUEB.M', 'Postventa': 'POSTV', 'Repuesto': 'REPU' };  // opción A, Harold 12-oct
-const NOMBRE_TIPO = { 'Mueble a medida': 'Mueble a medida (pieza suelta: repisa, sofá modular, poste; no es un proyecto de cocina o clóset)' };
+const COD_TIPO = { 'Venta catálogo': 'CATAL', 'Mesa a medida': 'MESA.M', 'Mueble a medida': 'MUEB.M', 'Proyecto': 'PROY', 'Postventa': 'POSTV', 'Repuesto': 'REPU' };
+const A_MEDIDA = ['Mesa a medida', 'Mueble a medida', 'Proyecto'];  // opción A, Harold 12-oct
+const NOMBRE_TIPO = { 'Mueble a medida': 'Mueble a medida (pieza suelta: repisa, sofá modular, poste)', 'Proyecto': 'Proyecto a medida (cocina, clóset, mueble de muro; antes en VENTAS_Proyectos_medida.xlsx)' };
 const COD_MATERIAL = { TRAVERTINO: 'TRAV', 'ROB.HUALLE': 'ROB.H', 'ROB.US': 'ROB.US', MELAMINA: 'MEL', 'PINO OREGON': 'P.OREG', CARVALLO: 'CARV', NEOLITH: 'NEOL', ENCINA: 'ENC', CUARZO: 'CUARZ' };
 const codMaterial = m => m ? (COD_MATERIAL[m] || m) : '';
 const ES_VIDRIO = m => ['V.T', 'V.C'].includes(m);
@@ -366,7 +367,7 @@ async function vFicha(id) {
     esOp ? Promise.resolve({ data: [] }) : sb.from('historial').select('*').eq('pedido_id', id).order('cuando', { ascending: false }).limit(60),
     esOp ? Promise.resolve({ data: [] }) : sb.from('abono').select('*').eq('pedido_id', id).order('fecha'),
   ]);
-  const r = rasgos(p); const aMedida = ['Mesa a medida', 'Mueble a medida'].includes(p.tipo_pedido);
+  const r = rasgos(p); const aMedida = A_MEDIDA.includes(p.tipo_pedido);
   const piezas = (p.piezas || []);
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="contenido">
     <div class="encabezado"><a href="${esOp ? '#/taller' : '#/lista'}">‹ Volver</a><h1>${esc(p.numero)} · ${esc(p.cliente)}</h1>${estadoHtml(p.estado)}${aMedida ? `<span class="chip medida">${esc(p.tipo_pedido.toUpperCase())}</span>` : ''}${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}
@@ -532,7 +533,7 @@ async function formPedido() {
     </div><hr style="border:none;border-top:1px solid var(--linea)">
     <div class="campos">
       <label class="campo">Número (vacío = siguiente W) <input name="numero" placeholder="W3141 o #2090"></label>
-      <label class="campo">Tipo de pedido <select name="tipo_pedido"><option>Venta catálogo</option><option>Mesa a medida</option><option>Mueble a medida</option><option>Postventa</option><option>Repuesto</option></select></label>
+      <label class="campo">Tipo de pedido <select name="tipo_pedido"><option>Venta catálogo</option><option>Mesa a medida</option><option>Mueble a medida</option><option>Proyecto</option><option>Postventa</option><option>Repuesto</option></select></label>
       <label class="campo">Origen <select name="origen"><option>WhatsApp</option><option>Instagram</option><option>Shopify</option><option>Fábrica</option><option>Tienda</option><option>Cliente directo</option><option>Correo</option><option>Colaborador</option><option>Interno</option></select></label>
       <label class="campo">Fecha de compra <input name="fecha_compra" type="date" value="${hoyISO()}" required></label>
       <label class="campo">Precio de venta <input name="precio_venta" type="number" required></label>
@@ -564,7 +565,7 @@ async function formPedido() {
       }
       const numero = f.get('numero') || await rpc('siguiente_numero_w', {});
       const ped = { numero, cliente_id, tipo_pedido: f.get('tipo_pedido'), origen: f.get('origen'), fecha_compra: f.get('fecha_compra'), precio_venta: Number(f.get('precio_venta')), precio_despacho: Number(f.get('precio_despacho') || 0), precio_instalacion: Number(f.get('precio_instalacion') || 0), tipo_entrega: f.get('tipo_entrega'), instalacion: !!f.get('instalacion'), cotizacion_numero: f.get('cotizacion_numero') || null, fecha_comprometida: f.get('fecha_comprometida') || null, nota_entrega: f.get('nota_entrega') || null, observacion: f.get('observacion') || null, creado_por: yo.nombre };
-      if (['Mesa a medida', 'Mueble a medida'].includes(ped.tipo_pedido)) ped.estado = 'VISITA TÉCNICA';
+      if (A_MEDIDA.includes(ped.tipo_pedido)) ped.estado = 'VISITA TÉCNICA';
       const { data: np, error } = await sb.from('pedido').insert(ped).select('id').single(); if (error) throw error;
       const ls = []; for (let i = 0; i < lineas; i++) { if (!f.get(`l${i}_descripcion`)) continue; const l = leerLinea(f, `l${i}_`); l.pedido_id = np.id; l.orden = i + 1; ls.push(l); }
       if (ls.length) { const { error: e2 } = await sb.from('linea_pedido').insert(ls); if (e2) throw e2; }
@@ -644,7 +645,7 @@ function pintarTaller() {
   const grupos = {}; lista.forEach(p => { const k = p.fecha_entrega ? lunesDe(p.fecha_entrega).toISOString().slice(0, 10) : 'zz'; (grupos[k] = grupos[k] || []).push(p); });
   const cab = ['N°', 'Cliente', 'Modelo', 'Medida', 'Material', 'Color / tono', 'Sillas', 'Entrega', 'Piezas (toca para marcar)'];
   $('#tabla').innerHTML = `<table class="lista"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${Object.keys(grupos).sort().map(k => `<tr class="semana"><td colspan="9">${k === 'zz' ? 'Sin fecha (a medida sin diseño aprobado)' : etiquetaSemana(new Date(k + 'T12:00:00'))}</td></tr>` + grupos[k].map(p => {
-    const r = rasgos(p); const bloqueado = ['POR FABRICAR', 'VISITA TÉCNICA', 'DIBUJO 3D'].includes(p.estado) && ['Mesa a medida', 'Mueble a medida'].includes(p.tipo_pedido);
+    const r = rasgos(p); const bloqueado = ['POR FABRICAR', 'VISITA TÉCNICA', 'DIBUJO 3D'].includes(p.estado) && A_MEDIDA.includes(p.tipo_pedido);
     return `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}"><td class="num">${esc(p.numero)}${p.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td><strong>${esc(p.cliente)}</strong><br><span style="color:var(--gris-2);font-size:12px">${esc(p.comuna || '')} · ${fecha(p.fecha_entrega, true)}${p.instalacion ? ' · instalación' : ''}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones' : ''}</span></td><td class="nw">${esc(r.modelo)}${r.pers !== '-' ? ' ' + r.pers + 'P' : ''}</td><td class="nw">${esc(r.medida)}</td><td class="nw">${esc(r.cubierta)}${r.esp !== '-' ? ' ' + r.esp : ''}${r.base !== '-' && r.base !== r.cubierta ? ' / ' + esc(r.base) : ''}</td><td class="nw">${esc(r.color)}${r.tono !== '-' ? ' · tono ' + esc(r.tono) : ''}</td><td class="nw">${esc(r.sillas)}</td><td class="nw">${esc(r.entrega)}</td>
       <td class="no-imprimir">${p.estado === 'LISTO EN TALLER' ? `<span class="estado e-LISTO_EN_TALLER">LISTO EN TALLER</span>${p.despacho_propuesto ? ` <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}` : p.estado === 'DESPACHO PROGRAMADO' ? `<span class="estado e-DESPACHO_PROGRAMADO">DESPACHO ${fecha(p.fecha_comprometida, true)}</span>` : p.estado === 'ENTREGADO' ? `<span class="estado e-ENTREGADO">ENTREGADO</span>` : bloqueado ? `<span class="chip">${esc(p.estado)} · aún no entra</span>` : piezasHtml(p, true)}</td></tr>`;
   }).join('')).join('')}</tbody></table>`;
