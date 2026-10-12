@@ -6,7 +6,7 @@
 const sb = window.supabase.createClient(window.SANTINO_CONFIG.url, window.SANTINO_CONFIG.anon);
 const app = document.getElementById('app');
 let yo = null;            // {id, nombre, rol}
-let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
+let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), etapas: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
 const META = 62;          // pedidos al mes (objetivo de utilidad, DM_Financiero v7.15)
 const ESTADOS = ['POR FABRICAR','VISITA TÉCNICA','DIBUJO 3D','DISEÑO APROBADO','EN FABRICACIÓN','LISTO EN TALLER','DESPACHO PROGRAMADO','ENTREGADO','CANCELADO','DEVUELTO'];
 const ORDEN_COMUNAS = ['Vitacura','Lo Barnechea','Las Condes','La Reina','Providencia','Ñuñoa','Santiago','Macul','Peñalolén','La Florida','Huechuraba','Colina','San Miguel','Maipú','Puente Alto'];
@@ -241,6 +241,7 @@ function filtrar(lista) {
   if (cache.estados.size) l = l.filter(p => cache.estados.has(p.estado));
   if (cache.tipos.size) l = l.filter(p => cache.tipos.has(p.tipo_pedido));
   if (cache.bases.size) l = l.filter(p => cache.bases.has(rasgos(p).baseTipo));
+  if (cache.etapas.size) l = l.filter(p => (p.piezas || []).some(x => x.area && cache.etapas.has(x.etapa)));  // ej. Barniz = todo lo que está para barnizar
   const b = cache.busqueda.trim().toLowerCase(); if (!b) return l;
   return l.filter(p => [p.numero, p.cliente, p.resumen, p.comuna, p.cotizacion_numero, p.observacion].join(' ').toLowerCase().includes(b));
 }
@@ -251,13 +252,14 @@ async function vLista() {
   await cargarPedidos();
   if (!['pendientes', 'entregados', 'todos'].includes(cache.filtro)) cache.filtro = 'pendientes';
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
-  const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : cache.bases;
+  const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : g === 'etapa' ? cache.etapas : cache.bases;
   const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${setDe(grupo).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
       <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
       <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['ENCHAPADO', 'Base de MDF enchapado (armado de muebles, ej. Montecarlo)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
+      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Etapa</span>${[['Por hacer', 'Piezas sin empezar'], ['Fabricación', 'Piezas en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
       ${esOp ? '' : '<button class="btn" id="b-nuevo">+ Nuevo pedido</button><button class="btn" id="b-export">Exportar a Excel (CSV)</button>'}
       <a class="btn" href="#/imprimir-listado">Imprimir listado operacional</a>
