@@ -188,8 +188,8 @@ async function salir() { await sb.auth.signOut(); yo = null; location.hash = '';
 window.addEventListener('hashchange', () => { if (yo) render(); });
 function barra(activa) {
   const links = yo.rol === 'operacion'
-    ? [['#/taller', 'Lista'], ['#/ruta', 'Ruta']]
-    : [['#/lista', 'Lista'], ['#/tablero', 'Tablero'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/bandeja', 'Bandeja']];
+    ? [['#/taller', 'Lista'], ['#/ruta', 'Ruta'], ...(yo.ve_compras ? [['#/compras', 'Compras']] : [])]
+    : [['#/lista', 'Lista'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/bandeja', 'Bandeja']];
   return `<div class="barra"><a class="marca" href="${links[0][0]}" title="Santino Design · Pedidos"><img src="logo.png" alt="Santino Design" class="logo-barra"></a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
 }
 async function render() {
@@ -204,6 +204,7 @@ async function render() {
     else if (h === '#/clientes' && !esOp) await vClientes();
     else if (h === '#/bandeja' && !esOp) await vBandeja();
     else if (h === '#/ruta') await vRuta();
+    else if (h === '#/compras' && (!esOp || yo.ve_compras)) await vCompras();
     else if (h === '#/imprimir-listado') await vImprimirListado();
     else if (h === '#/taller' || esOp) await vLista();
     else if (h === '#/clave') vClave();
@@ -886,4 +887,45 @@ function activarArrastreHorizontal(env) {
   env.addEventListener('mouseup', soltar); env.addEventListener('mouseleave', soltar);
   env.addEventListener('click', ev => { if (movido) { ev.stopPropagation(); ev.preventDefault(); movido = false; } }, true);
   if (!window._flechasTabla) { window._flechasTabla = true; document.addEventListener('keydown', ev => { const t = $('#tabla'); if (!t || ev.target.closest('input,select,textarea') || !['ArrowLeft', 'ArrowRight'].includes(ev.key)) return; t.scrollLeft += ev.key === 'ArrowRight' ? 160 : -160; ev.preventDefault(); }); }
+}
+
+/* ---------- Compras (12-oct-2026, versión rápida): piezas compradas (vidrio, piedra, sillas, sofás) por proveedor ----------
+   Toda pieza con área Vidrio/compras de un pedido pendiente aparece aquí sola. Se marcan las del mismo proveedor, "Armar pedido"
+   genera el texto para WhatsApp en el formato del proveedor, y al confirmar quedan como Pedido con fecha prometida y referencia.
+   Cuando llegan: "Recibido" (un toque). Atrasadas contra la fecha prometida en rojo. Más adelante: orden de compra formal (Harold). */
+const formatoPedido = (prov, piezas) => {
+  const hoy = fecha(hoyISO(), true);
+  const med = x => x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)} cm` : '';
+  if (prov && prov.formato === 'vidrio') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} vidrio${x.cantidad > 1 ? 's' : ''} ${nombreMaterial(x.material_cubierta)}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}, ${med(x)}${x.forma === 'CIRC' ? ' (redondo)' : x.forma === 'OVAL' ? ' (ovalado)' : ''}${x.nota_acabado ? ', ' + x.nota_acabado : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n') + `\nRetiro en taller Lo Blanco 1919, La Pintana. Gracias.`;
+  if (prov && prov.formato === 'sillas_aliwen') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.tipo_linea === 'Silla' ? 'Silla Santino' : x.descripcion}, pata ${nombreColor(x.color_estructura) || 'negra'}, tapiz ${x.color_silla || 'por definir'}, madera lenga  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
+  return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.descripcion || x.tipo_linea}${med(x) ? ', ' + med(x) : ''}${x.color_silla ? ', ' + x.color_silla : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
+};
+async function vCompras() {
+  await cargarModelos();
+  const [{ data: piezas, error }, { data: provs }] = await Promise.all([sb.from('v_compras').select('*').order('fecha_entrega', { ascending: true, nullsFirst: false }), sb.from('proveedor').select('*').eq('activo', true).order('nombre')]);
+  if (error) throw error;
+  cache.compras = piezas || []; cache.proveedores = provs || [];
+  const grupos = {}; cache.compras.forEach(x => { const k = x.proveedor || x.proveedor_sugerido || 'Sin proveedor definido'; (grupos[k] = grupos[k] || []).push(x); });
+  const fila = x => `<tr class="${x.atrasado_prov ? 'atrasado' : ''}"><td><input type="checkbox" data-sel="${x.linea_id}" ${['Por pedir'].includes(x.etapa) ? '' : 'disabled'}></td><td class="num"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a>${x.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td>${esc(x.cliente)}</td><td>${esc(x.tipo_linea)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion || '')}${x.color_silla ? ' · ' + esc(x.color_silla) : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.espesor_mm ? ' · ' + x.espesor_mm + ' mm' : ''}` : ''}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw"><span class="estado-pieza ${x.etapa === 'Embalado' || x.etapa === 'Embaladas' ? 'lista' : ''}">${esc(x.etapa || '')}</span>${x.fecha_prometida_prov ? `<div style="font-size:11px;color:${x.atrasado_prov ? 'var(--rojo-txt)' : 'var(--gris-2)'}">llega ${fecha(x.fecha_prometida_prov)}${x.referencia_prov ? ' · ' + esc(x.referencia_prov) : ''}</div>` : ''}</td><td>${['Pedido', 'Pedidas'].includes(x.etapa) ? `<button class="btn chico borde" data-recibido="${x.linea_id}">Recibido</button>` : ''}</td></tr>`;
+  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><span>Piezas que se compran, de pedidos pendientes. Marca las de un mismo proveedor y arma el pedido.</span><span style="margin-left:auto;color:var(--gris-3)">${cache.compras.length} piezas</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
+    ${Object.keys(grupos).sort().map(k => { const prov = cache.proveedores.find(p => p.nombre === k); return `<section class="seccion"><div class="cab"><h2>${esc(k)}${prov && prov.que_vende ? ` <span style="font-weight:400;color:var(--gris-2);font-size:13px">· ${esc(prov.que_vende)}</span>` : ''}</h2><button class="btn chico primario" data-armar="${esc(k)}">Armar pedido con las marcadas</button></div>
+      <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Descripción</th><th>Medida</th><th>Entrega al cliente</th><th>Etapa</th><th></th></tr></thead><tbody>${grupos[k].map(fila).join('')}</tbody></table></div></section>`; }).join('') || '<div class="seccion">No hay piezas por comprar.</div>'}
+  </div>`;
+  $$('[data-recibido]').forEach(b => b.onclick = async () => { try { await rpc('avanzar_etapa', { p_linea_id: Number(b.dataset.recibido), p_atras: false }); aviso('Recibido'); vCompras(); } catch (e) { aviso(errorDe(e), true); } });
+  $$('[data-armar]').forEach(b => b.onclick = () => {
+    const sec = b.closest('section'); const ids = $$('input[data-sel]:checked', sec).map(i => Number(i.dataset.sel));
+    if (!ids.length) return aviso('Marca al menos una pieza (las que están Por pedir)', true);
+    const piezas = cache.compras.filter(x => ids.includes(x.linea_id));
+    const nombreGrupo = b.dataset.armar; const prov0 = cache.proveedores.find(p => p.nombre === nombreGrupo);
+    const texto = formatoPedido(prov0, piezas);
+    modal(`<h2>Pedido a proveedor · ${piezas.length} pieza${piezas.length > 1 ? 's' : ''}</h2>
+      <label class="campo">Proveedor <select id="c-prov">${cache.proveedores.map(p => `<option value="${p.id}" ${prov0 && p.id === prov0.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></label>
+      <label class="campo">Texto para WhatsApp o correo (edítalo si hace falta) <textarea id="c-texto" style="min-height:160px;font-family:ui-monospace,monospace;font-size:12px">${esc(texto)}</textarea></label>
+      <div class="campos"><label class="campo">Fecha prometida por el proveedor <input type="date" id="c-fecha"></label><label class="campo">Referencia (N° de pedido, guía, cotización) <input id="c-ref"></label></div>
+      <div class="acciones"><button type="button" class="btn" id="c-cancelar">Cancelar</button><button type="button" class="btn" id="c-copiar">Copiar texto</button><button type="button" class="btn primario" id="c-ok">Registrar como pedido</button></div>`);
+    $('#c-cancelar').onclick = cerrarModal;
+    $('#c-copiar').onclick = async () => { try { await navigator.clipboard.writeText($('#c-texto').value); aviso('Texto copiado'); } catch (e) { aviso('No se pudo copiar: selecciona el texto y cópialo', true); } };
+    $('#c-prov').onchange = () => { const pv = cache.proveedores.find(p => p.id === Number($('#c-prov').value)); $('#c-texto').value = formatoPedido(pv, piezas); };
+    $('#c-ok').onclick = async () => { try { const n = await rpc('registrar_pedido_proveedor', { p_linea_ids: ids, p_proveedor_id: Number($('#c-prov').value), p_fecha_prometida: $('#c-fecha').value || null, p_referencia: $('#c-ref').value || null }); cerrarModal(); aviso(`${n} pieza${n > 1 ? 's' : ''} registrada${n > 1 ? 's' : ''} como pedidas`); vCompras(); } catch (e) { aviso(errorDe(e), true); } };
+  });
 }
