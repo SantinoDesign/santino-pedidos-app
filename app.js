@@ -163,7 +163,7 @@ async function iniciar() {
 function pantallaLogin() {
   document.body.classList.remove('tablet');
   app.innerHTML = `<form class="login" id="f-login">
-    <h1>SANTINO · Pedidos</h1>
+    <img src="logo.png" alt="Santino Design" class="logo-login"><h1 style="font-size:16px;color:var(--gris-2);font-weight:600">Pedidos</h1>
     <div style="font-size:13px;color:var(--gris-2)">Pedidos reales de Santino Design (desde el 12-oct-2026). Entra con tu correo y clave.</div>
     <label>Correo <input type="email" name="email" required autocomplete="username"></label>
     <label>Clave <input type="password" name="password" required autocomplete="current-password"></label>
@@ -190,7 +190,7 @@ function barra(activa) {
   const links = yo.rol === 'operacion'
     ? [['#/taller', 'Lista'], ['#/ruta', 'Ruta']]
     : [['#/lista', 'Lista'], ['#/tablero', 'Tablero'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/bandeja', 'Bandeja']];
-  return `<div class="barra"><a class="marca" href="${links[0][0]}">SANTINO</a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
+  return `<div class="barra"><a class="marca" href="${links[0][0]}" title="Santino Design · Pedidos"><img src="logo.png" alt="Santino Design" class="logo-barra"></a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
 }
 async function render() {
   const h = location.hash.split('?')[0];

@@ -254,3 +254,7 @@ table.lista.compacta td.celda-lineas .l1,table.lista.compacta td.celda-lineas .l
 .tablet .etapa-chip small{font-size:12px}
 .tablet .etapas{max-width:340px}
 table.lista.compacta td.piezas-col{min-width:130px}
+/* Logo real de Santino Design (Harold 12-oct) */
+.logo-login{display:block;width:150px;margin:0 auto 4px}
+.logo-barra{height:34px;display:block}
+.tablet .logo-barra{height:40px}
