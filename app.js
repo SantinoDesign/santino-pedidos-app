@@ -6,7 +6,7 @@
 const sb = window.supabase.createClient(window.SANTINO_CONFIG.url, window.SANTINO_CONFIG.anon);
 const app = document.getElementById('app');
 let yo = null;            // {id, nombre, rol}
-let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
+let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
 const META = 62;          // pedidos al mes (objetivo de utilidad, DM_Financiero v7.15)
 const ESTADOS = ['POR FABRICAR','VISITA TÉCNICA','DIBUJO 3D','DISEÑO APROBADO','EN FABRICACIÓN','LISTO EN TALLER','DESPACHO PROGRAMADO','ENTREGADO','CANCELADO','DEVUELTO'];
 const ORDEN_COMUNAS = ['Vitacura','Lo Barnechea','Las Condes','La Reina','Providencia','Ñuñoa','Santiago','Macul','Peñalolén','La Florida','Huechuraba','Colina','San Miguel','Maipú','Puente Alto'];
@@ -33,10 +33,26 @@ function chip(t) {
 }
 /* Códigos cortos para la Lista (Harold 12-oct-2026: columnas acotadas). El nombre completo va en el title (pasar el mouse). */
 const COD_ESTADO = { 'POR FABRICAR': 'PF', 'VISITA TÉCNICA': 'VT', 'DIBUJO 3D': 'D3', 'DISEÑO APROBADO': 'DA', 'EN FABRICACIÓN': 'EF', 'LISTO EN TALLER': 'LT', 'DESPACHO PROGRAMADO': 'DP', 'ENTREGADO': 'EN', 'CANCELADO': 'CA', 'DEVUELTO': 'DV' };
-const COD_TIPO = { 'Venta catálogo': 'CAT', 'Mesa a medida': 'MM', 'Mueble a medida': 'PROY', 'Postventa': 'PV', 'Repuesto': 'REP' };
-const NOMBRE_TIPO = { 'Mueble a medida': 'Proyecto (mueble a medida: cocina, clóset, muro)' };
+const COD_TIPO = { 'Venta catálogo': 'CAT', 'Mesa a medida': 'MM', 'Mueble a medida': 'MUEB', 'Postventa': 'PV', 'Repuesto': 'REP' };
+const NOMBRE_TIPO = { 'Mueble a medida': 'Mueble a medida (pieza suelta: repisa, sofá modular, poste; no es un proyecto de cocina o clóset)' };
 const COD_MATERIAL = { TRAVERTINO: 'TRAV', 'ROB.HUALLE': 'ROB.H', 'ROB.US': 'ROB.US', MELAMINA: 'MEL', 'PINO OREGON': 'P.OREG', CARVALLO: 'CARV', NEOLITH: 'NEOL', ENCINA: 'ENC', CUARZO: 'CUARZ' };
 const codMaterial = m => m ? (COD_MATERIAL[m] || m) : '';
+const ES_VIDRIO = m => ['V.T', 'V.C'].includes(m);
+const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en proyectos; el vidrio de catálogo es incoloro y no lleva tono (Harold 12-oct)
+/* Tipo de base. REGLA (Harold 12-oct-2026, error grave corregido): NUNCA deducir "metal" por el color de la estructura.
+   Un color NGR puede ser pino pintado (Gonqui). La fuente es material_base de la línea y, si falta, el área de taller
+   del modelo en la tabla modelo (Soldadura = metal, Carpintería = madera, Armado muebles = tablero). Sin dato = vacío. */
+async function cargarModelos() {
+  if (cache.modelos) return;
+  const { data } = await sb.from('modelo').select('codigo,area_base');
+  cache.modelos = Object.fromEntries((data || []).map(m => [m.codigo, m.area_base]));
+}
+function tipoBase(cub, base) {
+  const mb = base.material_base || cub.material_base;
+  if (mb) return ES_VIDRIO(mb) ? 'VIDRIO' : ['METAL', 'FIERRO', 'ACERO'].includes(mb) ? 'METAL' : ['MELAMINA', 'MDF', 'TABLERO'].includes(mb) ? 'TABLERO' : 'MADERA';
+  const area = (cache.modelos || {})[base.modelo_base || cub.modelo_base || cub.modelo_cubierta];
+  return area === 'Soldadura' ? 'METAL' : area === 'Carpintería' ? 'MADERA' : area === 'Armado muebles' ? 'TABLERO' : '';
+}
 function estadoHtml(e, corto) { return `<span class="estado e-${e.replace(/ /g, '_')}" title="${esc(e)}">${esc(corto ? (COD_ESTADO[e] || e) : e)}</span>`; }
 function tipoHtml(t) { return `<span class="cod" title="${esc(NOMBRE_TIPO[t] || t)}">${esc(COD_TIPO[t] || t)}</span>`; }
 function rasgos(p) {
@@ -50,11 +66,12 @@ function rasgos(p) {
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
-    cubierta2: [codMaterial(cub.material_cubierta) || '-', cub.tono ? 'tono ' + cub.tono : ''],
-    base2: [codMaterial(base.material_base || cub.material_base) || (cub.color || base.color ? 'metal' : '-'), base.color || cub.color || ''],
+    cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : 'tono ' + cub.tono],
+    baseTipo: tipoBase(cub, base),
+    base2: [codMaterial(base.material_base || cub.material_base) || tipoBase(cub, base) || '-', [base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'TABLERO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? 'tono ' + cub.tono : ''].filter(Boolean).join(' ')],
     medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
     tono: cub.tono || '-', sillas: sil ? `${sil.cantidad} ${sil.tipo_silla || ''} ${sil.color_silla || ''}`.trim() : '-',
-    entrega: (p.tipo_entrega === 'Despacho regiones' ? 'Regiones' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
+    entrega: (p.tipo_entrega === 'Despacho regiones' ? 'REG' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
   };
 }
 function piezasHtml(p, editable) {
@@ -137,13 +154,14 @@ function vClave() {
 
 /* ---------- datos ---------- */
 async function cargarPedidos() {
+  await cargarModelos();
   let q = sb.from('v_pedido').select('*');
   if (cache.filtro === 'pendientes') q = q.not('estado', 'in', '("ENTREGADO","CANCELADO","DEVUELTO")').order('fecha_comprometida', { ascending: true, nullsFirst: false }).order('fecha_estimada');
   else if (cache.filtro === 'entregados') q = q.eq('estado', 'ENTREGADO').order('entregado_en', { ascending: false }).limit(200);
   else if (cache.filtro === 'todos') q = q.order('fecha_compra', { ascending: false }).limit(500);
   else q = q.eq('estado', cache.filtro).order('prioridad').order('fecha_comprometida');
   const { data, error } = await q; if (error) throw error;
-  if (cache.filtro === 'pendientes') data.sort((a, b) => ESTADOS.indexOf(a.estado) - ESTADOS.indexOf(b.estado) || (a.prioridad || 999) - (b.prioridad || 999) || String(a.fecha_comprometida || a.fecha_estimada || '9').localeCompare(String(b.fecha_comprometida || b.fecha_estimada || '9')));
+  if (cache.filtro === 'pendientes') data.sort((a, b) => String(a.fecha_comprometida || a.fecha_estimada || '9').localeCompare(String(b.fecha_comprometida || b.fecha_estimada || '9')) || ESTADOS.indexOf(a.estado) - ESTADOS.indexOf(b.estado) || (a.prioridad || 999) - (b.prioridad || 999));  // manda la fecha de entrega (Harold 12-oct)
   cache.pedidos = data; return data;
 }
 function filtrar(lista) {
@@ -151,6 +169,7 @@ function filtrar(lista) {
   let l = lista;
   if (cache.estados.size) l = l.filter(p => cache.estados.has(p.estado));
   if (cache.tipos.size) l = l.filter(p => cache.tipos.has(p.tipo_pedido));
+  if (cache.bases.size) l = l.filter(p => cache.bases.has(rasgos(p).baseTipo));
   const b = cache.busqueda.trim().toLowerCase(); if (!b) return l;
   return l.filter(p => [p.numero, p.cliente, p.resumen, p.comuna, p.cotizacion_numero, p.observacion].join(' ').toLowerCase().includes(b));
 }
@@ -160,19 +179,21 @@ async function vLista() {
   await cargarPedidos();
   if (!['pendientes', 'entregados', 'todos'].includes(cache.filtro)) cache.filtro = 'pendientes';
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
-  const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${(grupo === 'estado' ? cache.estados : cache.tipos).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
+  const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : cache.bases;
+  const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${setDe(grupo).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
   app.innerHTML = barra('#/lista') + `<div class="sub no-imprimir">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
       <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
+      <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['TABLERO', 'Base de melamina o MDF (armado)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
       <button class="btn" id="b-nuevo">+ Nuevo pedido</button>
       <button class="btn" id="b-export">Exportar a Excel (CSV)</button>
       <a class="btn" href="#/imprimir-listado">Imprimir listado operacional</a>
       <span id="resumen-lista" style="margin-left:auto;color:var(--gris-3)"></span>
-    </div><div class="sub no-imprimir leyenda">Se pueden marcar varios estados y tipos a la vez; sin marcar = todos. Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} ${(NOMBRE_TIPO[t] || t).toLowerCase()}`).join(' · ')}.</div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
+    </div><div class="sub no-imprimir leyenda">Se pueden marcar varios estados y tipos a la vez; sin marcar = todos. Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · TABLERO melamina o MDF (según el material de la línea o, si falta, el modelo).</div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
   $('#f-modo').onchange = e => { cache.filtro = e.target.value; cache.estados.clear(); vLista(); };
-  $$('.ftog').forEach(b => b.onclick = () => { const set = b.dataset.grupo === 'estado' ? cache.estados : cache.tipos; set.has(b.dataset.valor) ? set.delete(b.dataset.valor) : set.add(b.dataset.valor); b.classList.toggle('on'); pintarLista(); });
+  $$('.ftog').forEach(b => b.onclick = () => { const set = setDe(b.dataset.grupo); set.has(b.dataset.valor) ? set.delete(b.dataset.valor) : set.add(b.dataset.valor); b.classList.toggle('on'); pintarLista(); });
   $('#f-busca').oninput = e => { cache.busqueda = e.target.value; pintarLista(); };
   $('#b-nuevo').onclick = () => formPedido();
   $('#b-export').onclick = exportarCSV;
@@ -348,7 +369,7 @@ async function vFicha(id) {
   const r = rasgos(p); const aMedida = ['Mesa a medida', 'Mueble a medida'].includes(p.tipo_pedido);
   const piezas = (p.piezas || []);
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="contenido">
-    <div class="encabezado"><a href="${esOp ? '#/taller' : '#/lista'}">‹ Volver</a><h1>${esc(p.numero)} · ${esc(p.cliente)}</h1>${estadoHtml(p.estado)}${aMedida ? `<span class="chip medida">${esc((p.tipo_pedido === 'Mueble a medida' ? 'PROYECTO' : p.tipo_pedido).toUpperCase())}</span>` : ''}${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}
+    <div class="encabezado"><a href="${esOp ? '#/taller' : '#/lista'}">‹ Volver</a><h1>${esc(p.numero)} · ${esc(p.cliente)}</h1>${estadoHtml(p.estado)}${aMedida ? `<span class="chip medida">${esc(p.tipo_pedido.toUpperCase())}</span>` : ''}${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}
       ${esOp && p.saldo_por_cobrar > 0 ? `<span class="chip saldo">COBRAR ${pesos(p.saldo_por_cobrar)} AL ENTREGAR</span>` : ''}
       <div class="espacio"></div>
       ${esOp ? '' : `<label style="font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="c-urgente" ${p.urgente ? 'checked' : ''}> Urgente</label>
@@ -596,6 +617,7 @@ async function vBandeja() {
 
 /* ---------- Alexis · Lista por semana ---------- */
 async function cargarOperacion() {
+  await cargarModelos();
   const { data, error } = await sb.from('v_pedido_operacion').select('*').order('fecha_entrega', { ascending: true, nullsFirst: false }).order('prioridad'); if (error) throw error; cache.pedidos = data; return data;
 }
 function lunesDe(s) { const d = new Date(s + 'T12:00:00'); const dia = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dia); return d; }
