@@ -200,3 +200,32 @@ table.impresion tr.atrasado td{color:var(--rojo-txt);font-weight:600}
   .listado-print h3.salto{page-break-before:always}
   table.impresion{width:100%}
 }
+
+/* Guía de despacho (diseño aprobado de la skill guia-despacho-sd, trasladado a la app el 12-oct-2026) */
+.guia{background:#fff;max-width:816px;margin:14px auto;padding:12mm 16mm;font-family:sans-serif;font-size:11px;color:#1a1a1a;border:1px solid var(--linea)}
+.guia .header{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:.5px solid #ddd;margin-bottom:12px}
+.guia .logo{height:200px}
+.guia .header-right{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.guia .doc-type{font-size:7px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#0081A6}
+.guia .doc-number{font-size:26px;font-weight:200;color:#1a1a1a;letter-spacing:3px;line-height:1}
+.guia .doc-fecha{font-size:9px;color:#aaa}
+.guia .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:10px}
+.guia .party-label{font-size:7px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#0081A6;margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid #eee}
+.guia .party-row{margin-bottom:3px;line-height:1.4;font-size:12px}
+.guia .pf{font-size:10px;color:#aaa;display:inline-block;width:56px}
+.guia .envio-box{background:#f0f8fc;border:.5px solid #c8e8f4;border-radius:4px;padding:8px 14px;margin-bottom:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.guia .envio-label{font-size:7px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#0081A6;margin-bottom:2px}
+.guia .envio-val{font-size:13px;font-weight:500}
+.guia .prod-label{font-size:7px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#0081A6;margin-bottom:4px}
+.guia table{width:100%;border-collapse:collapse}
+.guia thead tr{background:#0081A6;color:#fff}
+.guia thead th{padding:7px 10px;text-align:left;font-size:8px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
+.guia thead th:last-child{text-align:right}
+.guia .dr td{padding:7px 10px;border-bottom:.5px solid #eee;font-size:12px}
+.guia .er td{padding:5px 10px;border-bottom:.5px solid #f5f5f5;color:#e0e0e0;font-size:11px}
+.guia td:last-child{text-align:right}
+.guia .total-row td{background:#0081A6;color:#fff;padding:9px 10px;font-weight:600;font-size:13px}
+.guia .firma{margin-top:20px;text-align:right}
+.guia .firma-line{display:inline-block;width:200px;border-top:1px solid #bbb;margin-bottom:4px}
+.guia .firma-label{font-size:8px;color:#aaa}
+@media print{.guia{border:none;margin:0;padding:0;max-width:none}.guia .total-row td,.guia thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact}}

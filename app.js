@@ -45,8 +45,9 @@ const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en pr
    del modelo en la tabla modelo (Soldadura = metal, Carpintería = madera, Armado muebles = MDF enchapado). Sin dato = vacío. */
 async function cargarModelos() {
   if (cache.modelos) return;
-  const { data } = await sb.from('modelo').select('codigo,area_base');
+  const { data } = await sb.from('modelo').select('codigo,area_base,bultos');
   cache.modelos = Object.fromEntries((data || []).map(m => [m.codigo, m.area_base]));
+  cache.modelosBultos = Object.fromEntries((data || []).map(m => [m.codigo, m.bultos]));
 }
 function tipoBase(cub, base) {
   const mb = base.material_base || cub.material_base;
@@ -135,7 +136,9 @@ async function render() {
   const h = location.hash.split('?')[0];
   const esOp = yo.rol === 'operacion';
   try {
+    const est = $('#pagina-guia'); if (est && !h.startsWith('#/guia/')) est.remove();
     if (h.startsWith('#/pedido/')) await vFicha(h.split('/')[2]);
+    else if (h.startsWith('#/guia/') && !esOp) await vGuia(h.split('/')[2]);
     else if (h === '#/tablero' && !esOp) await vTablero();
     else if (h === '#/panel' && !esOp) await vPanel();
     else if (h === '#/clientes' && !esOp) await vClientes();
@@ -362,10 +365,11 @@ async function vFicha(id) {
   const vista = esOp ? 'v_pedido_operacion' : 'v_pedido';
   const { data: p, error } = await sb.from(vista).select('*').eq('id', id).maybeSingle(); if (error) throw error;
   if (!p) { app.innerHTML = barra('') + `<div class="contenido"><div class="seccion">Este pedido no está disponible en tu vista.</div></div>`; return; }
-  const [{ data: docs }, { data: hist }, { data: abonos }] = await Promise.all([
+  const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }] = await Promise.all([
     sb.from('documento').select('*').eq('pedido_id', id).order('subido_en', { ascending: false }),
     esOp ? Promise.resolve({ data: [] }) : sb.from('historial').select('*').eq('pedido_id', id).order('cuando', { ascending: false }).limit(60),
     esOp ? Promise.resolve({ data: [] }) : sb.from('abono').select('*').eq('pedido_id', id).order('fecha'),
+    sb.from('guia_despacho').select('*').eq('pedido_id', id).order('numero', { ascending: false }),
   ]);
   const r = rasgos(p); const aMedida = A_MEDIDA.includes(p.tipo_pedido);
   const piezas = (p.piezas || []);
@@ -395,6 +399,9 @@ async function vFicha(id) {
         <div class="cifras"><div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div><div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)}</div></div><div class="cifra"><div>Saldo (calculado)</div><div style="color:${p.saldo > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo)}</div></div></div>
         ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>
+      </section>
+      <section class="seccion"><div class="cab"><h2>Guías de despacho</h2><button class="btn chico borde" id="b-guia">+ Nueva guía de despacho</button></div>
+        ${(guias || []).length ? `<div class="docs">${guias.map(g => `<div class="doc"><span>Guía N° ${g.numero}${g.anulada ? ' (anulada)' : ''}<div class="tipo">${fecha(g.fecha)} · ${g.bultos} bulto${g.bultos > 1 ? 's' : ''} · ${esc(g.modalidad)} · ${esc(g.estado_pago)} · ${esc(g.emitida_por)}</div></span><a class="btn chico" href="#/guia/${g.id}">Ver / imprimir</a></div>`).join('')}</div>` : '<div style="color:var(--gris-3);font-size:13px">Sin guías emitidas. El correlativo sigue en la base (siguiente: el que muestre el formulario).</div>'}
       </section>
       <section class="seccion"><h2>Historial</h2><div class="historial">${hist.map(h => `<div><time>${fechaHora(h.cuando)}</time><span><strong>${esc(h.quien)}</strong> ${esc(h.campo)}: ${h.valor_anterior ? esc(h.valor_anterior) + ' → ' : ''}${esc(h.valor_nuevo || '')}</span></div>`).join('') || '<span style="color:var(--gris-3)">Sin movimientos</span>'}</div></section>`}
     </div><aside class="columna">
@@ -433,6 +440,7 @@ async function vFicha(id) {
     on('#b-abono', () => formAbono(p, recargar));
     on('#b-subir', () => formSubir(p, recargar));
     on('#b-linea', () => formLinea(p, recargar));
+    on('#b-guia', () => formGuia(p));
   }
 }
 function formAbono(p, despues) {
@@ -732,3 +740,105 @@ function imprimirEtiquetas(lista) {
 }
 
 iniciar();
+
+/* ---------- Guía de despacho (tanda 3, 12-oct-2026; reemplaza la skill guia-despacho-sd) ---------- */
+const EMISOR = { empresa: 'Santino Design SpA', rut: '77.551.022-6', direccion: 'Lo Blanco 1919, La Pintana, R.M.', telefono: '9 5531 6124', email: 'hola@santinodesign.cl' };
+const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+/* Bultos (Harold 12-oct): 1 base + 1 cubierta = 2 por mesa; Montecarlo y Fiorella 3 (2 bases + 1 cubierta); sillas de a dos;
+   Tulip siempre 2 bultos hasta 10 sillas; más de 10, o banca, o modelo sin regla: se confirma a mano (hay que embalar primero). */
+function bultosDe(p) {
+  const pz = p.piezas || []; let n = 0; const det = []; let seguro = true;
+  const principal = pz.find(x => ['Mesa', 'Cubierta', 'Mueble', 'Repuesto'].includes(x.tipo)) || pz.find(x => x.tipo === 'Base');
+  if (principal) {
+    const cod = principal.modelo_base || principal.modelo_cubierta; const def = (cache.modelosBultos || {})[cod]; const c = principal.cantidad || 1;
+    if (def) { n += def * c; det.push(`${c > 1 ? c + ' x ' : ''}${NOMBRE_MODELO[cod] || cod}: ${def * c}`); }
+    else { seguro = false; det.push(`${NOMBRE_MODELO[cod] || cod || principal.tipo}: sin regla de bultos, confirmar`); }
+  }
+  pz.filter(x => x.tipo === 'Silla').forEach(x => {
+    const c = x.cantidad || 0; const t = (x.tipo_silla || '').toUpperCase();
+    if (t === 'TULIP') { if (c <= 10) { n += 2; det.push(`${c} Tulip: 2`); } else { seguro = false; det.push(`${c} Tulip: más de 10, confirmar`); } }
+    else { const b = Math.ceil(c / 2); n += b; det.push(`${c} sillas ${x.tipo_silla || ''}: ${b}`); }
+  });
+  pz.filter(x => x.tipo === 'Banca').forEach(x => { const c = x.cantidad || 1; n += c; seguro = false; det.push(`${c} banca: ${c} (confirmar)`); });
+  return { n, det, seguro };
+}
+function descProducto(x) {
+  if (['Mueble', 'Repuesto', 'Servicio'].includes(x.tipo)) return x.descripcion || x.tipo;
+  const cod = x.modelo_cubierta || x.modelo_base; const mat = x.material_cubierta || x.material_base;
+  const medida = x.largo_cm ? `${num(x.largo_cm)}x${num(x.ancho_cm)}${x.alto_cm ? 'x' + num(x.alto_cm) : ''} cm` : '';
+  const partes = [`${x.tipo === 'Mesa' || x.tipo === 'Cubierta' ? 'Mesa ' : ''}${NOMBRE_MODELO[cod] || cod || ''} ${cap(NOMBRE_MATERIAL[mat] || (mat || '').toLowerCase())}`.trim()];
+  const tras = [medida, x.personas ? `[${x.personas} personas]` : ''].filter(Boolean).join(' ');
+  if (tras) partes.push(tras);
+  let d = partes.join(' · ');
+  if (x.color) d += ' / ' + cap(NOMBRE_COLOR[x.color] || x.color) + (x.tono && !ES_VIDRIO(mat) ? ' tono ' + x.tono : '');
+  return d;
+}
+function productosGuia(p) {
+  const pz = p.piezas || []; const lineas = [];
+  pz.filter(x => !['Silla', 'Banca', 'Servicio'].includes(x.tipo)).forEach((x, i) => lineas.push({ desc: descProducto(x), valor: i === 0 ? pesos(p.precio_venta) : '' }));
+  pz.filter(x => ['Silla', 'Banca'].includes(x.tipo)).forEach(x => lineas.push({ desc: `${x.cantidad || 1} ${x.tipo === 'Banca' ? 'banca' : 'sillas'} ${x.tipo_silla || ''} ${x.color_silla ? '/ ' + cap(NOMBRE_COLOR[x.color_silla] || x.color_silla) : ''}`.replace(/\s+/g, ' ').trim(), valor: 'incluidas' }));
+  if (!lineas.length) lineas.push({ desc: p.resumen || 'Pedido ' + p.numero, valor: pesos(p.precio_venta) });
+  if (p.precio_despacho > 0) lineas.push({ desc: 'Despacho', valor: pesos(p.precio_despacho) });
+  if (p.precio_instalacion > 0) lineas.push({ desc: 'Instalación', valor: pesos(p.precio_instalacion) });
+  return lineas;
+}
+async function formGuia(p) {
+  await cargarModelos();
+  const b = bultosDe(p); const prods = productosGuia(p);
+  const modalidad = p.tipo_entrega === 'Despacho regiones' ? 'Encomienda región' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro en taller' : 'Despacho RM';
+  const estadoPago = p.saldo <= 0 ? 'PAGADO' : 'PENDIENTE ' + pesos(p.saldo);
+  const { data: sig } = await sb.from('guia_despacho').select('numero').order('numero', { ascending: false }).limit(1);
+  const { data: com } = p.comuna ? await sb.from('comuna').select('region').eq('nombre', p.comuna).maybeSingle() : { data: null };
+  const region = (com && com.region) || (p.tipo_entrega === 'Despacho regiones' ? '' : 'Región Metropolitana');
+  const proximo = (sig && sig[0] ? sig[0].numero : 3079) + 1;
+  const campo = (n, l, v, extra = '') => `<label class="campo">${l} <input name="${n}" value="${esc(v || '')}" ${extra}></label>`;
+  modal(`<h2>Guía de despacho N° ${proximo} · ${esc(p.numero)} ${esc(p.cliente)}</h2>
+    <div style="font-size:12px;color:var(--gris-2)">El número lo asigna la base al emitir (correlativo único). Revisa destinatario y bultos antes de emitir.</div>
+    <form id="f-guia">
+      <div class="campos">${campo('nombre', 'Destinatario', p.cliente, 'required')}${campo('telefono', 'Teléfono', p.cliente_telefono, 'required')}${campo('direccion', 'Dirección', p.direccion, 'required')}${campo('comuna', 'Comuna', p.comuna, 'required')}${campo('region', 'Región', region, 'required')}${campo('email', 'Email', p.cliente_email)}</div>
+      <div class="campos">
+        <label class="campo">Modalidad <select name="modalidad">${['Encomienda región', 'Despacho RM', 'Retiro en taller'].map(m => `<option ${m === modalidad ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+        <label class="campo">Bultos <input name="bultos" type="number" min="1" value="${b.n || ''}" required style="${b.seguro ? '' : 'border-color:var(--rojo)'}"></label>
+        <label class="campo">Estado de pago <input name="estado_pago" value="${esc(estadoPago)}"></label>
+      </div>
+      <div style="font-size:12px;color:${b.seguro ? 'var(--gris-2)' : 'var(--rojo-txt)'}">${b.seguro ? 'Bultos calculados: ' : 'CONFIRMAR BULTOS (hay una parte sin regla): '}${esc(b.det.join(' · ') || 'sin piezas con regla')}</div>
+      <div class="campo"><span>Productos (edita el texto si hace falta)</span>${prods.map((l, i) => `<div style="display:flex;gap:6px"><input name="desc${i}" value="${esc(l.desc)}" style="flex:1"><input name="valor${i}" value="${esc(l.valor)}" style="width:110px"></div>`).join('')}</div>
+      <label class="campo">Total <input name="total" value="${esc(pesos(p.total))}" readonly></label>
+      <div class="acciones"><button type="button" class="btn" id="g-cancelar">Cancelar</button><button class="btn primario">Emitir guía</button></div>
+    </form>`);
+  $('#g-cancelar').onclick = cerrarModal;
+  $('#f-guia').onsubmit = async ev => {
+    ev.preventDefault(); const f = new FormData(ev.target);
+    const productos = prods.map((_, i) => ({ desc: f.get('desc' + i), valor: f.get('valor' + i) })).filter(l => l.desc);
+    const destinatario = Object.fromEntries(['nombre', 'telefono', 'direccion', 'comuna', 'region', 'email'].map(k => [k, f.get(k) || '']));
+    try {
+      const g = await rpc('emitir_guia', { p_pedido_id: p.id, p_bultos: Number(f.get('bultos')), p_modalidad: f.get('modalidad'), p_estado_pago: f.get('estado_pago'), p_destinatario: destinatario, p_productos: productos, p_total: p.total });
+      cerrarModal(); aviso(`Guía N° ${g.numero} emitida`); location.hash = '#/guia/' + g.id;
+    } catch (e) { aviso(errorDe(e), true); }
+  };
+}
+async function vGuia(id) {
+  const { data: g, error } = await sb.from('guia_despacho').select('*, pedido:pedido_id(numero)').eq('id', id).maybeSingle(); if (error) throw error;
+  if (!g) { app.innerHTML = barra('#/lista') + '<div class="contenido"><div class="seccion">Guía no encontrada</div></div>'; return; }
+  if (!$('#pagina-guia')) { const st = document.createElement('style'); st.id = 'pagina-guia'; st.textContent = '@page { size: Letter portrait; margin: 12mm 16mm 12mm 16mm; }'; document.head.appendChild(st); }
+  const d = g.destinatario || {}; const prods = g.productos || [];
+  const archivo = `GD_${g.numero}_${(d.nombre || '').trim().replace(/\s+/g, '_')}.pdf`;
+  const fila = (k, v) => `<div class="party-row"><span class="pf">${k}</span>${esc(v || '—')}</div>`;
+  app.innerHTML = barra('#/lista') + `<div class="sub no-imprimir"><a class="btn" href="#/pedido/${g.pedido_id}">‹ Volver a la ficha ${esc(g.pedido ? g.pedido.numero : '')}</a><button class="btn primario" id="b-print">Imprimir o guardar PDF</button><span style="color:var(--gris-3)">Nombre sugerido del archivo: ${esc(archivo)} · carpeta 05_Guias_de_despacho/${new Date(g.fecha + 'T12:00:00').getFullYear()}/</span></div>
+  <div class="guia">
+    <div class="header"><img class="logo" src="logo-guia.png" alt="Santino Design"><div class="header-right"><span class="doc-type">Guía de Despacho</span><span class="doc-number">N° ${g.numero}</span><span class="doc-fecha">Fecha: ${new Date(g.fecha + 'T12:00:00').toLocaleDateString('es-CL')}</span></div></div>
+    <div class="parties">
+      <div><div class="party-label">Emisor</div>${fila('Empresa', EMISOR.empresa)}${fila('RUT', EMISOR.rut)}${fila('Dirección', EMISOR.direccion)}${fila('Teléfono', EMISOR.telefono)}${fila('Email', EMISOR.email)}</div>
+      <div><div class="party-label">Destinatario</div>${fila('Nombre', d.nombre)}${fila('Teléfono', d.telefono)}${fila('Dirección', d.direccion)}${fila('Comuna', d.comuna)}${fila('Región', d.region)}${fila('Email', d.email)}</div>
+    </div>
+    <div class="envio-box"><div><div class="envio-label">Modalidad</div><div class="envio-val">${esc(g.modalidad)}</div></div><div><div class="envio-label">Bultos</div><div class="envio-val">${g.bultos}</div></div><div><div class="envio-label">Estado pago</div><div class="envio-val">${esc(g.estado_pago)}</div></div></div>
+    <div class="prod-label">Productos</div>
+    <table><thead><tr><th style="width:40px">N°</th><th>Descripción</th><th style="width:110px">Valor</th></tr></thead><tbody>
+      ${prods.map((l, i) => `<tr class="dr"><td>${i + 1}</td><td>${esc(l.desc)}</td><td>${esc(l.valor)}</td></tr>`).join('')}
+      ${Array.from({ length: Math.max(0, 10 - prods.length) }, (_, i) => `<tr class="er"><td>${prods.length + i + 1}</td><td></td><td></td></tr>`).join('')}
+      <tr class="total-row"><td colspan="2">Total</td><td>${pesos(g.total)}</td></tr>
+    </tbody></table>
+    <div class="firma"><div class="firma-line"></div><br><div class="firma-label">Firma receptor</div></div>
+  </div>`;
+  $('#b-print').onclick = () => { document.title = archivo.replace('.pdf', ''); window.print(); setTimeout(() => { document.title = 'Santino Pedidos'; }, 2000); };
+}
