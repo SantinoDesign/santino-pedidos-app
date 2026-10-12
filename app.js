@@ -74,8 +74,11 @@ function tipoHtml(t) { return `<span class="cod" title="${esc(NOMBRE_TIPO[t] || 
 function rasgos(p) {
   const pz = p.piezas || [];
   // Pieza principal: cubierta, mesa, mueble o repuesto; si no hay, la banca; si no, el servicio (retapizado, instalación). Nunca tratar una banca como "sillas".
-  const cub = pz.find(x => ['Cubierta', 'Mesa', 'Mueble', 'Repuesto'].includes(x.tipo)) || pz.find(x => x.tipo === 'Banca') || pz.find(x => x.tipo === 'Servicio') || {};
   const base = pz.find(x => x.tipo === 'Base') || {};
+  const cubReal = pz.find(x => ['Cubierta', 'Mesa', 'Mueble', 'Repuesto'].includes(x.tipo));
+  // Solo bases o solo cubierta (Harold 12-oct, Francisco Martínez): se avisa bajo el modelo, para cualquier modelo
+  const parcial = base.tipo && !cubReal ? 'solo bases' : cubReal && ['Cubierta', 'Mesa'].includes(cubReal.tipo) && !base.tipo && cubReal.tipo === 'Cubierta' ? 'solo cubierta' : '';
+  const cub = cubReal || (base.tipo ? base : null) || pz.find(x => x.tipo === 'Banca') || pz.find(x => x.tipo === 'Servicio') || {};
   const sil = pz.find(x => x.tipo === 'Silla') || (cub.tipo !== 'Banca' ? pz.find(x => x.tipo === 'Banca') : null);
   const modelos = [cub.modelo_cubierta, base.modelo_base].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
   // Modelo a la vista siempre (Harold 12-oct): catálogo = código; especial = ESPECIAL más el inicio de la descripción;
@@ -87,11 +90,11 @@ function rasgos(p) {
   if (!modeloTxt && !cub.tipo && sil) modeloTxt = sil.tipo_silla || 'Sillas';
   if (!modeloTxt) modeloTxt = sinMedidas(cub.descripcion).slice(0, 28);
   return {
-    modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + modeloTxt, descripcion: cub.descripcion || '',
+    modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + modeloTxt, parcial, descripcion: cub.descripcion || '',
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
-    cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono), cub.tipo !== 'Silla' && cub.color_silla ? 'tapiz ' + cub.color_silla : ''],
+    cubierta2: [parcial === 'solo bases' ? '-' : codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono), cub.tipo !== 'Silla' && cub.color_silla ? 'tapiz ' + cub.color_silla : ''],
     baseTipo: tipoBase(cub, base),
     // Base de madera sin material propio: es la misma madera de la cubierta (Gonqui pino = base pino); solo si la cubierta no es madera queda "MADERA" (Harold 12-oct)
     base2: [codMaterial(base.material_base || cub.material_base) || (tipoBase(cub, base) === 'MADERA' ? (maderaBase(cub, base) || 'MADERA') : tipoBase(cub, base)) || '-', base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? tonoTxt(cub.tono) : ''],
@@ -282,7 +285,7 @@ function pintarLista() {
     const r = rasgos(p);
     return `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
       <td><a class="ficha-link" href="#/pedido/${p.id}" title="Abrir ficha">Ficha</a></td><td>${estadoHtml(p.estado, true)}</td><td class="num">${esc(p.numero)}</td><td class="cliente">${esc(p.cliente)}</td><td>${tipoHtml(p.tipo_pedido)}</td>
-      <td class="modelo" title="${esc(r.descripcion || '')}">${esc(r.modelo)}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td class="celda-lineas">${dos(r.cubierta2)}</td><td class="celda-lineas">${dos(r.base2)}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
+      <td class="modelo" title="${esc(r.descripcion || '')}">${esc(r.modelo)}${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td class="celda-lineas">${dos(r.cubierta2)}</td><td class="celda-lineas">${dos(r.base2)}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
       <td class="nw">${fecha(p.fecha_compra)}</td><td class="nw fecha-ent ${p.atrasado ? 'num' : ''}" data-id="${p.id}" title="Clic para cambiar la fecha de entrega" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${p.fecha_comprometida || p.fecha_estimada ? fecha(p.fecha_comprometida || p.fecha_estimada) + (p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>') : '<span class="sin-fecha">sin fecha</span>'}</td><td class="nw">${esc(r.entrega)}</td><td class="comuna">${esc(p.comuna || '')}</td>
       <td class="piezas-col">${etapasHtml(p)}</td>${yo.rol === 'operacion' ? '' : `<td class="nw mono">${pesos(p.saldo)}</td>`}<td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}${yo.rol === 'operacion' && p.saldo_por_cobrar > 0 ? ' ' + chip('COBRAR ' + pesos(p.saldo_por_cobrar)) : ''}</td></tr>`;
   }).join('')}</tbody></table>`;
