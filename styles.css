@@ -239,3 +239,5 @@ table.lista td.fecha-ent:hover{background:var(--azul-suave)}
 .tabla-env::-webkit-scrollbar-track{background:var(--panel);border-radius:6px}
 .tabla-env::-webkit-scrollbar-thumb{background:#AEB9BF;border-radius:6px;border:2px solid var(--panel)}
 .tabla-env::-webkit-scrollbar-thumb:hover{background:var(--azul)}
+table.lista.compacta td.celda-lineas{max-width:96px}
+table.lista.compacta td.celda-lineas .l1,table.lista.compacta td.celda-lineas .l2{white-space:normal;overflow-wrap:anywhere}

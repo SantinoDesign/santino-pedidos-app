@@ -68,18 +68,18 @@ function rasgos(p) {
   // pedido solo de sillas = código de la silla (WISH, CROSS, S.SANTINO), aunque se repita en la columna Sillas.
   let modeloTxt = modelos.join(' + ');
   const sinMedidas = t => (t || '').replace(/\d+([.,]\d+)?\s*[xX×]\s*\d+([.,]\d+)?(\s*[xX×]\s*\d+([.,]\d+)?)?\s*(cm)?/g, '').replace(/\b(cm|diam|radio)\b/gi, '').replace(/[·,\s]+/g, ' ').trim();
-  if (modeloTxt === 'ESPECIAL' || modeloTxt === 'ESPECIAL + ESPECIAL') modeloTxt = (cub.tipo === 'Banca' ? 'BANCA ESPECIAL' : 'ESPECIAL') + ' · ' + sinMedidas((cub.descripcion || '').replace(/especial/ig, '').replace(/a medida/ig, '')).slice(0, 26);
+  if (modeloTxt === 'ESPECIAL' || modeloTxt === 'ESPECIAL + ESPECIAL') modeloTxt = cub.tipo === 'Banca' ? 'BANCA ESPECIAL' : cub.tipo === 'Mueble' ? 'MUEBLE ESPECIAL' : 'ESPECIAL';  // sin redundar: material, medidas y tono van en sus columnas (Harold 12-oct)
   else if (cub.tipo === 'Banca' && !modeloTxt) modeloTxt = 'BANCA';
   if (!modeloTxt && !cub.tipo && sil) modeloTxt = sil.tipo_silla || 'Sillas';
   if (!modeloTxt) modeloTxt = sinMedidas(cub.descripcion).slice(0, 28);
   return {
-    modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + modeloTxt,
+    modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + modeloTxt, descripcion: cub.descripcion || '',
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
-    cubierta2: [codMaterial(cub.material_cubierta) || '-', [!cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono), cub.tipo !== 'Silla' && cub.color_silla ? 'tapiz ' + cub.color_silla : ''].filter(Boolean).join(' · ')],
+    cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono), cub.tipo !== 'Silla' && cub.color_silla ? 'tapiz ' + cub.color_silla : ''],
     baseTipo: tipoBase(cub, base),
-    base2: [codMaterial(base.material_base || cub.material_base) || tipoBase(cub, base) || '-', [base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? 'tono ' + cub.tono : ''].filter(Boolean).join(' ')],
+    base2: [codMaterial(base.material_base || cub.material_base) || tipoBase(cub, base) || '-', base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? tonoTxt(cub.tono) : ''],
     medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
     tono: cub.tono || '-', sillas: sil ? `${sil.cantidad} ${sil.tipo_silla || ''} ${sil.color_silla || ''}`.trim() : '-',
     entrega: (p.tipo_entrega === 'Despacho regiones' ? 'REG' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
@@ -233,12 +233,12 @@ function pintarLista() {
   $('#resumen-lista').textContent = `${lista.length} pedidos`;
   // Columnas acotadas (Harold 12-oct): códigos cortos con el nombre completo al pasar el mouse, celdas en dos líneas, Ficha a la izquierda.
   const cab = [['', 'Abrir la ficha del pedido'], ['Est.', 'Estado (ver leyenda arriba)'], ['N°', ''], ['Cliente', ''], ['Tipo', 'Tipo de pedido (ver leyenda arriba)'], ['Modelo', ''], ['Pers.', 'Personas'], ['Forma', ''], ['Cubierta', 'Material de la cubierta y tono'], ['Base', 'Material de la base y color'], ['Esp.', 'Espesor en mm'], ['Medida', 'Largo x ancho (x alto) en cm'], ['Sillas', ''], ['Compra', ''], ['Entrega', 'Fecha de entrega comprometida; "est." = estimada automática. Clic para cambiarla aquí mismo'], ['Envío', 'RM, REG o Retiro'], ['Comuna', ''], ['Saldo', ''], ['Etiq.', 'Etiquetas automáticas']];
-  const dos = (a, b) => `<div class="l1">${esc(a)}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
+  const dos = (...lineas) => lineas.flat().filter(Boolean).map((t, i) => `<div class="${i ? 'l2' : 'l1'}">${esc(t)}</div>`).join('');
   $('#tabla').innerHTML = `<table class="lista compacta"><thead><tr>${cab.map(([c, t]) => `<th title="${esc(t)}">${c}</th>`).join('')}</tr></thead><tbody>${lista.map(p => {
     const r = rasgos(p);
     return `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
       <td><a class="ficha-link" href="#/pedido/${p.id}" title="Abrir ficha">Ficha</a></td><td>${estadoHtml(p.estado, true)}</td><td class="num">${esc(p.numero)}</td><td class="cliente">${esc(p.cliente)}</td><td>${tipoHtml(p.tipo_pedido)}</td>
-      <td class="modelo">${esc(r.modelo)}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td>${dos(r.cubierta2[0], r.cubierta2[1])}</td><td>${dos(r.base2[0], r.base2[1])}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
+      <td class="modelo" title="${esc(r.descripcion || '')}">${esc(r.modelo)}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td class="celda-lineas">${dos(r.cubierta2)}</td><td class="celda-lineas">${dos(r.base2)}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
       <td class="nw">${fecha(p.fecha_compra)}</td><td class="nw fecha-ent ${p.atrasado ? 'num' : ''}" data-id="${p.id}" title="Clic para cambiar la fecha de entrega" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${p.fecha_comprometida || p.fecha_estimada ? fecha(p.fecha_comprometida || p.fecha_estimada) + (p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>') : '<span class="sin-fecha">sin fecha</span>'}</td><td class="nw">${esc(r.entrega)}</td><td class="comuna">${esc(p.comuna || '')}</td>
       <td class="nw mono">${pesos(p.saldo)}</td><td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}</td></tr>`;
   }).join('')}</tbody></table>`;
