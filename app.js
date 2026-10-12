@@ -68,7 +68,7 @@ function rasgos(p) {
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
-    cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : 'tono ' + cub.tono],
+    cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono)],
     baseTipo: tipoBase(cub, base),
     base2: [codMaterial(base.material_base || cub.material_base) || tipoBase(cub, base) || '-', [base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? 'tono ' + cub.tono : ''].filter(Boolean).join(' ')],
     medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
@@ -83,10 +83,20 @@ function piezasHtml(p, editable) {
   return `<div class="piezas-caja"><div class="piezas-titulo">Piezas del pedido (${pz.length}) · cada una es una parte que fabrica el taller${editable ? ' · toca "Marcar lista" cuando esté terminada' : ''}</div>
     <table class="piezas-tabla"><tbody>${pz.map(x => `<tr>
       <td><strong>${esc(x.tipo === 'Servicio' ? 'Instalación' : x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td>
-      <td>${esc(x.descripcion || '')}${x.color || x.tono ? ` <span class="gris">· ${esc([x.color ? 'base ' + x.color : null, x.tono ? 'tono ' + x.tono : null].filter(Boolean).join(' · '))}</span>` : ''}</td>
+      <td>${esc(x.descripcion || '')}${x.color || x.tono ? ` <span class="gris">· ${esc([x.color ? 'base ' + x.color : null, x.tono ? tonoTxt(x.tono) : null].filter(Boolean).join(' · '))}</span>` : ''}</td>
       <td class="nw gris">${esc(x.area)}</td>
       <td class="nw">${editable ? `<button class="pieza chica ${x.estado === 'Lista' ? 'lista' : x.estado === 'En proceso' ? 'proceso' : ''}" data-pieza="${x.id}" data-estado="${x.estado}" data-pedido="${p.id}">${x.estado === 'Lista' ? 'Lista ✓' : 'Marcar lista'}</button>` : `<span class="estado-pieza ${x.estado === 'Lista' ? 'lista' : ''}">${esc(x.estado)}</span>`}</td>
     </tr>`).join('')}</tbody></table></div>`;
+}
+/* Deshacer: pila de los últimos 20 cambios hechos en ESTA sesión (estado, fecha de entrega, urgente, observación).
+   Los cambios de sesiones anteriores no se deshacen desde aquí: están en el historial de cada ficha. (Harold 12-oct) */
+const deshacer = [];
+function anotarCambio(desc, revertir) { deshacer.push({ desc, revertir }); if (deshacer.length > 20) deshacer.shift(); pintarDeshacer(); }
+function pintarDeshacer() {
+  const eb = $('#extra-barra'); if (!eb) return;
+  const u = deshacer[deshacer.length - 1];
+  eb.innerHTML = u ? `<button class="btn chico" id="b-deshacer" title="Deshace el último cambio de esta sesión (${deshacer.length} en la pila)">↶ Deshacer: ${esc(u.desc)}</button>` : '';
+  const b = $('#b-deshacer'); if (b) b.onclick = async () => { const x = deshacer.pop(); try { await x.revertir(); aviso('Deshecho: ' + x.desc); } catch (e) { aviso(errorDe(e), true); } render(); };
 }
 async function rpc(nombre, args) { const { data, error } = await sb.rpc(nombre, args); if (error) throw error; return data; }
 
@@ -150,6 +160,7 @@ async function render() {
     else await vLista();
   } catch (e) { app.innerHTML = barra(h) + `<div class="contenido"><div class="seccion"><h2>Error</h2><p>${esc(errorDe(e))}</p></div></div>`; }
   const bs = $('#btn-salir'); if (bs) bs.onclick = salir;
+  pintarDeshacer();
 }
 function vClave() {
   app.innerHTML = barra('') + `<form class="login" id="f-clave"><h1>Nueva clave</h1><label>Clave nueva <input type="password" name="p" minlength="8" required></label><button class="btn primario">Guardar</button></form>`;
@@ -218,13 +229,14 @@ function pintarLista() {
       <td class="nw mono">${pesos(p.saldo)}</td><td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}</td></tr>`;
   }).join('')}</tbody></table>`;
   $$('#tabla a.ficha-link').forEach(a => a.onclick = ev => ev.stopPropagation());
+  activarArrastreHorizontal($('#tabla'));
   if (yo.rol === 'admin') $$('#tabla td.fecha-ent').forEach(td => td.onclick = ev => {
     ev.stopPropagation(); if (td.querySelector('input')) return;
     const p = cache.pedidos.find(x => x.id == td.dataset.id); const antes = td.innerHTML;
     td.innerHTML = `<input type="date" value="${p.fecha_comprometida || p.fecha_estimada || ''}" style="min-height:28px;padding:2px 4px;font-size:12px">`;
     const inp = td.querySelector('input'); inp.focus(); try { inp.showPicker && inp.showPicker(); } catch (e) { /* algunos navegadores no lo permiten */ }
     inp.onclick = e => e.stopPropagation();
-    inp.onchange = async () => { const v = inp.value || null; const { error } = await sb.from('pedido').update({ fecha_comprometida: v }).eq('id', p.id); aviso(error ? errorDe(error) : (v ? 'Entrega comprometida: ' + fecha(v, true) : 'Fecha de entrega borrada'), !!error); vLista(); };
+    inp.onchange = async () => { const v = inp.value || null; const antesV = p.fecha_comprometida; const { error } = await sb.from('pedido').update({ fecha_comprometida: v }).eq('id', p.id); aviso(error ? errorDe(error) : (v ? 'Entrega comprometida: ' + fecha(v, true) : 'Fecha de entrega borrada'), !!error); if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: antesV }).eq('id', p.id).then(r => { if (r.error) throw r.error; })); vLista(); };
     inp.onblur = () => setTimeout(() => { if (td.querySelector('input')) td.innerHTML = antes; }, 200);
   });
   $$('#tabla tr.fila').forEach(tr => tr.onclick = () => abrirDetalleFila(tr));
@@ -358,8 +370,8 @@ function activarArrastre() {
       const destino = col.dataset.col, id = Number(arrastrado.dataset.id), origen = arrastrado.dataset.estado;
       try {
         if (destino === 'POR FABRICAR' && origen === 'POR FABRICAR') { await rpc('reordenar_prioridad', { p_ids: [...col.querySelectorAll('.tarjeta')].map(t => Number(t.dataset.id)) }); aviso('Prioridad guardada'); }
-        else if (destino !== origen && destino !== 'POR FABRICAR') { await rpc('cambiar_estado', { p_pedido_id: id, p_estado: destino }); aviso(`${destino}`); }
-        else if (destino === 'POR FABRICAR' && origen !== 'POR FABRICAR') { await rpc('cambiar_estado', { p_pedido_id: id, p_estado: 'POR FABRICAR' }); }
+        else if (destino !== origen && destino !== 'POR FABRICAR') { await rpc('cambiar_estado', { p_pedido_id: id, p_estado: destino }); aviso(`${destino}`); anotarCambio(`estado a ${destino} (volver a ${origen})`, () => rpc('cambiar_estado', { p_pedido_id: id, p_estado: origen })); }
+        else if (destino === 'POR FABRICAR' && origen !== 'POR FABRICAR') { await rpc('cambiar_estado', { p_pedido_id: id, p_estado: 'POR FABRICAR' }); anotarCambio(`estado a POR FABRICAR (volver a ${origen})`, () => rpc('cambiar_estado', { p_pedido_id: id, p_estado: origen })); }
         vTablero();
       } catch (e) { aviso(errorDe(e), true); vTablero(); }
     };
@@ -393,7 +405,7 @@ async function vFicha(id) {
     <div class="grid-ficha"><div class="columna">
       <section class="seccion"><div class="cab"><h2>Piezas del pedido · toca para marcar lista</h2>${esOp ? '' : `<button class="btn chico" id="b-linea">+ Agregar línea</button>`}</div>
         <div class="tabla-env"><table class="lista"><thead><tr><th>Pieza</th><th>Descripción</th><th>Diseño</th><th>Material</th><th>Medida</th><th title="Color de la base (estructura) y tono de la cubierta, por separado">Color base / tono cubierta</th><th>Área</th><th>Estado</th></tr></thead><tbody>
-        ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.alto_cm ? ' x ' + num(x.alto_cm) : ''}` : '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color ? 'base ' + x.color : null, x.tono ? 'tono ' + x.tono : null, x.color_silla ? 'silla ' + x.color_silla : null].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
+        ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.alto_cm ? ' x ' + num(x.alto_cm) : ''}` : '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color ? 'base ' + x.color : null, x.tono ? tonoTxt(x.tono) : null, x.color_silla ? 'silla ' + x.color_silla : null].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
           <td>${x.area ? `<button class="pieza ${x.estado === 'Lista' ? 'lista' : x.estado === 'En proceso' ? 'proceso' : ''}" data-pieza="${x.id}" data-estado="${x.estado}">${x.estado}${x.estado === 'Lista' ? ' ✓' : ''}</button>${x.estado === 'Pendiente' ? ` <button class="btn chico" data-proceso="${x.id}">En proceso</button>` : ''}` : '-'}</td></tr>`).join('')}
         </tbody></table></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -435,16 +447,16 @@ async function vFicha(id) {
   $$('[data-proceso]').forEach(b => b.onclick = async () => { try { await rpc('marcar_pieza', { p_linea_id: Number(b.dataset.proceso), p_estado: 'En proceso' }); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
-  on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
+  on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-prop', async () => { const f = $('#f-prop').value; if (!f) return aviso('Elige una fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: Number(id), p_fecha: f }); aviso('Propuesta guardada; Harold envía el mensaje'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-conf', async () => { try { await rpc('confirmar_despacho', { p_pedido_id: Number(id), p_fecha: $('#f-prop').value || null }); aviso('Despacho programado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-entregar', () => formEntregar(p, recargar));
   on('#b-wa-saldo', () => abrirWaSaldo(p));
   if (!esOp) {
-    $('#s-estado').onchange = async ev => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: ev.target.value }); aviso('Estado: ' + ev.target.value); } catch (e) { aviso(errorDe(e), true); } recargar(); };
-    $('#c-urgente').onchange = async ev => { const { error } = await sb.from('pedido').update({ urgente: ev.target.checked }).eq('id', id); aviso(error ? errorDe(error) : (ev.target.checked ? 'Marcado urgente' : 'Ya no es urgente'), !!error); };
-    $('#i-comp').onchange = async ev => { const { error } = await sb.from('pedido').update({ fecha_comprometida: ev.target.value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Fecha comprometida guardada (queda en el historial)', !!error); recargar(); };
-    on('#b-obs', async () => { const { error } = await sb.from('pedido').update({ observacion: $('#t-obs').value }).eq('id', id); aviso(error ? errorDe(error) : 'Observación guardada', !!error); });
+    $('#s-estado').onchange = async ev => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: ev.target.value }); aviso('Estado: ' + ev.target.value); anotarCambio(`estado de ${p.numero} (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); } catch (e) { aviso(errorDe(e), true); } recargar(); };
+    $('#c-urgente').onchange = async ev => { const nuevo = ev.target.checked; const { error } = await sb.from('pedido').update({ urgente: nuevo }).eq('id', id); aviso(error ? errorDe(error) : (nuevo ? 'Marcado urgente' : 'Ya no es urgente'), !!error); if (!error) anotarCambio(`urgente de ${p.numero}`, () => sb.from('pedido').update({ urgente: !nuevo }).eq('id', id).then(r => { if (r.error) throw r.error; })); };
+    $('#i-comp').onchange = async ev => { const { error } = await sb.from('pedido').update({ fecha_comprometida: ev.target.value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Fecha comprometida guardada (queda en el historial)', !!error); if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: p.fecha_comprometida }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); };
+    on('#b-obs', async () => { const { error } = await sb.from('pedido').update({ observacion: $('#t-obs').value }).eq('id', id); aviso(error ? errorDe(error) : 'Observación guardada', !!error); if (!error) anotarCambio(`observación de ${p.numero}`, () => sb.from('pedido').update({ observacion: p.observacion }).eq('id', id).then(r => { if (r.error) throw r.error; })); });
     on('#b-doc', async () => { const { error } = await sb.from('pedido').update({ documento_tributario: $('#s-doc').value, documento_numero: $('#i-docnum').value || null, documento_fecha: $('#i-docfecha').value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Documento guardado', !!error); recargar(); });
     on('#b-abono', () => formAbono(p, recargar));
     on('#b-subir', () => formSubir(p, recargar));
@@ -505,7 +517,7 @@ function formEntregar(p, despues) {
 function camposLinea(prefijo = '') {
   return `<div class="campos">
     <label class="campo">Pieza <select name="${prefijo}tipo_linea"><option>Cubierta</option><option>Base</option><option>Mesa</option><option>Silla</option><option>Banca</option><option>Mueble</option><option>Barniz</option><option>Embalaje</option><option>Servicio</option><option>Repuesto</option></select></label>
-    <label class="campo">Descripción (lo que ve el cliente) <input name="${prefijo}descripcion" required></label>
+    <label class="campo">Descripción para el cliente (sale en la guía de despacho y en los mensajes; ej. "Mesa Lena roble 180x90") <input name="${prefijo}descripcion" required></label>
     <label class="campo">Cantidad <input name="${prefijo}cantidad" type="number" value="1" min="1"></label>
     <label class="campo">Diseño cubierta <input name="${prefijo}modelo_cubierta" placeholder="REMANSO, Especial"></label>
     <label class="campo">Diseño base <input name="${prefijo}modelo_base" placeholder="TIVOLI, Especial"></label>
@@ -518,7 +530,7 @@ function camposLinea(prefijo = '') {
     <label class="campo">Alto cm <input name="${prefijo}alto_cm" type="number" step="0.5" value="76"></label>
     <label class="campo">Forma <select name="${prefijo}forma"><option value="">-</option><option>RECT</option><option>CUA</option><option>CIRC</option><option>OVAL</option></select></label>
     <label class="campo">Personas <input name="${prefijo}personas" type="number"></label>
-    <label class="campo">Tono <input name="${prefijo}tono" placeholder="1 a 5, NAT, NGR"></label>
+    <label class="campo">Tono o barniz <select name="${prefijo}tono"><option value="">-</option>${['1', '2', '3', '4', '5', 'NAT', 'NGR', 'BL', 'GRIS', 'NOG', 'SIN BARNIZ', 'ESPECIAL'].map(t => `<option>${t}</option>`).join('')}</select></label>
     <label class="campo">Nota de acabado <input name="${prefijo}nota_acabado"></label>
     <label class="campo">Tipo silla <input name="${prefijo}tipo_silla" placeholder="TULIP, WISH, CROSS"></label>
     <label class="campo">Color silla <input name="${prefijo}color_silla"></label>
@@ -753,6 +765,7 @@ iniciar();
 /* ---------- Guía de despacho (tanda 3, 12-oct-2026; reemplaza la skill guia-despacho-sd) ---------- */
 const EMISOR = { empresa: 'Santino Design SpA', rut: '77.551.022-6', direccion: 'Lo Blanco 1919, La Pintana, R.M.', telefono: '9 5531 6124', email: 'hola@santinodesign.cl' };
 const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+const tonoTxt = t => !t ? '' : String(t).toUpperCase() === 'SIN BARNIZ' ? 'sin barniz' : 'tono ' + t;
 /* Bultos (Harold 12-oct): 1 base + 1 cubierta = 2 por mesa; Montecarlo y Fiorella 3 (2 bases + 1 cubierta); sillas de a dos;
    Tulip siempre 2 bultos hasta 10 sillas; más de 10, o banca, o modelo sin regla: se confirma a mano (hay que embalar primero). */
 function bultosDe(p) {
@@ -779,7 +792,7 @@ function descProducto(x) {
   const tras = [medida, x.personas ? `[${x.personas} personas]` : ''].filter(Boolean).join(' ');
   if (tras) partes.push(tras);
   let d = partes.join(' · ');
-  if (x.color) d += ' / ' + cap(NOMBRE_COLOR[x.color] || x.color) + (x.tono && !ES_VIDRIO(mat) ? ' tono ' + x.tono : '');
+  if (x.color) d += ' / ' + cap(NOMBRE_COLOR[x.color] || x.color) + (x.tono && !ES_VIDRIO(mat) ? ' ' + tonoTxt(x.tono) : '');
   return d;
 }
 function productosGuia(p) {
@@ -850,4 +863,17 @@ async function vGuia(id) {
     <div class="firma"><div class="firma-line"></div><br><div class="firma-label">Firma receptor</div></div>
   </div>`;
   $('#b-print').onclick = () => { document.title = archivo.replace('.pdf', ''); window.print(); setTimeout(() => { document.title = 'Santino Pedidos'; }, 2000); };
+}
+
+/* Mover la tabla hacia el costado (Harold 12-oct): arrastrar con el mouse sobre la tabla (si se mueve más de 6 px no cuenta como clic),
+   flechas ← → del teclado, y la barra de desplazamiento siempre visible (styles.css). */
+function activarArrastreHorizontal(env) {
+  if (!env) return;
+  let x0 = null, s0 = 0, movido = false;
+  env.addEventListener('mousedown', ev => { if (ev.button !== 0 || ev.target.closest('input,select,button,a')) return; x0 = ev.clientX; s0 = env.scrollLeft; movido = false; });
+  env.addEventListener('mousemove', ev => { if (x0 == null) return; const dx = ev.clientX - x0; if (Math.abs(dx) > 6) { movido = true; env.scrollLeft = s0 - dx; env.classList.add('arrastrando'); } });
+  const soltar = () => { x0 = null; setTimeout(() => env.classList.remove('arrastrando'), 0); };
+  env.addEventListener('mouseup', soltar); env.addEventListener('mouseleave', soltar);
+  env.addEventListener('click', ev => { if (movido) { ev.stopPropagation(); ev.preventDefault(); movido = false; } }, true);
+  if (!window._flechasTabla) { window._flechasTabla = true; document.addEventListener('keydown', ev => { const t = $('#tabla'); if (!t || ev.target.closest('input,select,textarea') || !['ArrowLeft', 'ArrowRight'].includes(ev.key)) return; t.scrollLeft += ev.key === 'ArrowRight' ? 160 : -160; ev.preventDefault(); }); }
 }

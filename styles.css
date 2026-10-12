@@ -232,3 +232,10 @@ table.impresion tr.atrasado td{color:var(--rojo-txt);font-weight:600}
 .sin-fecha{color:var(--gris-3);font-style:italic}
 table.lista td.fecha-ent{cursor:pointer}
 table.lista td.fecha-ent:hover{background:var(--azul-suave)}
+/* Barra horizontal siempre visible y arrastre de la tabla */
+.tabla-env{overflow-x:scroll;cursor:grab}
+.tabla-env.arrastrando{cursor:grabbing;user-select:none}
+.tabla-env::-webkit-scrollbar{height:12px}
+.tabla-env::-webkit-scrollbar-track{background:var(--panel);border-radius:6px}
+.tabla-env::-webkit-scrollbar-thumb{background:#AEB9BF;border-radius:6px;border:2px solid var(--panel)}
+.tabla-env::-webkit-scrollbar-thumb:hover{background:var(--azul)}
