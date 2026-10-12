@@ -229,3 +229,6 @@ table.impresion tr.atrasado td{color:var(--rojo-txt);font-weight:600}
 .guia .firma-line{display:inline-block;width:200px;border-top:1px solid #bbb;margin-bottom:4px}
 .guia .firma-label{font-size:8px;color:#aaa}
 @media print{.guia{border:none;margin:0;padding:0;max-width:none}.guia .total-row td,.guia thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+.sin-fecha{color:var(--gris-3);font-style:italic}
+table.lista td.fecha-ent{cursor:pointer}
+table.lista td.fecha-ent:hover{background:var(--azul-suave)}

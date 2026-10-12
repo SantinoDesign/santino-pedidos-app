@@ -207,17 +207,26 @@ function pintarLista() {
   const lista = filtrar(cache.pedidos);
   $('#resumen-lista').textContent = `${lista.length} pedidos`;
   // Columnas acotadas (Harold 12-oct): códigos cortos con el nombre completo al pasar el mouse, celdas en dos líneas, Ficha a la izquierda.
-  const cab = [['', 'Abrir la ficha del pedido'], ['Est.', 'Estado (ver leyenda arriba)'], ['N°', ''], ['Cliente', ''], ['Tipo', 'Tipo de pedido (ver leyenda arriba)'], ['Modelo', ''], ['Pers.', 'Personas'], ['Forma', ''], ['Cubierta', 'Material de la cubierta y tono'], ['Base', 'Material de la base y color'], ['Esp.', 'Espesor en mm'], ['Medida', 'Largo x ancho (x alto) en cm'], ['Sillas', ''], ['Entrega', ''], ['Comuna', ''], ['Compra', ''], ['Entrega', 'Fecha comprometida; "est." = estimada automática'], ['Saldo', ''], ['Etiq.', 'Etiquetas automáticas']];
+  const cab = [['', 'Abrir la ficha del pedido'], ['Est.', 'Estado (ver leyenda arriba)'], ['N°', ''], ['Cliente', ''], ['Tipo', 'Tipo de pedido (ver leyenda arriba)'], ['Modelo', ''], ['Pers.', 'Personas'], ['Forma', ''], ['Cubierta', 'Material de la cubierta y tono'], ['Base', 'Material de la base y color'], ['Esp.', 'Espesor en mm'], ['Medida', 'Largo x ancho (x alto) en cm'], ['Sillas', ''], ['Compra', ''], ['Entrega', 'Fecha de entrega comprometida; "est." = estimada automática. Clic para cambiarla aquí mismo'], ['Envío', 'RM, REG o Retiro'], ['Comuna', ''], ['Saldo', ''], ['Etiq.', 'Etiquetas automáticas']];
   const dos = (a, b) => `<div class="l1">${esc(a)}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
   $('#tabla').innerHTML = `<table class="lista compacta"><thead><tr>${cab.map(([c, t]) => `<th title="${esc(t)}">${c}</th>`).join('')}</tr></thead><tbody>${lista.map(p => {
     const r = rasgos(p);
     return `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
       <td><a class="ficha-link" href="#/pedido/${p.id}" title="Abrir ficha">Ficha</a></td><td>${estadoHtml(p.estado, true)}</td><td class="num">${esc(p.numero)}</td><td class="cliente">${esc(p.cliente)}</td><td>${tipoHtml(p.tipo_pedido)}</td>
       <td class="modelo">${esc(r.modelo)}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td>${dos(r.cubierta2[0], r.cubierta2[1])}</td><td>${dos(r.base2[0], r.base2[1])}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
-      <td class="nw">${esc(r.entrega)}</td><td class="comuna">${esc(p.comuna || '')}</td><td class="nw">${fecha(p.fecha_compra)}</td><td class="nw ${p.atrasado ? 'num' : ''}" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${fecha(p.fecha_comprometida || p.fecha_estimada)}${p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>'}</td>
+      <td class="nw">${fecha(p.fecha_compra)}</td><td class="nw fecha-ent ${p.atrasado ? 'num' : ''}" data-id="${p.id}" title="Clic para cambiar la fecha de entrega" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${p.fecha_comprometida || p.fecha_estimada ? fecha(p.fecha_comprometida || p.fecha_estimada) + (p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>') : '<span class="sin-fecha">sin fecha</span>'}</td><td class="nw">${esc(r.entrega)}</td><td class="comuna">${esc(p.comuna || '')}</td>
       <td class="nw mono">${pesos(p.saldo)}</td><td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}</td></tr>`;
   }).join('')}</tbody></table>`;
   $$('#tabla a.ficha-link').forEach(a => a.onclick = ev => ev.stopPropagation());
+  if (yo.rol === 'admin') $$('#tabla td.fecha-ent').forEach(td => td.onclick = ev => {
+    ev.stopPropagation(); if (td.querySelector('input')) return;
+    const p = cache.pedidos.find(x => x.id == td.dataset.id); const antes = td.innerHTML;
+    td.innerHTML = `<input type="date" value="${p.fecha_comprometida || p.fecha_estimada || ''}" style="min-height:28px;padding:2px 4px;font-size:12px">`;
+    const inp = td.querySelector('input'); inp.focus(); try { inp.showPicker && inp.showPicker(); } catch (e) { /* algunos navegadores no lo permiten */ }
+    inp.onclick = e => e.stopPropagation();
+    inp.onchange = async () => { const v = inp.value || null; const { error } = await sb.from('pedido').update({ fecha_comprometida: v }).eq('id', p.id); aviso(error ? errorDe(error) : (v ? 'Entrega comprometida: ' + fecha(v, true) : 'Fecha de entrega borrada'), !!error); vLista(); };
+    inp.onblur = () => setTimeout(() => { if (td.querySelector('input')) td.innerHTML = antes; }, 200);
+  });
   $$('#tabla tr.fila').forEach(tr => tr.onclick = () => abrirDetalleFila(tr));
 }
 function abrirDetalleFila(tr) {
@@ -652,7 +661,7 @@ function pintarTaller() {
   else lista = lista.filter(p => p.estado === 'ENTREGADO');
   const grupos = {}; lista.forEach(p => { const k = p.fecha_entrega ? lunesDe(p.fecha_entrega).toISOString().slice(0, 10) : 'zz'; (grupos[k] = grupos[k] || []).push(p); });
   const cab = ['N°', 'Cliente', 'Modelo', 'Medida', 'Material', 'Color / tono', 'Sillas', 'Entrega', 'Piezas (toca para marcar)'];
-  $('#tabla').innerHTML = `<table class="lista"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${Object.keys(grupos).sort().map(k => `<tr class="semana"><td colspan="9">${k === 'zz' ? 'Sin fecha (a medida sin diseño aprobado)' : etiquetaSemana(new Date(k + 'T12:00:00'))}</td></tr>` + grupos[k].map(p => {
+  $('#tabla').innerHTML = `<table class="lista"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${Object.keys(grupos).sort().map(k => `<tr class="semana"><td colspan="9">${k === 'zz' ? 'Pedidos sin fecha de entrega' : etiquetaSemana(new Date(k + 'T12:00:00'))}</td></tr>` + grupos[k].map(p => {
     const r = rasgos(p); const bloqueado = ['POR FABRICAR', 'VISITA TÉCNICA', 'DIBUJO 3D'].includes(p.estado) && A_MEDIDA.includes(p.tipo_pedido);
     return `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}"><td class="num">${esc(p.numero)}${p.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td><strong>${esc(p.cliente)}</strong><br><span style="color:var(--gris-2);font-size:12px">${esc(p.comuna || '')} · ${fecha(p.fecha_entrega, true)}${p.instalacion ? ' · instalación' : ''}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones' : ''}</span></td><td class="nw">${esc(r.modelo)}${r.pers !== '-' ? ' ' + r.pers + 'P' : ''}</td><td class="nw">${esc(r.medida)}</td><td class="nw">${esc(r.cubierta)}${r.esp !== '-' ? ' ' + r.esp : ''}${r.base !== '-' && r.base !== r.cubierta ? ' / ' + esc(r.base) : ''}</td><td class="nw">${esc(r.color)}${r.tono !== '-' ? ' · tono ' + esc(r.tono) : ''}</td><td class="nw">${esc(r.sillas)}</td><td class="nw">${esc(r.entrega)}</td>
       <td class="no-imprimir">${p.estado === 'LISTO EN TALLER' ? `<span class="estado e-LISTO_EN_TALLER">LISTO EN TALLER</span>${p.despacho_propuesto ? ` <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}` : p.estado === 'DESPACHO PROGRAMADO' ? `<span class="estado e-DESPACHO_PROGRAMADO">DESPACHO ${fecha(p.fecha_comprometida, true)}</span>` : p.estado === 'ENTREGADO' ? `<span class="estado e-ENTREGADO">ENTREGADO</span>` : bloqueado ? `<span class="chip">${esc(p.estado)} · aún no entra</span>` : piezasHtml(p, true)}</td></tr>`;
@@ -697,10 +706,10 @@ async function vImprimirListado() {
     return [envio, p.instalacion ? 'SI' : '-', p.cliente, cub.cantidad || 1, r.modelo, r.color, cub.personas ? cub.personas + ' PER' : '-', r.forma, r.cubierta + (r.base !== '-' && r.base !== r.cubierta ? ' / ' + r.base : ''), r.esp, r.medida === '-' ? '-' : r.medida + ' cm', r.tono, sil ? (sil.tipo_silla || '-') : 'n/a', sil ? (sil.color_silla || '-') : 'n/a', sil ? sil.cantidad : 'n/a', fecha(fe(p))]; };
   const tabla = lista => `<table class="lista impresion"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${lista.map(p => `<tr class="${p.atrasado ? 'atrasado' : ''}">${fila(p).map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   let cuerpo = '';
-  if (activos.length < UMBRAL_PLANO) { cuerpo = tabla(con) + (sin.length ? `<h3 class="salto">Sin fecha estimada</h3>${tabla(sin)}` : ''); }
+  if (activos.length < UMBRAL_PLANO) { cuerpo = tabla(con) + (sin.length ? `<h3 class="salto">Pedidos sin fecha de entrega</h3>${tabla(sin)}` : ''); }
   else {
     const grupos = {}; con.forEach(p => { const k = lunesDe(fe(p)).toISOString().slice(0, 10); (grupos[k] = grupos[k] || []).push(p); });
-    cuerpo = Object.keys(grupos).sort().map(k => `<h3>${etiquetaSemana(new Date(k + 'T12:00:00'))}</h3>${tabla(grupos[k])}`).join('') + (sin.length ? `<h3 class="salto">Sin fecha estimada</h3>${tabla(sin)}` : '');
+    cuerpo = Object.keys(grupos).sort().map(k => `<h3>${etiquetaSemana(new Date(k + 'T12:00:00'))}</h3>${tabla(grupos[k])}`).join('') + (sin.length ? `<h3 class="salto">Pedidos sin fecha de entrega</h3>${tabla(sin)}` : '');
   }
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir"><a href="${esOp ? '#/taller' : '#/lista'}">‹ Volver</a><button class="btn primario" onclick="window.print()">Imprimir</button><span style="color:var(--gris-3)">Mismo formato que el Listado Operacional en PDF (carta horizontal, ${activos.length < UMBRAL_PLANO ? 'una sola tabla' : 'agrupado por semana'}).</span></div>
     <div class="contenido listado-print"><div class="titulo-print">${esc(titulo)}</div>${cuerpo}</div>`;
