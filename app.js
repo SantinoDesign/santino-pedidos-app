@@ -6,7 +6,7 @@
 const sb = window.supabase.createClient(window.SANTINO_CONFIG.url, window.SANTINO_CONFIG.anon);
 const app = document.getElementById('app');
 let yo = null;            // {id, nombre, rol}
-let cache = { pedidos: [], filtro: 'pendientes', busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
+let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
 const META = 62;          // pedidos al mes (objetivo de utilidad, DM_Financiero v7.15)
 const ESTADOS = ['POR FABRICAR','VISITA TÉCNICA','DIBUJO 3D','DISEÑO APROBADO','EN FABRICACIÓN','LISTO EN TALLER','DESPACHO PROGRAMADO','ENTREGADO','CANCELADO','DEVUELTO'];
 const ORDEN_COMUNAS = ['Vitacura','Lo Barnechea','Las Condes','La Reina','Providencia','Ñuñoa','Santiago','Macul','Peñalolén','La Florida','Huechuraba','Colina','San Miguel','Maipú','Puente Alto'];
@@ -31,7 +31,14 @@ function chip(t) {
   const cls = t.startsWith('URGENTE') ? 'urgente' : t.startsWith('ATRASADO') ? 'atrasado' : t.startsWith('SALDO') ? 'saldo' : t.startsWith('PAGO') ? 'pago' : t.startsWith('INSTAL') ? 'inst' : t.startsWith('A MEDIDA') ? 'medida' : t.startsWith('PROPUESTO') ? 'prop' : '';
   return `<span class="chip ${cls}">${esc(t)}</span>`;
 }
-function estadoHtml(e) { return `<span class="estado e-${e.replace(/ /g, '_')}">${esc(e)}</span>`; }
+/* Códigos cortos para la Lista (Harold 12-oct-2026: columnas acotadas). El nombre completo va en el title (pasar el mouse). */
+const COD_ESTADO = { 'POR FABRICAR': 'PF', 'VISITA TÉCNICA': 'VT', 'DIBUJO 3D': 'D3', 'DISEÑO APROBADO': 'DA', 'EN FABRICACIÓN': 'EF', 'LISTO EN TALLER': 'LT', 'DESPACHO PROGRAMADO': 'DP', 'ENTREGADO': 'EN', 'CANCELADO': 'CA', 'DEVUELTO': 'DV' };
+const COD_TIPO = { 'Venta catálogo': 'CAT', 'Mesa a medida': 'MM', 'Mueble a medida': 'PROY', 'Postventa': 'PV', 'Repuesto': 'REP' };
+const NOMBRE_TIPO = { 'Mueble a medida': 'Proyecto (mueble a medida: cocina, clóset, muro)' };
+const COD_MATERIAL = { TRAVERTINO: 'TRAV', 'ROB.HUALLE': 'ROB.H', 'ROB.US': 'ROB.US', MELAMINA: 'MEL', 'PINO OREGON': 'P.OREG', CARVALLO: 'CARV', NEOLITH: 'NEOL', ENCINA: 'ENC', CUARZO: 'CUARZ' };
+const codMaterial = m => m ? (COD_MATERIAL[m] || m) : '';
+function estadoHtml(e, corto) { return `<span class="estado e-${e.replace(/ /g, '_')}" title="${esc(e)}">${esc(corto ? (COD_ESTADO[e] || e) : e)}</span>`; }
+function tipoHtml(t) { return `<span class="cod" title="${esc(NOMBRE_TIPO[t] || t)}">${esc(COD_TIPO[t] || t)}</span>`; }
 function rasgos(p) {
   const pz = p.piezas || [];
   const cub = pz.find(x => ['Cubierta', 'Mesa', 'Mueble', 'Repuesto'].includes(x.tipo)) || {};
@@ -42,13 +49,25 @@ function rasgos(p) {
     modelo: modelos.join(' + ') || (cub.descripcion || '').slice(0, 28),
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
+    // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
+    cubierta2: [codMaterial(cub.material_cubierta) || '-', cub.tono ? 'tono ' + cub.tono : ''],
+    base2: [codMaterial(base.material_base || cub.material_base) || (cub.color || base.color ? 'metal' : '-'), base.color || cub.color || ''],
     medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
     tono: cub.tono || '-', sillas: sil ? `${sil.cantidad} ${sil.tipo_silla || ''} ${sil.color_silla || ''}`.trim() : '-',
     entrega: (p.tipo_entrega === 'Despacho regiones' ? 'Regiones' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
   };
 }
 function piezasHtml(p, editable) {
-  return `<div class="piezas">${(p.piezas || []).filter(x => x.area).map(x => `<button class="pieza ${x.estado === 'Lista' ? 'lista' : x.estado === 'En proceso' ? 'proceso' : ''}" ${editable ? `data-pieza="${x.id}" data-estado="${x.estado}" data-pedido="${p.id}"` : 'disabled'} title="${esc(x.descripcion)} · ${esc(x.area)}">${esc(x.tipo === 'Servicio' ? 'Instalación' : x.tipo)}${x.estado === 'Lista' ? ' ✓' : ''}<small>${esc(x.area)}</small></button>`).join('')}</div>`;
+  // Piezas del pedido: una fila por cada parte que fabrica el taller, con su área y su estado (Harold 12-oct: los chips sueltos no se entendían)
+  const pz = (p.piezas || []).filter(x => x.area);
+  if (!pz.length) return '';
+  return `<div class="piezas-caja"><div class="piezas-titulo">Piezas del pedido (${pz.length}) · cada una es una parte que fabrica el taller${editable ? ' · toca "Marcar lista" cuando esté terminada' : ''}</div>
+    <table class="piezas-tabla"><tbody>${pz.map(x => `<tr>
+      <td><strong>${esc(x.tipo === 'Servicio' ? 'Instalación' : x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td>
+      <td>${esc(x.descripcion || '')}${x.color || x.tono ? ` <span class="gris">· ${esc([x.color ? 'base ' + x.color : null, x.tono ? 'tono ' + x.tono : null].filter(Boolean).join(' · '))}</span>` : ''}</td>
+      <td class="nw gris">${esc(x.area)}</td>
+      <td class="nw">${editable ? `<button class="pieza chica ${x.estado === 'Lista' ? 'lista' : x.estado === 'En proceso' ? 'proceso' : ''}" data-pieza="${x.id}" data-estado="${x.estado}" data-pedido="${p.id}">${x.estado === 'Lista' ? 'Lista ✓' : 'Marcar lista'}</button>` : `<span class="estado-pieza ${x.estado === 'Lista' ? 'lista' : ''}">${esc(x.estado)}</span>`}</td>
+    </tr>`).join('')}</tbody></table></div>`;
 }
 async function rpc(nombre, args) { const { data, error } = await sb.rpc(nombre, args); if (error) throw error; return data; }
 
@@ -128,23 +147,32 @@ async function cargarPedidos() {
   cache.pedidos = data; return data;
 }
 function filtrar(lista) {
-  const b = cache.busqueda.trim().toLowerCase(); if (!b) return lista;
-  return lista.filter(p => [p.numero, p.cliente, p.resumen, p.comuna, p.cotizacion_numero, p.observacion].join(' ').toLowerCase().includes(b));
+  // Filtros acumulables (Harold 12-oct): estados marcados Y tipos marcados Y texto buscado. Sin marcas = todos.
+  let l = lista;
+  if (cache.estados.size) l = l.filter(p => cache.estados.has(p.estado));
+  if (cache.tipos.size) l = l.filter(p => cache.tipos.has(p.tipo_pedido));
+  const b = cache.busqueda.trim().toLowerCase(); if (!b) return l;
+  return l.filter(p => [p.numero, p.cliente, p.resumen, p.comuna, p.cotizacion_numero, p.observacion].join(' ').toLowerCase().includes(b));
 }
 
 /* ---------- Harold · Lista densa ---------- */
 async function vLista() {
   await cargarPedidos();
-  const opciones = [['pendientes', 'Pendientes'], ...ESTADOS.map(e => [e, e.charAt(0) + e.slice(1).toLowerCase()]), ['entregados', 'Entregados (últimos)'], ['todos', 'Todos']];
+  if (!['pendientes', 'entregados', 'todos'].includes(cache.filtro)) cache.filtro = 'pendientes';
+  const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
+  const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${(grupo === 'estado' ? cache.estados : cache.tipos).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
   app.innerHTML = barra('#/lista') + `<div class="sub no-imprimir">
-      <label>Estado <select id="f-estado">${opciones.map(([v, t]) => `<option value="${v}" ${cache.filtro === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-      <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:220px"></label>
+      <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
+      ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
+      <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
+      <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
       <button class="btn" id="b-nuevo">+ Nuevo pedido</button>
       <button class="btn" id="b-export">Exportar a Excel (CSV)</button>
       <a class="btn" href="#/imprimir-listado">Imprimir listado operacional</a>
       <span id="resumen-lista" style="margin-left:auto;color:var(--gris-3)"></span>
-    </div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
-  $('#f-estado').onchange = e => { cache.filtro = e.target.value; vLista(); };
+    </div><div class="sub no-imprimir leyenda">Se pueden marcar varios estados y tipos a la vez; sin marcar = todos. Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} ${(NOMBRE_TIPO[t] || t).toLowerCase()}`).join(' · ')}.</div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
+  $('#f-modo').onchange = e => { cache.filtro = e.target.value; cache.estados.clear(); vLista(); };
+  $$('.ftog').forEach(b => b.onclick = () => { const set = b.dataset.grupo === 'estado' ? cache.estados : cache.tipos; set.has(b.dataset.valor) ? set.delete(b.dataset.valor) : set.add(b.dataset.valor); b.classList.toggle('on'); pintarLista(); });
   $('#f-busca').oninput = e => { cache.busqueda = e.target.value; pintarLista(); };
   $('#b-nuevo').onclick = () => formPedido();
   $('#b-export').onclick = exportarCSV;
@@ -153,15 +181,18 @@ async function vLista() {
 function pintarLista() {
   const lista = filtrar(cache.pedidos);
   $('#resumen-lista').textContent = `${lista.length} pedidos`;
-  const cab = ['Estado', 'N°', 'Cliente', 'Tipo', 'Modelo', 'Color', 'Pers.', 'Forma', 'Cubierta', 'Base', 'Esp.', 'Medida', 'Tono', 'Sillas', 'Entrega', 'Comuna', 'Compra', 'Comprometida', 'Saldo', 'Etiquetas'];
-  $('#tabla').innerHTML = `<table class="lista"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${lista.map(p => {
+  // Columnas acotadas (Harold 12-oct): códigos cortos con el nombre completo al pasar el mouse, celdas en dos líneas, Ficha a la izquierda.
+  const cab = [['', 'Abrir la ficha del pedido'], ['Est.', 'Estado (ver leyenda arriba)'], ['N°', ''], ['Cliente', ''], ['Tipo', 'Tipo de pedido (ver leyenda arriba)'], ['Modelo', ''], ['Pers.', 'Personas'], ['Forma', ''], ['Cubierta', 'Material de la cubierta y tono'], ['Base', 'Material de la base y color'], ['Esp.', 'Espesor en mm'], ['Medida', 'Largo x ancho (x alto) en cm'], ['Sillas', ''], ['Entrega', ''], ['Comuna', ''], ['Compra', ''], ['Entrega', 'Fecha comprometida; "est." = estimada automática'], ['Saldo', ''], ['Etiq.', 'Etiquetas automáticas']];
+  const dos = (a, b) => `<div class="l1">${esc(a)}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
+  $('#tabla').innerHTML = `<table class="lista compacta"><thead><tr>${cab.map(([c, t]) => `<th title="${esc(t)}">${c}</th>`).join('')}</tr></thead><tbody>${lista.map(p => {
     const r = rasgos(p);
     return `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
-      <td>${estadoHtml(p.estado)}</td><td class="num">${esc(p.numero)}</td><td class="nw">${esc(p.cliente)}</td><td class="nw">${esc(p.tipo_pedido.replace('Venta catálogo', 'Catálogo'))}</td>
-      <td class="nw">${esc(r.modelo)}</td><td>${esc(r.color)}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td>${esc(r.cubierta)}</td><td>${esc(r.base)}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td>${esc(r.tono)}</td><td class="nw">${esc(r.sillas)}</td>
-      <td class="nw">${esc(r.entrega)}</td><td class="nw">${esc(p.comuna || '')}</td><td class="nw">${fecha(p.fecha_compra)}</td><td class="nw ${p.atrasado ? 'num' : ''}" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${fecha(p.fecha_comprometida || p.fecha_estimada)}${p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>'}</td>
-      <td class="nw mono">${pesos(p.saldo)}</td><td>${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}</td></tr>`;
+      <td><a class="ficha-link" href="#/pedido/${p.id}" title="Abrir ficha">Ficha</a></td><td>${estadoHtml(p.estado, true)}</td><td class="num">${esc(p.numero)}</td><td class="cliente">${esc(p.cliente)}</td><td>${tipoHtml(p.tipo_pedido)}</td>
+      <td class="modelo">${esc(r.modelo)}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td>${dos(r.cubierta2[0], r.cubierta2[1])}</td><td>${dos(r.base2[0], r.base2[1])}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
+      <td class="nw">${esc(r.entrega)}</td><td class="comuna">${esc(p.comuna || '')}</td><td class="nw">${fecha(p.fecha_compra)}</td><td class="nw ${p.atrasado ? 'num' : ''}" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${fecha(p.fecha_comprometida || p.fecha_estimada)}${p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>'}</td>
+      <td class="nw mono">${pesos(p.saldo)}</td><td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}</td></tr>`;
   }).join('')}</tbody></table>`;
+  $$('#tabla a.ficha-link').forEach(a => a.onclick = ev => ev.stopPropagation());
   $$('#tabla tr.fila').forEach(tr => tr.onclick = () => abrirDetalleFila(tr));
 }
 function abrirDetalleFila(tr) {
@@ -170,13 +201,14 @@ function abrirDetalleFila(tr) {
   $$('#tabla tr.detalle').forEach(x => x.remove());
   const p = cache.pedidos.find(x => x.id == tr.dataset.id);
   const d = document.createElement('tr'); d.className = 'detalle';
-  d.innerHTML = `<td colspan="20"><div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+  d.innerHTML = `<td colspan="20"><div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+    <a class="btn chico primario" href="#/pedido/${p.id}">Abrir ficha</a>
     ${piezasHtml(p, yo.rol === 'admin')}
     <span style="color:var(--gris-2)">${esc(p.resumen || '')}</span>
     ${p.observacion ? `<span>Obs.: ${esc(p.observacion)}</span>` : ''}
     ${p.nota_entrega ? `<span>Entrega: ${esc(p.nota_entrega)}</span>` : ''}
     ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' ? `<span class="chip prop">Alexis propone despacho ${fecha(p.despacho_propuesto, true)}</span><button class="btn chico borde" data-confirmar="${p.id}">Cliente confirmó: programar</button><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp al cliente</a>` : ''}
-    <a class="btn chico primario" href="#/pedido/${p.id}">Abrir ficha</a></div></td>`;
+    </div></td>`;
   tr.after(d);
   activarPiezas(d, () => vLista());
   const bc = $('[data-confirmar]', d); if (bc) bc.onclick = async () => { try { await rpc('confirmar_despacho', { p_pedido_id: p.id }); aviso('Despacho programado'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
@@ -316,7 +348,7 @@ async function vFicha(id) {
   const r = rasgos(p); const aMedida = ['Mesa a medida', 'Mueble a medida'].includes(p.tipo_pedido);
   const piezas = (p.piezas || []);
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="contenido">
-    <div class="encabezado"><a href="${esOp ? '#/taller' : '#/lista'}">‹ Volver</a><h1>${esc(p.numero)} · ${esc(p.cliente)}</h1>${estadoHtml(p.estado)}${aMedida ? `<span class="chip medida">${esc(p.tipo_pedido.toUpperCase())}</span>` : ''}${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}
+    <div class="encabezado"><a href="${esOp ? '#/taller' : '#/lista'}">‹ Volver</a><h1>${esc(p.numero)} · ${esc(p.cliente)}</h1>${estadoHtml(p.estado)}${aMedida ? `<span class="chip medida">${esc((p.tipo_pedido === 'Mueble a medida' ? 'PROYECTO' : p.tipo_pedido).toUpperCase())}</span>` : ''}${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}
       ${esOp && p.saldo_por_cobrar > 0 ? `<span class="chip saldo">COBRAR ${pesos(p.saldo_por_cobrar)} AL ENTREGAR</span>` : ''}
       <div class="espacio"></div>
       ${esOp ? '' : `<label style="font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="c-urgente" ${p.urgente ? 'checked' : ''}> Urgente</label>
@@ -325,8 +357,8 @@ async function vFicha(id) {
     ${aMedida && !esOp ? `<div class="pasos" style="margin-bottom:12px">${['VISITA TÉCNICA', 'DIBUJO 3D', 'DISEÑO APROBADO', 'EN FABRICACIÓN', 'LISTO EN TALLER', 'DESPACHO PROGRAMADO', 'ENTREGADO'].map(e => `<span class="${e === p.estado ? 'activo' : ''}">${e}</span>`).join('')}<span style="background:none">La fabricación solo parte con DISEÑO APROBADO (R-139)</span></div>` : ''}
     <div class="grid-ficha"><div class="columna">
       <section class="seccion"><div class="cab"><h2>Piezas del pedido · toca para marcar lista</h2>${esOp ? '' : `<button class="btn chico" id="b-linea">+ Agregar línea</button>`}</div>
-        <div class="tabla-env"><table class="lista"><thead><tr><th>Pieza</th><th>Descripción</th><th>Diseño</th><th>Material</th><th>Medida</th><th>Color / tono</th><th>Área</th><th>Estado</th></tr></thead><tbody>
-        ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.alto_cm ? ' x ' + num(x.alto_cm) : ''}` : '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color, x.tono ? 'tono ' + x.tono : null, x.color_silla].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
+        <div class="tabla-env"><table class="lista"><thead><tr><th>Pieza</th><th>Descripción</th><th>Diseño</th><th>Material</th><th>Medida</th><th title="Color de la base (estructura) y tono de la cubierta, por separado">Color base / tono cubierta</th><th>Área</th><th>Estado</th></tr></thead><tbody>
+        ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.alto_cm ? ' x ' + num(x.alto_cm) : ''}` : '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color ? 'base ' + x.color : null, x.tono ? 'tono ' + x.tono : null, x.color_silla ? 'silla ' + x.color_silla : null].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
           <td>${x.area ? `<button class="pieza ${x.estado === 'Lista' ? 'lista' : x.estado === 'En proceso' ? 'proceso' : ''}" data-pieza="${x.id}" data-estado="${x.estado}">${x.estado}${x.estado === 'Lista' ? ' ✓' : ''}</button>${x.estado === 'Pendiente' ? ` <button class="btn chico" data-proceso="${x.id}">En proceso</button>` : ''}` : '-'}</td></tr>`).join('')}
         </tbody></table></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">

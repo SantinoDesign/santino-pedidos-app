@@ -52,6 +52,33 @@ textarea{min-height:70px}
 .pieza small{display:block;font-weight:400;font-size:11px;opacity:.85}
 .tablet .pieza{font-size:15px;min-height:46px;padding:8px 14px}
 
+/* Lista compacta (Harold 12-oct-2026): celdas en dos líneas, códigos cortos, menos aire */
+table.lista.compacta{font-size:12px}
+table.lista.compacta th{padding:7px 6px}
+table.lista.compacta td{padding:5px 6px;line-height:1.25}
+table.lista.compacta td.cliente{min-width:110px;max-width:150px}
+table.lista.compacta td.modelo{min-width:90px;max-width:140px}
+table.lista.compacta td.sillas,table.lista.compacta td.comuna{max-width:110px}
+table.lista.compacta td.etiq .chip{margin:1px 0}
+table.lista.compacta .l1{font-weight:600;white-space:nowrap}
+table.lista.compacta .l2{color:var(--gris-2);font-size:11px;white-space:nowrap}
+.cod{display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;background:var(--azul-suave);color:var(--azul-osc);white-space:nowrap}
+.ficha-link{display:inline-block;padding:3px 7px;border:1px solid var(--azul);border-radius:4px;color:var(--azul);font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap}
+.ficha-link:hover{background:var(--azul);color:#fff}
+.fgrupo{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+.fgrupo-t{color:var(--gris-3);margin-right:2px}
+.ftog{padding:4px 8px;border:1px solid #CCD4D8;border-radius:12px;background:#fff;color:var(--gris);font-size:11px;font-weight:700;min-height:26px}
+.ftog.on{background:var(--azul);border-color:var(--azul);color:#fff}
+.sub.leyenda{padding-top:0;font-size:11px;color:var(--gris-3)}
+.piezas-caja{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:8px 10px;min-width:320px}
+.piezas-titulo{font-size:11px;color:var(--gris-2);margin-bottom:4px}
+.piezas-tabla{border-collapse:collapse;font-size:12px}
+.piezas-tabla td{padding:3px 8px 3px 0;vertical-align:middle}
+.piezas-tabla .gris{color:var(--gris-2)}
+.pieza.chica{min-height:28px;padding:3px 8px;font-size:11px;border-width:1px}
+.estado-pieza{font-size:11px;color:var(--gris-2)}
+.estado-pieza.lista{color:var(--azul);font-weight:700}
+
 /* Tablas */
 .tabla-env{overflow-x:auto;background:#fff;border:1px solid var(--linea);border-radius:8px}
 table.lista{border-collapse:collapse;width:100%;font-size:12px}
