@@ -63,8 +63,14 @@ function rasgos(p) {
   const base = pz.find(x => x.tipo === 'Base') || {};
   const sil = pz.find(x => x.tipo === 'Silla' || x.tipo === 'Banca');
   const modelos = [cub.modelo_cubierta, base.modelo_base].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+  // Modelo a la vista siempre (Harold 12-oct): catálogo = código; especial = ESPECIAL más el inicio de la descripción;
+  // pedido solo de sillas = código de la silla (WISH, CROSS, S.SANTINO), aunque se repita en la columna Sillas.
+  let modeloTxt = modelos.join(' + ');
+  if (modeloTxt === 'ESPECIAL' || modeloTxt === 'ESPECIAL + ESPECIAL') modeloTxt = 'ESPECIAL · ' + (cub.descripcion || '').replace(/especial/ig, '').replace(/^[\s·]+|[\s·]+$/g, '').slice(0, 26);
+  if (!modeloTxt && !cub.tipo && sil) modeloTxt = sil.tipo_silla || 'Sillas';
+  if (!modeloTxt) modeloTxt = (cub.descripcion || '').slice(0, 28);
   return {
-    modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + (modelos.join(' + ') || (cub.descripcion || '').slice(0, 28)),  // cantidad delante solo si es más de 1 (Harold 12-oct)
+    modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + modeloTxt,
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
