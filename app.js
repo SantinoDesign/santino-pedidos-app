@@ -32,8 +32,8 @@ function chip(t) {
   return `<span class="chip ${cls}">${esc(t)}</span>`;
 }
 /* Códigos cortos para la Lista (Harold 12-oct-2026: columnas acotadas). El nombre completo va en el title (pasar el mouse). */
-const COD_ESTADO = { 'POR FABRICAR': 'PF', 'VISITA TÉCNICA': 'VT', 'DIBUJO 3D': 'D3', 'DISEÑO APROBADO': 'DA', 'EN FABRICACIÓN': 'EF', 'LISTO EN TALLER': 'LT', 'DESPACHO PROGRAMADO': 'DP', 'ENTREGADO': 'EN', 'CANCELADO': 'CA', 'DEVUELTO': 'DV' };
-const COD_TIPO = { 'Venta catálogo': 'CAT', 'Mesa a medida': 'MM', 'Mueble a medida': 'MUEB', 'Postventa': 'PV', 'Repuesto': 'REP' };
+const COD_ESTADO = { 'POR FABRICAR': 'POR FAB', 'VISITA TÉCNICA': 'VIS TEC', 'DIBUJO 3D': 'DIB 3D', 'DISEÑO APROBADO': 'DIS APR', 'EN FABRICACIÓN': 'EN FAB', 'LISTO EN TALLER': 'LISTO T', 'DESPACHO PROGRAMADO': 'DESP PR', 'ENTREGADO': 'ENTREG', 'CANCELADO': 'CANCEL', 'DEVUELTO': 'DEVUEL' };  // opción B, Harold 12-oct
+const COD_TIPO = { 'Venta catálogo': 'CATAL', 'Mesa a medida': 'MESA.M', 'Mueble a medida': 'MUEB.M', 'Postventa': 'POSTV', 'Repuesto': 'REPU' };  // opción A, Harold 12-oct
 const NOMBRE_TIPO = { 'Mueble a medida': 'Mueble a medida (pieza suelta: repisa, sofá modular, poste; no es un proyecto de cocina o clóset)' };
 const COD_MATERIAL = { TRAVERTINO: 'TRAV', 'ROB.HUALLE': 'ROB.H', 'ROB.US': 'ROB.US', MELAMINA: 'MEL', 'PINO OREGON': 'P.OREG', CARVALLO: 'CARV', NEOLITH: 'NEOL', ENCINA: 'ENC', CUARZO: 'CUARZ' };
 const codMaterial = m => m ? (COD_MATERIAL[m] || m) : '';
@@ -41,7 +41,7 @@ const ES_VIDRIO = m => ['V.T', 'V.C'].includes(m);
 const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en proyectos; el vidrio de catálogo es incoloro y no lleva tono (Harold 12-oct)
 /* Tipo de base. REGLA (Harold 12-oct-2026, error grave corregido): NUNCA deducir "metal" por el color de la estructura.
    Un color NGR puede ser pino pintado (Gonqui). La fuente es material_base de la línea y, si falta, el área de taller
-   del modelo en la tabla modelo (Soldadura = metal, Carpintería = madera, Armado muebles = tablero). Sin dato = vacío. */
+   del modelo en la tabla modelo (Soldadura = metal, Carpintería = madera, Armado muebles = MDF enchapado). Sin dato = vacío. */
 async function cargarModelos() {
   if (cache.modelos) return;
   const { data } = await sb.from('modelo').select('codigo,area_base');
@@ -49,9 +49,9 @@ async function cargarModelos() {
 }
 function tipoBase(cub, base) {
   const mb = base.material_base || cub.material_base;
-  if (mb) return ES_VIDRIO(mb) ? 'VIDRIO' : ['METAL', 'FIERRO', 'ACERO'].includes(mb) ? 'METAL' : ['MELAMINA', 'MDF', 'TABLERO'].includes(mb) ? 'TABLERO' : 'MADERA';
+  if (mb) return ES_VIDRIO(mb) ? 'VIDRIO' : ['METAL', 'FIERRO', 'ACERO'].includes(mb) ? 'METAL' : ['MELAMINA', 'MDF', 'TABLERO', 'ENCHAPADO'].includes(mb) ? 'ENCHAPADO' : 'MADERA';
   const area = (cache.modelos || {})[base.modelo_base || cub.modelo_base || cub.modelo_cubierta];
-  return area === 'Soldadura' ? 'METAL' : area === 'Carpintería' ? 'MADERA' : area === 'Armado muebles' ? 'TABLERO' : '';
+  return area === 'Soldadura' ? 'METAL' : area === 'Carpintería' ? 'MADERA' : area === 'Armado muebles' ? 'ENCHAPADO' : '';  // ENCHAPADO = MDF enchapado (Montecarlo), Harold 12-oct
 }
 function estadoHtml(e, corto) { return `<span class="estado e-${e.replace(/ /g, '_')}" title="${esc(e)}">${esc(corto ? (COD_ESTADO[e] || e) : e)}</span>`; }
 function tipoHtml(t) { return `<span class="cod" title="${esc(NOMBRE_TIPO[t] || t)}">${esc(COD_TIPO[t] || t)}</span>`; }
@@ -68,7 +68,7 @@ function rasgos(p) {
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
     cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : 'tono ' + cub.tono],
     baseTipo: tipoBase(cub, base),
-    base2: [codMaterial(base.material_base || cub.material_base) || tipoBase(cub, base) || '-', [base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'TABLERO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? 'tono ' + cub.tono : ''].filter(Boolean).join(' ')],
+    base2: [codMaterial(base.material_base || cub.material_base) || tipoBase(cub, base) || '-', [base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? 'tono ' + cub.tono : ''].filter(Boolean).join(' ')],
     medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
     tono: cub.tono || '-', sillas: sil ? `${sil.cantidad} ${sil.tipo_silla || ''} ${sil.color_silla || ''}`.trim() : '-',
     entrega: (p.tipo_entrega === 'Despacho regiones' ? 'REG' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
@@ -185,13 +185,13 @@ async function vLista() {
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
       <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
-      <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['TABLERO', 'Base de melamina o MDF (armado)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
+      <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['ENCHAPADO', 'Base de MDF enchapado (armado de muebles, ej. Montecarlo)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
       <button class="btn" id="b-nuevo">+ Nuevo pedido</button>
       <button class="btn" id="b-export">Exportar a Excel (CSV)</button>
       <a class="btn" href="#/imprimir-listado">Imprimir listado operacional</a>
       <span id="resumen-lista" style="margin-left:auto;color:var(--gris-3)"></span>
-    </div><div class="sub no-imprimir leyenda">Se pueden marcar varios estados y tipos a la vez; sin marcar = todos. Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · TABLERO melamina o MDF (según el material de la línea o, si falta, el modelo).</div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
+    </div><div class="sub no-imprimir leyenda">Se pueden marcar varios estados y tipos a la vez; sin marcar = todos. Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado (según el material de la línea o, si falta, el modelo).</div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
   $('#f-modo').onchange = e => { cache.filtro = e.target.value; cache.estados.clear(); vLista(); };
   $$('.ftog').forEach(b => b.onclick = () => { const set = setDe(b.dataset.grupo); set.has(b.dataset.valor) ? set.delete(b.dataset.valor) : set.add(b.dataset.valor); b.classList.toggle('on'); pintarLista(); });
   $('#f-busca').oninput = e => { cache.busqueda = e.target.value; pintarLista(); };
