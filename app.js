@@ -42,10 +42,10 @@ const ES_VIDRIO = m => ['V.T', 'V.C'].includes(m);
 const NO_MADERA = ['V.T', 'V.C', 'TRAVERTINO', 'NEOLITH', 'CUARZO', 'MELAMINA', 'RATAN', 'METAL', 'FIERRO', 'ACERO', 'MDF', 'ENCHAPADO'];
 const ES_MADERA = m => !!m && !NO_MADERA.includes(String(m).toUpperCase());
 /* Base de madera cuando la línea no trae material propio (Harold 12-oct-2026): la misma madera de la cubierta,
-   salvo Gonqui en NEGRO, cuya base es de pino pintado (en los demás tonos la base es la misma madera de la cubierta). */
+   salvo Gonqui y Trama en NEGRO, cuya base es de pino pintado (en los demás tonos la base es la misma madera de la cubierta). */
 function maderaBase(cub, base) {
   const mod = base.modelo_base || cub.modelo_base || cub.modelo_cubierta; const col = String(base.color || cub.color || '').toUpperCase();
-  if (mod === 'GONQUI' && col.startsWith('NGR')) return 'PINO';
+  if (['GONQUI', 'TRAMA'].includes(mod) && col.startsWith('NGR')) return 'PINO';  // solo Gonqui y Trama (Harold 12-oct)
   return ES_MADERA(cub.material_cubierta) ? codMaterial(cub.material_cubierta) : '';
 }
 const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en proyectos; el vidrio de catálogo es incoloro y no lleva tono (Harold 12-oct)
