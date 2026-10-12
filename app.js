@@ -310,7 +310,7 @@ function mensajeSaldo(p, abonos) {
   const modelo = NOMBRE_MODELO[cub.modelo_cubierta] || NOMBRE_MODELO[(pz.find(x => x.tipo === 'Base') || {}).modelo_base] || cub.modelo_cubierta || cub.descripcion || '';
   const L = [`${nombrePila(p)}, te dejamos por acá el detalle de tu pedido con el saldo pendiente.`, ''];
   L.push(`${modelo}${cub.personas ? ' ' + cub.personas + ' personas' : ''}`.trim());
-  const det = [cub.material_cubierta ? `${NOMBRE_MATERIAL[cub.material_cubierta] || cub.material_cubierta}${cub.espesor_mm ? ' ' + cub.espesor_mm + 'mm' : ''}` : null, cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''} cm` : null, cub.color ? (NOMBRE_COLOR[cub.color] || cub.color) : null, cub.tono ? (/^\d$/.test(cub.tono) ? 'barniz ' + ({ 1: 'natural', 2: '2 manos', 4: '4 manos' }[cub.tono] || 'tono ' + cub.tono) : 'barniz ' + (NOMBRE_COLOR[cub.tono] || cub.tono)) : null].filter(Boolean);
+  const det = [cub.material_cubierta ? `${nombreMaterial(cub.material_cubierta)}${cub.espesor_mm ? ' ' + cub.espesor_mm + 'mm' : ''}` : null, cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''} cm` : null, cub.color ? (NOMBRE_COLOR[cub.color] || cub.color) : null, cub.tono ? (/^\d$/.test(cub.tono) ? 'barniz ' + ({ 1: 'natural', 2: '2 manos', 4: '4 manos' }[cub.tono] || 'tono ' + cub.tono) : 'barniz ' + (NOMBRE_COLOR[cub.tono] || cub.tono)) : null].filter(Boolean);
   if (det.length) L.push(det.join(' · '));
   if (sil) L.push(`${sil.cantidad} sillas ${(sil.tipo_silla || '').toLowerCase().replace(/^./, c => c.toUpperCase())} ${({ NGR: 'negras', NAT: 'naturales', BL: 'blancas' }[sil.color_silla] || sil.color_silla || '')}`.trim());
   L.push('');
