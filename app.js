@@ -41,6 +41,13 @@ const codMaterial = m => m ? (COD_MATERIAL[m] || m) : '';
 const ES_VIDRIO = m => ['V.T', 'V.C'].includes(m);
 const NO_MADERA = ['V.T', 'V.C', 'TRAVERTINO', 'NEOLITH', 'CUARZO', 'MELAMINA', 'RATAN', 'METAL', 'FIERRO', 'ACERO', 'MDF', 'ENCHAPADO'];
 const ES_MADERA = m => !!m && !NO_MADERA.includes(String(m).toUpperCase());
+/* Base de madera cuando la línea no trae material propio (Harold 12-oct-2026): la misma madera de la cubierta,
+   salvo Gonqui en NEGRO, cuya base es de pino pintado (en los demás tonos la base es la misma madera de la cubierta). */
+function maderaBase(cub, base) {
+  const mod = base.modelo_base || cub.modelo_base || cub.modelo_cubierta; const col = String(base.color || cub.color || '').toUpperCase();
+  if (mod === 'GONQUI' && col.startsWith('NGR')) return 'PINO';
+  return ES_MADERA(cub.material_cubierta) ? codMaterial(cub.material_cubierta) : '';
+}
 const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en proyectos; el vidrio de catálogo es incoloro y no lleva tono (Harold 12-oct)
 /* Tipo de base. REGLA (Harold 12-oct-2026, error grave corregido): NUNCA deducir "metal" por el color de la estructura.
    Un color NGR puede ser pino pintado (Gonqui). La fuente es material_base de la línea y, si falta, el área de taller
@@ -82,7 +89,7 @@ function rasgos(p) {
     cubierta2: [codMaterial(cub.material_cubierta) || '-', !cub.tono ? '' : ES_VIDRIO(cub.material_cubierta) ? (TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? cub.tono : '') : tonoTxt(cub.tono), cub.tipo !== 'Silla' && cub.color_silla ? 'tapiz ' + cub.color_silla : ''],
     baseTipo: tipoBase(cub, base),
     // Base de madera sin material propio: es la misma madera de la cubierta (Gonqui pino = base pino); solo si la cubierta no es madera queda "MADERA" (Harold 12-oct)
-    base2: [codMaterial(base.material_base || cub.material_base) || (tipoBase(cub, base) === 'MADERA' && ES_MADERA(cub.material_cubierta) ? codMaterial(cub.material_cubierta) : tipoBase(cub, base)) || '-', base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? tonoTxt(cub.tono) : ''],
+    base2: [codMaterial(base.material_base || cub.material_base) || (tipoBase(cub, base) === 'MADERA' ? (maderaBase(cub, base) || 'MADERA') : tipoBase(cub, base)) || '-', base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? tonoTxt(cub.tono) : ''],
     medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
     tono: cub.tono || '-', sillas: sil ? `${sil.cantidad} ${sil.tipo_silla || ''} ${sil.color_silla || ''}`.trim() : '-',
     entrega: (p.tipo_entrega === 'Despacho regiones' ? 'REG' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
