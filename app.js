@@ -200,15 +200,16 @@ function formEditarPieza(lineaId, despues) {
     <label class="campo">Alto cm <input name="alto_cm" inputmode="decimal" value="${nv(x.alto_cm)}"></label>
     <label class="campo">Espesor mm (cubierta) <input name="espesor_mm" inputmode="decimal" value="${nv(x.espesor_mm)}"></label>
     <label class="campo">Forma <select name="forma"><option value="">-</option>${op(['RECT', 'CUA', 'CIRC', 'OVAL'], x.forma)}</select></label></div>`}
+    <label class="campo" style="display:block;margin-top:8px">Medidas escritas para el maestro (manda sobre largo × ancho × alto; ej. "cruz arriba 40, cruz abajo 60, alto 71" o "Plano por definir") <input name="medida_texto" style="width:100%" value="${esc(x.medida_texto || '')}"></label>
     <label class="campo" style="display:block;margin-top:8px">Indicaciones del maestro (requerimientos especiales: radio, bisel, cabezales, plano impreso, madera clara...) <textarea name="indicaciones" rows="2" style="width:100%">${esc(x.indicaciones || '')}</textarea></label>
     <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Barniz: madera, pintado o lacado, encina. Pintura: metal. Sin acabado: sin barniz, melamina, tapicería. Lo comprado a proveedor solo se pide, se recibe y se embala. Medidas de una base: largo × ancho × alto.</p>
     <div class="acciones">${esOp ? '' : '<button type="button" class="btn borde" id="b-borrar-pz" style="margin-right:auto;color:var(--rojo-txt)">Borrar pieza</button>'}<button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f-pz').onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target);
     const cambios = esOp
-      ? { acabado: f.get('acabado') || null, fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones') }
+      ? { acabado: f.get('acabado') || null, fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto') }
       : { tipo_linea: f.get('tipo_linea'), descripcion: f.get('descripcion'), area_taller: f.get('area_taller') || null, acabado: f.get('area_taller') === 'Vidrio/compras' ? null : (f.get('acabado') || null),
-          fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), largo_cm: f.get('largo_cm').replace(',', '.'), ancho_cm: f.get('ancho_cm').replace(',', '.'), alto_cm: f.get('alto_cm').replace(',', '.'), espesor_mm: f.get('espesor_mm').replace(',', '.'), forma: f.get('forma') || null };
+          fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto'), largo_cm: f.get('largo_cm').replace(',', '.'), ancho_cm: f.get('ancho_cm').replace(',', '.'), alto_cm: f.get('alto_cm').replace(',', '.'), espesor_mm: f.get('espesor_mm').replace(',', '.'), forma: f.get('forma') || null };
     try { const r = await rpc('editar_pieza', { p_linea_id: lineaId, p_cambios: cambios }); actualizarPiezas(r); aviso('Pieza guardada'); cerrarModal(); despues && despues(r); } catch (e) { aviso(errorDe(e), true); }
   };
   if (!esOp) $('#b-borrar-pz').onclick = async () => {
@@ -935,6 +936,7 @@ async function vOdt() {
   const falta = t => `<span class="falta-dato">${t}</span>`;
   const maderaTxt = (x, esBase) => { const m = esBase ? x.material_base : (x.material_cubierta || x.material_base); return m ? nombreMaterial(m).toUpperCase() + (!esBase && x.espesor_mm ? ' ' + num(x.espesor_mm) + ' mm' : '') : ''; };
   const tamanoHtml = (x, p) => {
+    if (x.medida_texto) return (/por definir|pendiente/i.test(x.medida_texto) ? falta(esc(x.medida_texto)) : esc(x.medida_texto)) + (x.tipo === 'Base' ? paraCub(x, p) : '');
     if (x.tipo === 'Base') {
       const cub = (p.piezas || []).find(y => y.tipo === 'Cubierta' && y.largo_cm);
       const para = cub ? `<div class="l2">para cubierta ${esc(medidaTxt(cub))} cm</div>` : '';
@@ -946,6 +948,7 @@ async function vOdt() {
     if (x.forma === 'CIRC' && !x.ancho_cm || x.forma === 'CIRC' && x.ancho_cm === x.largo_cm && !x.alto_cm) return `Ø ${num(x.largo_cm)} cm${x.largo_ext_cm ? ' a ' + num(x.largo_ext_cm) + ' ext' : ''}`;
     return esc(medidaTxt(x, ' × ')) + ' cm';
   };
+  const paraCub = (x, p) => { const cub = (p.piezas || []).find(y => y.tipo === 'Cubierta' && y.largo_cm); return cub ? `<div class="l2">para cubierta ${esc(medidaTxt(cub))} cm</div>` : ''; };
   const formatoTxt = x => x.tipo === 'Base' ? '' : [FORMA_TXT[x.forma], x.largo_ext_cm ? 'extensible' : ''].filter(Boolean).join(' · ');
   const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? nombreColor(x.color) : null) : tonoTxt(x.tono)].filter(Boolean).join(' · ');
   const filaFecha = (x, p) => { const k = x.fecha_taller || null; return `<td class="nw"><span class="no-imprimir"><input type="date" class="f-taller" value="${k || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro (cuándo debe estar lista esta pieza)"></span><span class="solo-impresion">${k ? fecha(k, true) : '________'}</span><div class="l2">cliente ${fe(p) ? fecha(fe(p)) : 'sin fecha'}${p.urgente ? ' <strong>URG</strong>' : ''}</div></td>`; };
