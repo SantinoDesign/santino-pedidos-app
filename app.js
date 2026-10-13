@@ -412,7 +412,7 @@ function pintarLista() {
       <td class="c-est"><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2"><span class="chip inst">${esc(m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase())}</span></div></td>
       <td colspan="4"><div class="l1">${esc(m.nota || m.tipo)}</div><div class="l2">${esc(m.direccion || p.direccion || 'dirección pendiente')}</div></td>
-      <td class="c-ent fecha-mov">${movFechaTxt(m)}</td><td class="c-com">${dos(p.comuna || '', '')}</td>
+      <td class="c-ent fecha-mov" data-mov-id="${m.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(m)}</td><td class="c-com">${dos(p.comuna || '', '')}</td>
       ${celdas ? '' : '<td class="c-pz"></td>'}<td class="${esOp ? 'c-com' : 'c-saldo'}"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td></tr>`;
   const feP = p => p.fecha_comprometida || p.fecha_estimada || '9999';
   const ids = new Set(lista.map(p => p.id));
@@ -433,7 +433,7 @@ function pintarLista() {
     const r = rasgos(p);
     const envio = (p.tipo_entrega === 'Despacho regiones' ? 'Regiones' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro en taller' : 'RM') + (p.instalacion ? ' + instalación' : '');
     const fe = feP(p); const atraso = p.atrasado ? Math.max(1, Math.round((new Date(hoy) - new Date(fe)) / 864e5)) : 0;
-    const ent = fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.fecha_comprometida ? '<div class="l2">comprometida</div>' : '<div class="l2">aprox. (+21 d)</div>'}`;
+    const ent = fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.despacho_propuesto && p.estado !== 'DESPACHO PROGRAMADO' ? `<div class="l2 propone">Alexis propone ${fecha(p.despacho_propuesto)}</div>` : p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.fecha_comprometida ? '<div class="l2">comprometida</div>' : '<div class="l2">aprox. (+21 d)</div>'}`;
     const cubL1 = r.parcial === 'solo bases' ? '-' : [r.cub.material_cubierta ? codMaterial(r.cub.material_cubierta) : '', r.cub.espesor_mm ? num(r.cub.espesor_mm) + ' mm' : ''].filter(Boolean).join(' · ') || (celdas && r.cub.area ? (r.cub.tipo === 'Servicio' ? 'Instalación' : r.cub.tipo) : '-');
     const cubL2 = r.cubierta2.slice(1).filter(Boolean).join(' · ');
     const conBase = r.base.tipo || ['Cubierta', 'Mesa'].includes(r.cub.tipo);  // un mueble, banca o servicio no tiene base: la celda queda vacía
@@ -450,7 +450,7 @@ function pintarLista() {
       <td class="c-cub">${celdaCub}</td><td class="c-base">${celdaBase}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
       <td class="c-sillas">${celdaSil}</td>
-      ${mp ? `<td class="c-ent fecha-mov">${movFechaTxt(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="Clic para cambiar la fecha de entrega">${ent}</td>`}
+      ${mp ? `<td class="c-ent fecha-mov" data-mov-id="${mp.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="${esOp ? 'Clic para proponer una fecha de entrega (Harold la acepta)' : 'Clic para cambiar la fecha de entrega'}">${ent}</td>`}
       <td class="c-com">${dos(p.comuna || (p.tipo_entrega === 'Retiro en taller' ? 'Taller' : ''), envio).replace('<div class="l1">-</div>', '<div class="l1 falta-dato">¿comuna?</div>')}</td>
       ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}${esOp ? '' : `<td class="c-saldo mono ${p.saldo > 0 ? 'rojo' : ''}">${p.saldo > 0 ? pesos(p.saldo) : '<span class="gris">pagado</span>'}</td>`}</tr>`;
   }).join('');
@@ -460,14 +460,29 @@ function pintarLista() {
   activarMovimientos($('#tabla'), {}, recargarMovs);
   activarEtapas($('#tabla'), () => pintarLista());
   activarArrastreHorizontal($('#tabla'));
-  if (yo.rol === 'admin') $$('#tabla td.fecha-ent').forEach(td => td.onclick = ev => {
-    ev.stopPropagation(); if (td.querySelector('input')) return;
-    const p = cache.pedidos.find(x => x.id == td.dataset.id); const antes = td.innerHTML;
-    td.innerHTML = `<input type="date" value="${p.fecha_comprometida || p.fecha_estimada || ''}" style="min-height:28px;padding:2px 4px;font-size:12px;width:100%">`;
+  // Fechas desde la Lista (Harold 13-oct): Harold siempre puede cambiarlas; Alexis solo propone (entrega del pedido o día del movimiento) y Harold acepta.
+  const editorFecha = (td, valorInicial, guardar) => {
+    if (td.querySelector('input')) return; const antes = td.innerHTML;
+    td.innerHTML = `<input type="date" value="${valorInicial || ''}" style="min-height:28px;padding:2px 4px;font-size:12px;width:100%">`;
     const inp = td.querySelector('input'); inp.focus(); try { inp.showPicker && inp.showPicker(); } catch (e) { /* algunos navegadores no lo permiten */ }
     inp.onclick = e => e.stopPropagation();
-    inp.onchange = async () => { const v = inp.value || null; const antesV = p.fecha_comprometida; const { error } = await sb.from('pedido').update({ fecha_comprometida: v }).eq('id', p.id); aviso(error ? errorDe(error) : (v ? 'Entrega comprometida: ' + fecha(v, true) : 'Fecha de entrega borrada'), !!error); if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: antesV }).eq('id', p.id).then(r => { if (r.error) throw r.error; })); vLista(); };
+    inp.onchange = () => guardar(inp.value || null);
     inp.onblur = () => setTimeout(() => { if (td.querySelector('input')) td.innerHTML = antes; }, 200);
+  };
+  $$('#tabla td.fecha-ent').forEach(td => td.onclick = ev => {
+    ev.stopPropagation(); const p = cache.pedidos.find(x => x.id == td.dataset.id);
+    if (esOp) return editorFecha(td, p.despacho_propuesto || p.fecha_comprometida || p.fecha_estimada, async v => { try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: v }); aviso(v ? 'Propuesto ' + fecha(v, true) + '; Harold decide' : 'Propuesta retirada'); vLista(); } catch (e) { aviso(errorDe(e), true); } });
+    editorFecha(td, p.despacho_propuesto || p.fecha_comprometida || p.fecha_estimada, async v => {
+      const antesV = p.fecha_comprometida, antesProp = p.despacho_propuesto;
+      const { error } = await sb.from('pedido').update({ fecha_comprometida: v, despacho_propuesto: null }).eq('id', p.id);
+      aviso(error ? errorDe(error) : (v ? 'Entrega comprometida: ' + fecha(v, true) : 'Fecha de entrega borrada'), !!error);
+      if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: antesV, despacho_propuesto: antesProp }).eq('id', p.id).then(r => { if (r.error) throw r.error; }));
+      vLista(); });
+  });
+  $$('#tabla td.fecha-mov').forEach(td => td.onclick = ev => {
+    ev.stopPropagation(); const m = (cache.movs || []).find(x => x.id == td.dataset.movId); if (!m) return;
+    if (esOp) return editorFecha(td, m.fecha_propuesta || m.fecha, async v => { const { error } = await sb.from('movimiento').update({ fecha_propuesta: v }).eq('id', m.id); if (error) return aviso(errorDe(error), true); aviso(v ? 'Propuesto ' + fecha(v, true) + '; Harold decide' : 'Propuesta retirada'); await cargarMovimientos(); pintarLista(); });
+    editorFecha(td, m.fecha_propuesta || m.fecha, async v => { if (!v) return; const antes = m.fecha, antesProp = m.fecha_propuesta; const { error } = await sb.from('movimiento').update({ fecha: v, fecha_propuesta: null }).eq('id', m.id); if (error) return aviso(errorDe(error), true); aviso('Movimiento: ' + fecha(v, true)); anotarCambio(`fecha del movimiento (volver a ${fecha(antes)})`, async () => { await sb.from('movimiento').update({ fecha: antes, fecha_propuesta: antesProp }).eq('id', m.id); await cargarMovimientos(); }); await cargarMovimientos(); pintarLista(); });
   });
   $$('#tabla tr.fila').forEach(tr => tr.onclick = () => abrirDetalleFila(tr));
 }
