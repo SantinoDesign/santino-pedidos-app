@@ -6,7 +6,7 @@
 const sb = window.supabase.createClient(window.SANTINO_CONFIG.url, window.SANTINO_CONFIG.anon);
 const app = document.getElementById('app');
 let yo = null;            // {id, nombre, rol}
-let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), etapas: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
+let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), etapas: new Set(), mios: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
 const META = 62;          // pedidos al mes (objetivo de utilidad, DM_Financiero v7.15)
 const ESTADOS = ['POR FABRICAR','VISITA TÉCNICA','DIBUJO 3D','DISEÑO APROBADO','EN FABRICACIÓN','LISTO EN TALLER','DESPACHO PROGRAMADO','ENTREGADO','CANCELADO','DEVUELTO'];
 const ORDEN_COMUNAS = ['Vitacura','Lo Barnechea','Las Condes','La Reina','Providencia','Ñuñoa','Santiago','Macul','Peñalolén','La Florida','Huechuraba','Colina','San Miguel','Maipú','Puente Alto'];
@@ -207,6 +207,7 @@ function formEditarPieza(lineaId, despues) {
     <label class="campo">Alto cm <input name="alto_cm" inputmode="decimal" value="${nv(x.alto_cm)}"></label>
     <label class="campo">Espesor mm (cubierta) <input name="espesor_mm" inputmode="decimal" value="${nv(x.espesor_mm)}"></label>
     <label class="campo">Forma <select name="forma"><option value="">-</option>${op(['RECT', 'CUA', 'CIRC', 'OVAL'], x.forma)}</select></label></div>`}
+    ${x.tipo === 'Silla' || x.tipo === 'Banca' ? `<div class="campos"><label class="campo">Modelo de silla <input name="tipo_silla" value="${esc(x.tipo_silla || '')}" placeholder="TULIP, WISH, CROSS, S.SANTINO" ${esOp ? 'disabled' : ''}></label><label class="campo">Tapiz (material) <input name="tapiz" value="${esc(x.tapiz || '')}" placeholder="Cueromix, Velvet, Lino"></label><label class="campo">Color silla o del tapiz <input name="color_silla" value="${esc(x.color_silla || '')}" placeholder="NGR, BL, BEIGE"></label></div>` : ''}
     <label class="campo" style="display:block;margin-top:8px">Medidas escritas para el maestro (manda sobre largo × ancho × alto; ej. "cruz arriba 40, cruz abajo 60, alto 71" o "Plano por definir") <input name="medida_texto" style="width:100%" value="${esc(x.medida_texto || '')}"></label>
     <label class="campo" style="display:block;margin-top:8px">Indicaciones del maestro (requerimientos especiales: radio, bisel, cabezales, plano impreso, madera clara...) <textarea name="indicaciones" rows="2" style="width:100%">${esc(x.indicaciones || '')}</textarea></label>
     <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Barniz: madera, pintado o lacado, encina. Pintura: metal. Sin acabado: sin barniz, melamina, tapicería. Lo comprado a proveedor solo se pide, se recibe y se embala. Medidas de una base: largo × ancho × alto.</p>
@@ -214,9 +215,9 @@ function formEditarPieza(lineaId, despues) {
   $('#f-pz').onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target);
     const cambios = esOp
-      ? { acabado: f.get('acabado') || null, fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto') }
+      ? { acabado: f.get('acabado') || null, fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto'), ...(f.has('tapiz') ? { tapiz: f.get('tapiz'), color_silla: f.get('color_silla') } : {}) }
       : { tipo_linea: f.get('tipo_linea'), descripcion: f.get('descripcion'), area_taller: f.get('area_taller') || null, acabado: f.get('area_taller') === 'Vidrio/compras' ? null : (f.get('acabado') || null),
-          fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto'), largo_cm: f.get('largo_cm').replace(',', '.'), ancho_cm: f.get('ancho_cm').replace(',', '.'), alto_cm: f.get('alto_cm').replace(',', '.'), espesor_mm: f.get('espesor_mm').replace(',', '.'), forma: f.get('forma') || null };
+          fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto'), ...(f.has('tapiz') ? { tipo_silla: f.get('tipo_silla'), tapiz: f.get('tapiz'), color_silla: f.get('color_silla') } : {}), largo_cm: f.get('largo_cm').replace(',', '.'), ancho_cm: f.get('ancho_cm').replace(',', '.'), alto_cm: f.get('alto_cm').replace(',', '.'), espesor_mm: f.get('espesor_mm').replace(',', '.'), forma: f.get('forma') || null };
     try { const r = await rpc('editar_pieza', { p_linea_id: lineaId, p_cambios: cambios }); actualizarPiezas(r); aviso('Pieza guardada'); cerrarModal(); despues && despues(r); } catch (e) { aviso(errorDe(e), true); }
   };
   if (!esOp) $('#b-borrar-pz').onclick = async () => {
@@ -332,31 +333,44 @@ function filtrar(lista) {
   if (cache.tipos.size) l = l.filter(p => cache.tipos.has(p.tipo_pedido));
   if (cache.bases.size) l = l.filter(p => cache.bases.has(rasgos(p).baseTipo));
   if (cache.etapas.size) l = l.filter(p => (p.piezas || []).some(x => x.area && cache.etapas.has(x.etapa)));  // ej. Barniz = todo lo que está para barnizar
+  // "Pendientes míos" (Lista v2): lo que Harold tiene que resolver; se suman (un pedido entra si cumple CUALQUIERA de los marcados)
+  if (cache.mios.size) l = l.filter(p => [...cache.mios].some(m => PENDIENTES_MIOS[m](p)));
   const b = cache.busqueda.trim().toLowerCase(); if (!b) return l;
   return l.filter(p => [p.numero, p.cliente, p.resumen, p.comuna, p.cotizacion_numero, p.observacion].join(' ').toLowerCase().includes(b));
 }
 
+const PENDIENTES_MIOS = {
+  'Atrasados': p => p.atrasado,
+  'Sin acabado': p => (p.piezas || []).some(x => x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado),
+  'Sin medidas': p => (p.piezas || []).some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.medida_texto && !/\.(MOS|LIN)\./.test(x.color || '')),
+  'Sin fecha maestro': p => (p.piezas || []).some(x => x.area && x.area !== 'Vidrio/compras' && ['En cola', 'Fabricación', 'Soldadura', 'Armado'].includes(x.etapa) && !x.fecha_taller),
+  'Sin comuna': p => !p.comuna && p.tipo_entrega !== 'Retiro en taller',
+  'Con saldo': p => (p.saldo ?? p.saldo_por_cobrar) > 0,
+  'Pago pendiente': p => !!p.pago_pendiente,
+};
 /* ---------- Harold · Lista densa ---------- */
 async function vLista() {
   const esOp = yo.rol === 'operacion';
   await cargarPedidos();
   if (!['pendientes', 'entregados', 'todos'].includes(cache.filtro)) cache.filtro = 'pendientes';
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
-  const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : g === 'etapa' ? cache.etapas : cache.bases;
+  const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : g === 'etapa' ? cache.etapas : g === 'mios' ? cache.mios : cache.bases;
   const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${setDe(grupo).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
-  app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir">
+  const leyenda = `Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} = ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} = ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado. Los filtros se suman; sin marcar = todos.`;
+  app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir filtros-v2">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
-      <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
-      <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['ENCHAPADO', 'Base de MDF enchapado (armado de muebles, ej. Montecarlo)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
-      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Etapa</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Fabricándose ahora en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
-      <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
-      ${esOp ? '' : '<button class="btn" id="b-nuevo">+ Nuevo pedido</button><button class="btn" id="b-export">Exportar a Excel (CSV)</button>'}
-      ${esOp ? '' : '<a class="btn" href="#/imprimir-listado" title="Respaldo en papel mientras Alexis no tenga la tablet">Imprimir listado operacional</a>'}
+      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Taller</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Fabricándose ahora en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
+      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">${esOp ? 'Pendientes' : 'Pendientes míos'}</span>${Object.keys(PENDIENTES_MIOS).filter(k => !esOp || !['Con saldo', 'Pago pendiente'].includes(k)).map(k => toggle('mios', k, k, 'Solo pedidos con: ' + k.toLowerCase()).replace('class="ftog', 'class="ftog alerta')).join('')}</span>` : ''}
+      <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo, comuna" value="${esc(cache.busqueda)}" style="width:210px"></label>
+      <button class="ayuda" type="button" title="${esc(leyenda)}" id="b-leyenda">?</button>
       <span id="resumen-lista" style="margin-left:auto;color:var(--gris-3)"></span>
-    </div><div class="sub no-imprimir leyenda">Se pueden marcar varios estados y tipos a la vez; sin marcar = todos. Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado (según el material de la línea o, si falta, el modelo).</div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
+      ${esOp ? '' : '<span class="acciones-lista"><button class="btn" id="b-nuevo">+ Nuevo pedido</button><span class="menu-mas"><button class="btn" id="b-mas-menu">Más ▾</button><div class="menu-lista" id="m-mas"><button type="button" id="b-export">Exportar a Excel (CSV)</button><a href="#/imprimir-listado">Imprimir listado operacional</a><span class="fgrupo" style="padding:6px 10px"><span class="fgrupo-t">Base</span>' + [['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['ENCHAPADO', 'Base de MDF enchapado (ej. Montecarlo)']].map(([v, t]) => toggle('base', v, v, t)).join('') + '</span></div></span></span>'}
+    </div><div class="contenido"><div class="tabla-env" id="tabla"></div></div>`;
   $('#f-modo').onchange = e => { cache.filtro = e.target.value; cache.estados.clear(); vLista(); };
   $$('.ftog').forEach(b => b.onclick = () => { const set = setDe(b.dataset.grupo); set.has(b.dataset.valor) ? set.delete(b.dataset.valor) : set.add(b.dataset.valor); b.classList.toggle('on'); pintarLista(); });
+  const bl = $('#b-leyenda'); if (bl) bl.onclick = () => aviso(leyenda);
+  const bm = $('#b-mas-menu'); if (bm) { bm.onclick = ev => { ev.stopPropagation(); $('#m-mas').classList.toggle('abierto'); }; document.addEventListener('click', () => { const m = $('#m-mas'); if (m) m.classList.remove('abierto'); }, { once: true }); }
   $('#f-busca').oninput = e => { cache.busqueda = e.target.value; pintarLista(); };
   if (!esOp) { $('#b-nuevo').onclick = () => formPedido(); $('#b-export').onclick = exportarCSV; }
   pintarLista();
@@ -459,33 +473,59 @@ function abrirDetalleFila(tr) {
   const p = cache.pedidos.find(x => x.id == tr.dataset.id);
   const d = document.createElement('tr'); d.className = 'detalle';
   const esOp = yo.rol === 'operacion';
-  // Despliegue (Harold 12-oct, tanda 19): lo que sirve para trabajar sin entrar a la ficha (estado, piezas y su acabado, entrega, contacto,
-  // observación); nada que ya esté en las columnas.
+  // Despliegue v2 (Harold 13-oct): 4 bloques para trabajar sin entrar a la ficha: Pedido · Cliente y entrega · Pago · Piezas (tabla con las
+  // mismas columnas de la ODT; el nombre de la pieza abre Editar). La ficha queda para historial, documentos y guías.
   const estadosPosibles = esOp ? [...new Set([p.estado, 'EN FABRICACIÓN', 'LISTO EN TALLER', 'DESPACHO PROGRAMADO', 'ENTREGADO'])] : ESTADOS;
   const tel = p.cliente_telefono;
-  const dir = [p.direccion_entrega || p.direccion, p.comuna_entrega || p.comuna].filter(Boolean).join(', ');
   const saldo = esOp ? p.saldo_por_cobrar : p.saldo;
-  d.innerHTML = `<td colspan="${tr.children.length}"><div class="despliegue">
-    <div class="desp-col">
-      <label class="desp-estado">Estado del pedido <select data-estado-pedido="${p.id}">${estadosPosibles.map(e => `<option ${e === p.estado ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
-      ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<div><button class="btn chico primario" data-listo="${p.id}" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button> <span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas embaladas</span></div>` : ''}
-      ${esOp && p.estado === 'LISTO EN TALLER' ? `<div><label style="font-size:13px">Proponer despacho <input type="date" data-fecha="${p.id}" value="${p.despacho_propuesto || ''}"></label> <button class="btn chico borde" data-prop="${p.id}">Proponer</button></div>` : ''}
-      ${esOp && p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn chico primario" data-entregar="${p.id}">Entregar</button>` : ''}
-      ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' && !esOp ? `<div><span class="chip prop">Alexis propone despacho ${fecha(p.despacho_propuesto, true)}</span> <button class="btn chico borde" data-confirmar="${p.id}">Cliente confirmó: programar</button> <a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp al cliente</a></div>` : ''}
-      <a class="btn chico" href="#/pedido/${p.id}">Abrir ficha${p.planos ? ` · planos (${p.planos})` : ''}</a>
-    </div>
-    ${piezasHtml(p)}
-    <div class="desp-col desp-datos">
-      ${dir || p.nota_entrega ? `<div><span class="gris">Entrega</span> ${esc(dir)}${p.nota_entrega ? ` · ${esc(p.nota_entrega)}` : ''}</div>` : '<div class="gris">Sin dirección de entrega</div>'}
-      ${tel ? `<div><span class="gris">Teléfono</span> ${esc(tel)} <a target="_blank" href="https://wa.me/${String(tel).replace(/\D/g, '')}">WhatsApp</a></div>` : '<div class="gris">Sin teléfono</div>'}
-      ${saldo > 0 ? `<div><span class="chip saldo">${esOp ? 'COBRAR ' + pesos(saldo) + ' AL ENTREGAR' : 'Saldo ' + pesos(saldo)}</span></div>` : ''}
-      ${p.observacion ? `<div class="desp-obs"><span class="gris">Obs.</span> ${esc(p.observacion)}</div>` : ''}
-    </div>
+  const fe = p.fecha_comprometida || p.fecha_estimada;
+  const piezas = (p.piezas || []).filter(x => x.area);
+  const med = x => x.medida_texto ? (/por definir|pendiente/i.test(x.medida_texto) ? `<span class="falta-dato">${esc(x.medida_texto)}</span>` : esc(x.medida_texto)) : medidaTxt(x) ? esc(medidaTxt(x, ' × ')) + ' cm' : /\.(MOS|LIN)\./.test(x.color || '') ? 'Estándar ' + esc(x.color) : x.area === 'Carpintería' ? '<span class="falta-dato">por definir</span>' : '';
+  const nombrePz = x => x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
+  const madera = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base); return (m ? esc(codMaterial(m)) : (x.tipo === 'Silla' ? '' : '-')) + (x.espesor_mm ? `<div class="l2">${num(x.espesor_mm)} mm</div>` : (x.area === 'Carpintería' && !/espesor/i.test(x.indicaciones || '') ? '<div class="l2 falta-dato">esp.?</div>' : '')); };
+  const term = x => x.tipo === 'Silla' || x.tipo === 'Banca' ? [x.tapiz ? x.tapiz + (x.color_silla ? ' ' + x.color_silla : '') : (x.color_silla ? 'tapiz ' + x.color_silla : ''), x.color ? 'pata ' + x.color : ''].filter(Boolean).join(' · ') || '<span class="falta-dato">tapiz por definir</span>' : esc([x.tipo === 'Base' || !x.tono ? x.color : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · '));
+  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${x.tipo === 'Silla' ? `<div class="l2">${esc(x.proveedor || 'compra a proveedor')}</div>` : ''}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td><td class="gris">${esc(x.indicaciones || '')}</td></tr>`;
+  d.innerHTML = `<td colspan="${tr.children.length}"><div class="desp2">
+    <section class="d-bloque d-pedido"><h4>Pedido</h4>
+      <label class="desp-estado">Estado <select data-estado-pedido="${p.id}">${estadosPosibles.map(e => `<option ${e === p.estado ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
+      <div class="d-fila"><span>Compra</span><b>${fecha(p.fecha_compra)}</b></div>
+      <div class="d-fila"><span>Entrega cliente</span><b>${fe ? fecha(fe, true) : 'sin fecha'}</b>${fe && !p.fecha_comprometida ? ' <small class="gris">aprox., sin comprometer</small>' : ''}</div>
+      <div class="d-fila"><span>Origen</span><b>${esc(p.origen || '')}</b>${p.cotizacion_numero ? ` <small class="gris">· ${esc(p.cotizacion_numero)}</small>` : ''}</div>
+      <div class="d-acciones">
+        ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn chico primario" data-listo="${p.id}" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''} title="${p.piezas_listas} de ${p.piezas_total} piezas embaladas">Marcar LISTO EN TALLER</button>` : ''}
+        ${esOp && p.estado === 'LISTO EN TALLER' ? `<label style="font-size:12px">Proponer despacho <input type="date" data-fecha="${p.id}" value="${p.despacho_propuesto || ''}"></label><button class="btn chico borde" data-prop="${p.id}">Proponer</button>` : ''}
+        ${esOp && p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn chico primario" data-entregar="${p.id}">Entregar</button>` : ''}
+        ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' && !esOp ? `<span class="chip prop">Alexis propone ${fecha(p.despacho_propuesto, true)}</span><button class="btn chico borde" data-confirmar="${p.id}">Cliente confirmó: programar</button><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WSP despacho</a>` : ''}
+        ${esOp ? '' : `<button class="btn chico borde" data-urgente="${p.id}">${p.urgente ? 'Quitar urgente' : 'Urgente'}</button>`}
+        <a class="btn chico" href="#/pedido/${p.id}">Abrir ficha${p.planos ? ` · planos (${p.planos})` : ''}</a>
+      </div>
+    </section>
+    <section class="d-bloque d-cliente"><h4>Cliente y entrega</h4>
+      <div class="d-fila"><span>Cliente</span><b>${esc(p.cliente)}</b></div>
+      <div class="d-fila"><span>Teléfono</span><b>${esc(tel || 'sin teléfono')}</b>${tel ? ` <a class="btn chico borde" target="_blank" href="https://wa.me/${String(tel).replace(/\D/g, '')}">WSP</a>` : ''}</div>
+      <div class="d-fila"><span>Dirección</span><b>${esc(p.direccion_entrega || p.direccion || 'sin dirección')}</b></div>
+      <div class="d-fila"><span>Comuna</span><b>${esc(p.comuna_entrega || p.comuna || '-')}</b> <small class="gris">${esc((p.tipo_entrega || 'Despacho RM') + (p.instalacion ? ' · con instalación' : ''))}</small></div>
+      ${p.nota_entrega ? `<div class="d-fila"><span>Nota</span><b>${esc(p.nota_entrega)}</b></div>` : ''}
+    </section>
+    ${esOp ? `<section class="d-bloque d-dinero"><h4>Pago</h4>${saldo > 0 ? `<div><span class="chip saldo">COBRAR ${pesos(saldo)} AL ENTREGAR</span></div>` : '<div><span class="chip ok">PAGADO</span></div>'}</section>` : `<section class="d-bloque d-dinero"><h4>Pago</h4>
+      <div class="d-fila"><span>Total</span><b class="mono">${pesos(p.total)}</b></div>
+      <div class="d-fila"><span>Abonado</span><b class="mono">${pesos(p.abonado)}</b></div>
+      <div class="d-fila"><span>Saldo</span><b class="mono ${saldo > 0 ? 'rojo' : ''}">${pesos(saldo)}</b>${saldo > 0 && tel ? ` <a href="#/pedido/${p.id}" title="El mensaje de saldo se arma en la ficha">mensaje de saldo</a>` : ''}</div>
+      <div class="d-fila"><span>Documento</span><b>${esc(p.documento_tributario || '-')}${p.documento_numero ? ' ' + esc(p.documento_numero) : ''}</b></div>
+    </section>`}
+    <section class="d-bloque d-piezas"><h4>Piezas (${piezas.length}) <small class="gris">toca el chip para avanzar · mantener para volver · toca el nombre para editar</small></h4>
+      ${piezas.length ? `<table class="d-tabla"><thead><tr><th>Etapa</th><th>Pieza</th><th>Madera</th><th>Medidas L × A × Al</th><th>Term.</th><th>Acabado</th><th>Fecha maestro</th><th>Indicaciones</th></tr></thead><tbody>${piezas.map(filaPz).join('')}</tbody></table>` : '<div class="gris">Sin piezas de taller</div>'}
+    </section>
+    ${p.observacion ? `<section class="d-bloque d-obs"><h4>Observación</h4><div>${esc(p.observacion)}</div></section>` : ''}
     </div></td>`;
   tr.after(d);
   const reabrir = () => { pintarLista(); const t2 = $(`#tabla tr.fila[data-id="${p.id}"]`); if (t2) abrirDetalleFila(t2); };
   activarEtapas(d, reabrir);
   activarPiezasEdicion(d, reabrir);
+  $$('[data-ftaller]', d).forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => {
+    const id = Number(inp.dataset.ftaller), pz = (p.piezas || []).find(y => y.id === id), antes = pz && pz.fecha_taller;
+    try { const r = await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: inp.value || null } }); actualizarPiezas(r); aviso('Fecha para el maestro: ' + (inp.value ? fecha(inp.value, true) : 'sin fecha'));
+      anotarCambio(`fecha para el maestro (volver a ${antes ? fecha(antes) : 'sin fecha'})`, async () => { actualizarPiezas(await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: antes || null } })); }); reabrir(); } catch (e) { aviso(errorDe(e), true); } }; });
   const se = $('[data-estado-pedido]', d);
   se.onclick = ev => ev.stopPropagation();
   se.onchange = async () => {
@@ -493,11 +533,12 @@ function abrirDetalleFila(tr) {
     try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: nuevo }); p.estado = nuevo; aviso(`${p.numero}: ${nuevo}`); anotarCambio(`estado de ${p.numero} (volver a ${antes})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: antes })); reabrir(); }
     catch (e) { se.value = antes; aviso(errorDe(e), true); }
   };
-  $$('input, a, button', d).forEach(el => { if (!el.onclick) el.addEventListener('click', ev => ev.stopPropagation()); });
+  $$('input, a, button, select', d).forEach(el => { if (!el.onclick) el.addEventListener('click', ev => ev.stopPropagation()); });
   const bc = $('[data-confirmar]', d); if (bc) bc.onclick = async () => { try { await rpc('confirmar_despacho', { p_pedido_id: p.id }); aviso('Despacho programado'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const bl = $('[data-listo]', d); if (bl) bl.onclick = async () => { try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller ✓'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const bp = $('[data-prop]', d); if (bp) bp.onclick = async () => { const f = $('[data-fecha]', d).value; if (!f) return aviso('Elige la fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Propuesta enviada a Harold'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const be = $('[data-entregar]', d); if (be) be.onclick = () => formEntregar(p, () => vLista());
+  const bu = $('[data-urgente]', d); if (bu) bu.onclick = async () => { const v = !p.urgente; const { error } = await sb.from('pedido').update({ urgente: v }).eq('id', p.id); if (error) return aviso(errorDe(error), true); p.urgente = v; aviso(v ? 'Marcado urgente' : 'Ya no es urgente'); anotarCambio(`urgente de ${p.numero}`, async () => { await sb.from('pedido').update({ urgente: !v }).eq('id', p.id); p.urgente = !v; }); reabrir(); };
 }
 const CUENTA_SANTINO = 'Santino Design SpA\nRUT 77.551.022-6\nBanco Santander\nCuenta Corriente 87727157\nhola@santinodesign.cl';
 const WEBPAY_LINK = 'https://www.webpay.cl/form-pay/80544';
@@ -775,14 +816,15 @@ function camposLinea(prefijo = '') {
     <label class="campo">Tono o barniz <select name="${prefijo}tono"><option value="">-</option>${['1', '2', '3', '4', '5', 'NGR', 'BL', 'GRIS', 'NOG', 'SIN BARNIZ', 'ESPECIAL'].map(t => `<option>${t}</option>`).join('')}</select></label>
     <label class="campo">Nota de acabado <input name="${prefijo}nota_acabado"></label>
     <label class="campo">Tipo silla <input name="${prefijo}tipo_silla" placeholder="TULIP, WISH, CROSS"></label>
-    <label class="campo">Color silla <input name="${prefijo}color_silla"></label>
+    <label class="campo">Tapiz (material) <input name="${prefijo}tapiz" placeholder="Cueromix, Velvet, Lino"></label>
+    <label class="campo">Color silla o del tapiz <input name="${prefijo}color_silla" placeholder="NGR, BL, BEIGE"></label>
     <label class="campo">Área de taller <select name="${prefijo}area_taller"><option value="">(sin área: no es pieza)</option><option>Carpintería</option><option>Soldadura</option><option>Barniz</option><option>Armado muebles</option><option>Vidrio/compras</option><option>Embalaje</option><option>Despacho</option></select></label>
   </div>`;
 }
 function leerLinea(f, prefijo = '') {
   const v = k => { const x = f.get(prefijo + k); return x === '' || x == null ? null : x; };
   const n = k => v(k) == null ? null : Number(v(k));
-  return { tipo_linea: v('tipo_linea'), descripcion: v('descripcion'), cantidad: n('cantidad') || 1, modelo_cubierta: v('modelo_cubierta'), modelo_base: v('modelo_base'), material_cubierta: v('material_cubierta'), material_base: v('material_base'), color_estructura: v('color_estructura'), espesor_mm: n('espesor_mm'), largo_cm: n('largo_cm'), ancho_cm: n('ancho_cm'), alto_cm: n('alto_cm'), largo_ext_cm: n('largo_ext_cm'), forma: v('forma'), personas: n('personas'), tono: v('tono'), nota_acabado: v('nota_acabado'), tipo_silla: v('tipo_silla'), color_silla: v('color_silla'), area_taller: v('area_taller') };
+  return { tipo_linea: v('tipo_linea'), descripcion: v('descripcion'), cantidad: n('cantidad') || 1, modelo_cubierta: v('modelo_cubierta'), modelo_base: v('modelo_base'), material_cubierta: v('material_cubierta'), material_base: v('material_base'), color_estructura: v('color_estructura'), espesor_mm: n('espesor_mm'), largo_cm: n('largo_cm'), ancho_cm: n('ancho_cm'), alto_cm: n('alto_cm'), largo_ext_cm: n('largo_ext_cm'), forma: v('forma'), personas: n('personas'), tono: v('tono'), nota_acabado: v('nota_acabado'), tipo_silla: v('tipo_silla'), tapiz: v('tapiz'), color_silla: v('color_silla'), area_taller: v('area_taller') };
 }
 function formLinea(p, despues) {
   modal(`<h2>Agregar línea · ${esc(p.numero)}</h2><form id="f">${camposLinea()}<div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
@@ -813,7 +855,7 @@ async function formPedido() {
       <label class="campo">Tipo de entrega <select name="tipo_entrega"><option>Despacho RM</option><option>Despacho regiones</option><option>Retiro en taller</option></select></label>
       <label class="campo" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="instalacion"> Con instalación</label>
       <label class="campo">Cotización N° <input name="cotizacion_numero" placeholder="Cot 3370"></label>
-      <label class="campo">Fecha comprometida <input name="fecha_comprometida" type="date"></label>
+      <label class="campo">Fecha comprometida con el cliente (vacía = aproximada, compra + 21 días) <input name="fecha_comprometida" type="date"></label>
       <label class="campo">Nota de entrega <input name="nota_entrega"></label>
       <label class="campo">Abono inicial <input name="abono" type="number" placeholder="0"></label>
       <label class="campo">Medio del abono <select name="abono_medio"><option>Transferencia</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option><option>Efectivo</option></select></label>

@@ -348,3 +348,30 @@ table.lista.v2.b td{padding:4px 5px}
 .celda-pieza.lista{background:var(--azul);border-color:var(--azul);color:#fff}.celda-pieza.lista .l2,.celda-pieza.lista .etapa-tag{color:#E6F3F7;border-top-color:rgba(255,255,255,.35)}
 .celda-pieza.falta{border-color:var(--rojo-txt)}.celda-pieza.falta .etapa-tag{color:var(--rojo-txt)}
 .tablet table.lista.v2{font-size:13px;min-width:1080px}.tablet table.lista.v2 .l2{font-size:11.5px}.tablet .celda-pieza{padding:7px 9px 5px;min-height:52px}.tablet .celda-pieza .etapa-tag{font-size:12px}
+
+/* Lista v2: filtros, menú Más, leyenda y despliegue en 4 bloques */
+.sub.filtros-v2{gap:8px 14px}
+.acciones-lista{display:inline-flex;gap:8px;white-space:nowrap}
+.sub.filtros-v2 .fgrupo-t{font-weight:600;color:var(--gris-2)}
+.ftog.alerta.on{background:var(--rojo-txt);border-color:var(--rojo-txt)}
+.ayuda{display:inline-flex;width:26px;height:26px;border-radius:50%;border:1px solid #CCD4D8;background:#fff;align-items:center;justify-content:center;font-size:13px;color:var(--gris-2);cursor:help;padding:0}
+.menu-mas{position:relative;display:inline-block}
+.menu-lista{display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--linea);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:240px;z-index:8;padding:6px 0;flex-direction:column}
+.menu-lista.abierto{display:flex}
+.menu-lista>button,.menu-lista>a{display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;color:var(--gris);font-size:13px;text-decoration:none;cursor:pointer}
+.menu-lista>button:hover,.menu-lista>a:hover{background:var(--azul-suave)}
+.desp2{display:grid;grid-template-columns:250px minmax(0,1fr) 230px;gap:12px;align-items:start}
+.d-bloque{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.d-bloque h4{margin:0 0 2px;font-size:12px;color:var(--azul-osc);text-transform:uppercase;letter-spacing:.4px}
+.d-bloque h4 small{text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px}
+.d-fila{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.d-fila span:first-child{color:var(--gris-2);min-width:78px}
+.d-acciones{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center}
+.d-tabla{border-collapse:collapse;width:100%;font-size:12px}.d-tabla th{text-align:left;color:var(--gris-2);font-weight:600;padding:2px 6px;border-bottom:1px solid var(--linea);white-space:nowrap;font-size:11px}.d-tabla td{padding:4px 6px;vertical-align:top;border-bottom:1px solid #EEF1F3}
+.d-tabla td:nth-child(8){min-width:140px}
+.d-piezas,.d-obs{grid-column:1/-1}
+.d-tabla .l2{color:var(--gris-2);font-size:11px}
+.d-tabla input.f-taller{min-height:26px;padding:1px 3px;font-size:11px;width:120px}
+.d-tabla .falta-dato,.d-bloque .falta-dato{color:var(--rojo-txt);font-weight:700}
+.d-bloque .rojo{color:var(--rojo-txt)}
+.cli-edit{color:var(--azul-osc);font-weight:600;text-decoration:underline dotted;cursor:pointer}
+@media (max-width:1100px){.desp2{grid-template-columns:1fr 1fr}}
