@@ -471,6 +471,22 @@ function pintarLista() {
   });
   $$('#tabla tr.fila').forEach(tr => tr.onclick = () => abrirDetalleFila(tr));
 }
+/* Tabla de piezas compartida (despliegue de la Lista y ficha): mismas columnas que la ODT (Harold 13-oct: una sola forma de ver las piezas) */
+function tablaPiezasHtml(p, esOp) {
+  const piezas = (p.piezas || []).filter(x => x.area);
+  const med = x => x.medida_texto ? (/por definir|pendiente/i.test(x.medida_texto) ? `<span class="falta-dato">${esc(x.medida_texto)}</span>` : esc(x.medida_texto)) : medidaTxt(x) ? esc(medidaTxt(x, ' × ')) + ' cm' : /\.(MOS|LIN)\./.test(x.color || '') ? 'Estándar ' + esc(x.color) : x.area === 'Carpintería' ? '<span class="falta-dato">por definir</span>' : '';
+  const nombrePz = x => x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
+  const madera = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base); return (m ? esc(codMaterial(m)) : (x.tipo === 'Silla' ? '' : '-')) + (x.espesor_mm ? `<div class="l2">${num(x.espesor_mm)} mm</div>` : (x.area === 'Carpintería' && !/espesor/i.test(x.indicaciones || '') ? '<div class="l2 falta-dato">esp.?</div>' : '')); };
+  const term = x => x.tipo === 'Silla' || x.tipo === 'Banca' ? [x.tapiz ? x.tapiz + (x.color_silla ? ' ' + x.color_silla : '') : (x.color_silla ? 'tapiz ' + x.color_silla : ''), x.color ? 'pata ' + x.color : ''].filter(Boolean).join(' · ') || '<span class="falta-dato">tapiz por definir</span>' : esc([x.tipo === 'Base' || !x.tono ? x.color : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · '));
+  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${x.tipo === 'Silla' ? `<div class="l2">${esc(x.proveedor || 'compra a proveedor')}</div>` : ''}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td><td class="gris">${esc(x.indicaciones || '')}</td></tr>`;
+  return piezas.length ? `<table class="d-tabla"><thead><tr><th>Etapa</th><th>Pieza</th><th>Madera</th><th>Medidas L × A × Al</th><th>Term.</th><th>Acabado</th><th>Fecha maestro</th><th>Indicaciones</th></tr></thead><tbody>${piezas.map(filaPz).join('')}</tbody></table>` : '<div class="gris">Sin piezas de taller</div>';
+}
+function activarFechaMaestro(raiz, p, despues) {
+  $$('[data-ftaller]', raiz).forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => {
+    const id = Number(inp.dataset.ftaller), pz = (p.piezas || []).find(y => y.id === id), antes = pz && pz.fecha_taller;
+    try { const r = await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: inp.value || null } }); actualizarPiezas(r); aviso('Fecha para el maestro: ' + (inp.value ? fecha(inp.value, true) : 'sin fecha'));
+      anotarCambio(`fecha para el maestro (volver a ${antes ? fecha(antes) : 'sin fecha'})`, async () => { actualizarPiezas(await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: antes || null } })); }); despues(); } catch (e) { aviso(errorDe(e), true); } }; });
+}
 function abrirDetalleFila(tr) {
   const sig = tr.nextElementSibling;
   if (sig && sig.classList.contains('detalle')) { sig.remove(); return; }
@@ -485,11 +501,6 @@ function abrirDetalleFila(tr) {
   const saldo = esOp ? p.saldo_por_cobrar : p.saldo;
   const fe = p.fecha_comprometida || p.fecha_estimada;
   const piezas = (p.piezas || []).filter(x => x.area);
-  const med = x => x.medida_texto ? (/por definir|pendiente/i.test(x.medida_texto) ? `<span class="falta-dato">${esc(x.medida_texto)}</span>` : esc(x.medida_texto)) : medidaTxt(x) ? esc(medidaTxt(x, ' × ')) + ' cm' : /\.(MOS|LIN)\./.test(x.color || '') ? 'Estándar ' + esc(x.color) : x.area === 'Carpintería' ? '<span class="falta-dato">por definir</span>' : '';
-  const nombrePz = x => x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
-  const madera = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base); return (m ? esc(codMaterial(m)) : (x.tipo === 'Silla' ? '' : '-')) + (x.espesor_mm ? `<div class="l2">${num(x.espesor_mm)} mm</div>` : (x.area === 'Carpintería' && !/espesor/i.test(x.indicaciones || '') ? '<div class="l2 falta-dato">esp.?</div>' : '')); };
-  const term = x => x.tipo === 'Silla' || x.tipo === 'Banca' ? [x.tapiz ? x.tapiz + (x.color_silla ? ' ' + x.color_silla : '') : (x.color_silla ? 'tapiz ' + x.color_silla : ''), x.color ? 'pata ' + x.color : ''].filter(Boolean).join(' · ') || '<span class="falta-dato">tapiz por definir</span>' : esc([x.tipo === 'Base' || !x.tono ? x.color : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · '));
-  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${x.tipo === 'Silla' ? `<div class="l2">${esc(x.proveedor || 'compra a proveedor')}</div>` : ''}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td><td class="gris">${esc(x.indicaciones || '')}</td></tr>`;
   d.innerHTML = `<td colspan="${tr.children.length}"><div class="desp2">
     <section class="d-bloque d-pedido"><h4>Pedido</h4>
       <label class="desp-estado">Estado <select data-estado-pedido="${p.id}">${estadosPosibles.map(e => `<option ${e === p.estado ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
@@ -519,7 +530,7 @@ function abrirDetalleFila(tr) {
       <div class="d-fila"><span>Documento</span><b>${esc(p.documento_tributario || '-')}${p.documento_numero ? ' ' + esc(p.documento_numero) : ''}</b></div>
     </section>`}
     <section class="d-bloque d-piezas"><h4>Piezas (${piezas.length}) <small class="gris">toca el chip para avanzar · mantener para volver · toca el nombre para editar</small></h4>
-      ${piezas.length ? `<table class="d-tabla"><thead><tr><th>Etapa</th><th>Pieza</th><th>Madera</th><th>Medidas L × A × Al</th><th>Term.</th><th>Acabado</th><th>Fecha maestro</th><th>Indicaciones</th></tr></thead><tbody>${piezas.map(filaPz).join('')}</tbody></table>` : '<div class="gris">Sin piezas de taller</div>'}
+      ${tablaPiezasHtml(p, esOp)}
     </section>
     ${(p.movimientos = movsDe(p.id)).length || !esOp ? `<div class="d-bloque d-mov">${movimientosHtml(p, esOp)}</div>` : ''}
     ${p.observacion ? `<section class="d-bloque d-obs"><h4>Observación</h4><div>${esc(p.observacion)}</div></section>` : ''}
@@ -529,10 +540,7 @@ function abrirDetalleFila(tr) {
   const reabrir = () => { pintarLista(); const t2 = $(`#tabla tr.fila[data-id="${p.id}"]`); if (t2) abrirDetalleFila(t2); };
   activarEtapas(d, reabrir);
   activarPiezasEdicion(d, reabrir);
-  $$('[data-ftaller]', d).forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => {
-    const id = Number(inp.dataset.ftaller), pz = (p.piezas || []).find(y => y.id === id), antes = pz && pz.fecha_taller;
-    try { const r = await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: inp.value || null } }); actualizarPiezas(r); aviso('Fecha para el maestro: ' + (inp.value ? fecha(inp.value, true) : 'sin fecha'));
-      anotarCambio(`fecha para el maestro (volver a ${antes ? fecha(antes) : 'sin fecha'})`, async () => { actualizarPiezas(await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: antes || null } })); }); reabrir(); } catch (e) { aviso(errorDe(e), true); } }; });
+  activarFechaMaestro(d, p, reabrir);
   const se = $('[data-estado-pedido]', d);
   se.onclick = ev => ev.stopPropagation();
   se.onchange = async () => {
@@ -691,10 +699,7 @@ async function vFicha(id) {
     ${aMedida && !esOp ? `<div class="pasos" style="margin-bottom:12px">${['VISITA TÉCNICA', 'DIBUJO 3D', 'DISEÑO APROBADO', 'EN FABRICACIÓN', 'LISTO EN TALLER', 'DESPACHO PROGRAMADO', 'ENTREGADO'].map(e => `<span class="${e === p.estado ? 'activo' : ''}">${e}</span>`).join('')}<span style="background:none">La fabricación solo parte con DISEÑO APROBADO (R-139)</span></div>` : ''}
     <div class="grid-ficha"><div class="columna">
       <section class="seccion"><div class="cab"><h2>Piezas del pedido · toca una para avanzar de etapa (clic derecho: volver)</h2>${esOp ? '' : `<button class="btn chico" id="b-linea">+ Agregar línea</button>`}</div>
-        <div class="tabla-env"><table class="lista"><thead><tr><th>Pieza</th><th>Descripción</th><th>Diseño</th><th>Material</th><th>Medida</th><th title="Color de la base (estructura) y tono de la cubierta, por separado">Color base / tono cubierta</th><th>Área</th><th title="Define si la pieza pasa por Barniz o Pintura">Acabado</th><th>Etapa</th>${esOp ? '' : '<th></th>'}</tr></thead><tbody>
-        ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${medidaTxt(x) || '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color ? 'base ' + x.color : null, x.tono ? tonoTxt(x.tono) : null, x.color_silla ? 'silla ' + x.color_silla : null].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
-          <td>${acabadoHtml(x)}</td><td>${x.area ? etapaChip(x, p.id) : '-'}</td>${esOp ? '' : `<td><button class="btn chico borde" data-editar-pieza="${x.id}">Editar</button></td>`}</tr>`).join('')}
-        </tbody></table></div>
+        <div class="tabla-env">${tablaPiezasHtml(p, esOp)}</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? (p.piezas_total > 0 ? `<button class="btn primario" id="b-listo" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas embaladas</span>` : '<span style="font-size:12px;color:var(--gris-2)">Sin piezas de taller: este pedido se resuelve con su movimiento (visita, retiro); si lleva una pieza, agrégala con "Agregar línea".</span>') : ''}
           ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" id="f-prop" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" id="b-prop">Proponer</button>${!esOp ? `<button class="btn primario" id="b-conf">Cliente confirmó: programar</button>` : ''}` : ''}
@@ -704,7 +709,7 @@ async function vFicha(id) {
         </div>
       </section>
       ${movimientosHtml(p, esOp)}
-      ${esOp ? '' : `<section class="seccion"><div class="cab"><h2>Pagos</h2><button class="btn chico borde" id="b-abono">+ Registrar abono</button></div>
+      ${esOp ? '' : `<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px"><button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button><button class="btn chico borde" id="b-abono">+ Registrar abono</button></span></div>
         <div class="cifras"><div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div><div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)}</div></div><div class="cifra"><div>Saldo (calculado)</div><div style="color:${p.saldo > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo)}</div></div></div>
         ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>
@@ -714,13 +719,20 @@ async function vFicha(id) {
       </section>
       <section class="seccion"><h2>Historial</h2><div class="historial">${hist.map(h => `<div><time>${fechaHora(h.cuando)}</time><span><strong>${esc(h.quien)}</strong> ${esc(h.campo)}: ${h.valor_anterior ? esc(h.valor_anterior) + ' → ' : ''}${esc(h.valor_nuevo || '')}</span></div>`).join('') || '<span style="color:var(--gris-3)">Sin movimientos</span>'}</div></section>`}
     </div><aside class="columna">
-      <section class="seccion"><h2>Cliente</h2><div><strong>${esc(p.cliente)}</strong>${p.tipo_cliente ? ' · ' + esc(p.tipo_cliente) : ''}</div><div>${esc(p.cliente_telefono || '')}${p.cliente_email ? ' · ' + esc(p.cliente_email) : ''}</div><div>${esc(p.direccion || '')}${p.comuna ? ', ' + esc(p.comuna) : ''}</div>${p.cliente_telefono ? `<a href="https://wa.me/${p.cliente_telefono.replace(/\D/g, '')}" target="_blank">WhatsApp</a>` : ''}</section>
-      <section class="seccion"><h2>Fechas y entrega</h2>
+      <section class="seccion"><div class="cab"><h2>Cliente</h2>${esOp ? '' : '<button class="btn chico borde" id="b-cliente">Editar cliente</button>'}</div>
+        <div><strong>${esc(p.cliente)}</strong>${p.tipo_cliente ? ' · ' + esc(p.tipo_cliente) : ''}${p.cliente_empresa ? ' · ' + esc(p.cliente_empresa) : ''}</div>
+        <div class="fila-dato"><span>Teléfono</span><span>${p.cliente_telefono ? esc(p.cliente_telefono) + ` <a target="_blank" href="https://wa.me/${telWa(p)}">WSP</a>` : '<span class="falta-dato">sin teléfono</span>'}</span></div>
+        <div class="fila-dato"><span>Correo</span><span>${esc(p.cliente_email || '-')}</span></div>
+        <div class="fila-dato"><span>Dirección</span><span>${p.direccion ? esc(p.direccion) : '<span class="falta-dato">sin dirección</span>'}</span></div>
+        <div class="fila-dato"><span>Comuna</span><span>${p.comuna ? esc(p.comuna) : '<span class="falta-dato">sin comuna</span>'}</span></div>
+      </section>
+      <section class="seccion"><div class="cab"><h2>Fechas y entrega</h2>${esOp ? '' : '<button class="btn chico borde" id="b-entrega">Editar entrega</button>'}</div>
         <div class="fila-dato"><span>Compra</span><span>${fecha(p.fecha_compra)}</span></div>
-        <div class="fila-dato"><span>Estimada (automática)</span><span>${fecha(p.fecha_estimada)}</span></div>
-        <div class="fila-dato"><span>Comprometida</span>${esOp ? `<span>${fecha(p.fecha_comprometida, true)}</span>` : `<input type="date" id="i-comp" value="${p.fecha_comprometida || ''}" style="min-height:32px;padding:4px 8px">`}</div>
-        <div class="fila-dato"><span>Tipo de entrega</span><span>${esc(p.tipo_entrega)}${p.instalacion ? ' + instalación' : ''}</span></div>
+        <div class="fila-dato"><span>Entrega cliente</span>${esOp ? `<span>${fecha(p.fecha_comprometida || p.fecha_estimada, true)}${p.fecha_comprometida ? '' : ' <small class="gris">aprox.</small>'}</span>` : `<span><input type="date" id="i-comp" value="${p.fecha_comprometida || ''}" style="min-height:32px;padding:4px 8px" title="Fecha comprometida con el cliente; vacía = aproximada">${p.fecha_comprometida ? '' : ` <small class="gris">aprox. ${fecha(p.fecha_estimada)} (+21 d)</small>`}</span>`}</div>
+        <div class="fila-dato"><span>Entrega</span><span>${esc(p.tipo_entrega)}${p.instalacion ? ' + instalación' : ''}</span></div>
+        ${p.direccion_entrega || p.comuna_entrega ? `<div class="fila-dato"><span>Dirección de entrega</span><span>${esc([p.direccion_entrega, p.comuna_entrega].filter(Boolean).join(', '))}</span></div>` : ''}
         <div class="fila-dato"><span>Nota de entrega</span><span>${esc(p.nota_entrega || '-')}</span></div>
+        ${p.cotizacion_numero ? `<div class="fila-dato"><span>Cotización</span><span>${esc(p.cotizacion_numero)}</span></div>` : ''}
         ${p.estado === 'POR FABRICAR' ? `<div class="fila-dato"><span>Prioridad</span><span>${p.prioridad || '-'} en cola</span></div>` : ''}
         ${esOp && p.saldo_por_cobrar > 0 ? `<div style="padding:10px;border-radius:8px;background:var(--ambar);color:var(--ambar-txt);font-weight:700">Cobrar ${pesos(p.saldo_por_cobrar)} al entregar</div>` : ''}
       </section>
@@ -734,6 +746,7 @@ async function vFicha(id) {
   cache.pedidos = cache.pedidos || []; if (!cache.pedidos.find(x => x.id === p.id)) cache.pedidos.push(p);
   activarEtapas(app, recargar);
   activarPiezasEdicion(app, recargar);
+  activarFechaMaestro(app, p, recargar);
   activarMovimientos(app, p, recargar);
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
@@ -750,6 +763,9 @@ async function vFicha(id) {
     on('#b-obs', async () => { const { error } = await sb.from('pedido').update({ observacion: $('#t-obs').value }).eq('id', id); aviso(error ? errorDe(error) : 'Observación guardada', !!error); if (!error) anotarCambio(`observación de ${p.numero}`, () => sb.from('pedido').update({ observacion: p.observacion }).eq('id', id).then(r => { if (r.error) throw r.error; })); });
     on('#b-doc', async () => { const { error } = await sb.from('pedido').update({ documento_tributario: $('#s-doc').value, documento_numero: $('#i-docnum').value || null, documento_fecha: $('#i-docfecha').value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Documento guardado', !!error); recargar(); });
     on('#b-abono', () => formAbono(p, recargar));
+    on('#b-cliente', () => formEditarCliente(p, recargar));
+    on('#b-entrega', () => formEditarEntrega(p, recargar));
+    on('#b-precios', () => formEditarPrecios(p, recargar));
     on('#b-subir', () => formSubir(p, recargar));
     on('#b-linea', () => formLinea(p, recargar));
     on('#b-guia', () => formGuia(p));
@@ -838,6 +854,62 @@ function leerLinea(f, prefijo = '') {
 function formLinea(p, despues) {
   modal(`<h2>Agregar línea · ${esc(p.numero)}</h2><form id="f">${camposLinea()}<div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f').onsubmit = async ev => { ev.preventDefault(); const l = leerLinea(new FormData(ev.target)); l.pedido_id = p.id; l.orden = (p.piezas || []).length + 1; const { error } = await sb.from('linea_pedido').insert(l); if (error) return aviso(errorDe(error), true); aviso('Línea agregada'); cerrarModal(); despues(); };
+}
+/* Ficha: editar cliente, entrega y precios (Harold 13-oct: "si lo ingresaste sin número ni dirección, debería poder dejar ingresarlos") */
+async function opcionesComuna(actual) { const { data } = await sb.from('comuna').select('nombre').order('nombre'); return `<option value="">-</option>` + (data || []).map(c => `<option ${c.nombre === actual ? 'selected' : ''}>${esc(c.nombre)}</option>`).join(''); }
+async function formEditarCliente(p, despues) {
+  const { data: c, error } = await sb.from('cliente').select('*').eq('id', p.cliente_id).single(); if (error) return aviso(errorDe(error), true);
+  const op = await opcionesComuna(c.comuna);
+  modal(`<h2>Editar cliente · ${esc(c.nombre)}</h2><form id="f-cli"><div class="campos">
+    <label class="campo">Nombre <input name="nombre" value="${esc(c.nombre || '')}" required></label>
+    <label class="campo">Tipo de cliente <select name="tipo_cliente">${['Particular', 'Arquitecto', 'Diseñador', 'Contratista', 'Empresa'].map(t => `<option ${t === c.tipo_cliente ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    <label class="campo">Teléfono (+569XXXXXXXX) <input name="telefono" value="${esc(c.telefono || '')}" placeholder="+56912345678"></label>
+    <label class="campo">Teléfono 2 <input name="telefono_2" value="${esc(c.telefono_2 || '')}"></label>
+    <label class="campo">Correo <input name="email" type="email" value="${esc(c.email || '')}"></label>
+    <label class="campo">RUT <input name="rut" value="${esc(c.rut || '')}"></label>
+    <label class="campo">Empresa <input name="empresa" value="${esc(c.empresa || '')}"></label>
+    <label class="campo">Dirección <input name="direccion" value="${esc(c.direccion || '')}"></label>
+    <label class="campo">Comuna <select name="comuna">${op}</select></label>
+    <label class="campo">Notas <input name="notas" value="${esc(c.notas || '')}"></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f-cli').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const v = k => (f.get(k) || '').trim() || null;
+    const cambios = { nombre: v('nombre'), tipo_cliente: v('tipo_cliente'), telefono: v('telefono'), telefono_2: v('telefono_2'), email: v('email'), rut: v('rut'), empresa: v('empresa'), direccion: v('direccion'), comuna: v('comuna'), notas: v('notas') };
+    const { error } = await sb.from('cliente').update(cambios).eq('id', c.id); if (error) return aviso(errorDe(error), true);
+    await sb.from('historial').insert({ pedido_id: p.id, campo: 'cliente editado', valor_anterior: [c.telefono, c.direccion, c.comuna].filter(Boolean).join(' · ') || '-', valor_nuevo: [cambios.telefono, cambios.direccion, cambios.comuna].filter(Boolean).join(' · ') || '-', quien: yo.nombre || 'Harold' }).then(() => {}, () => {});
+    cerrarModal(); aviso('Cliente guardado'); despues(); };
+}
+async function formEditarEntrega(p, despues) {
+  const op = await opcionesComuna(p.comuna_entrega);
+  modal(`<h2>Editar entrega · ${esc(p.numero)}</h2><form id="f-ent"><div class="campos">
+    <label class="campo">Fecha de compra <input name="fecha_compra" type="date" value="${p.fecha_compra || ''}" required></label>
+    <label class="campo">Fecha comprometida con el cliente (vacía = aproximada, +21 días) <input name="fecha_comprometida" type="date" value="${p.fecha_comprometida || ''}"></label>
+    <label class="campo">Tipo de entrega <select name="tipo_entrega">${['Despacho RM', 'Despacho regiones', 'Retiro en taller'].map(t => `<option ${t === p.tipo_entrega ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    <label class="campo" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="instalacion" ${p.instalacion ? 'checked' : ''}> Con instalación</label>
+    <label class="campo">Dirección de entrega (vacía = la del cliente) <input name="direccion_entrega" value="${esc(p.direccion_entrega || '')}" placeholder="${esc(p.direccion || '')}"></label>
+    <label class="campo">Comuna de entrega (vacía = la del cliente) <select name="comuna_entrega">${op}</select></label>
+    <label class="campo">Nota de entrega <input name="nota_entrega" value="${esc(p.nota_entrega || '')}"></label>
+    <label class="campo">Cotización N° <input name="cotizacion_numero" value="${esc(p.cotizacion_numero || '')}" placeholder="Cot 3370"></label>
+    <label class="campo">Origen <select name="origen">${['WhatsApp', 'Instagram', 'Shopify', 'Fábrica', 'Tienda', 'Cliente directo', 'Correo', 'Colaborador', 'Interno'].map(t => `<option ${t === p.origen ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f-ent').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const v = k => (f.get(k) || '').trim() || null;
+    const cambios = { fecha_compra: v('fecha_compra'), fecha_comprometida: v('fecha_comprometida'), tipo_entrega: v('tipo_entrega'), instalacion: f.get('instalacion') === 'on', direccion_entrega: v('direccion_entrega'), comuna_entrega: v('comuna_entrega'), nota_entrega: v('nota_entrega'), cotizacion_numero: v('cotizacion_numero'), origen: v('origen') };
+    const { error } = await sb.from('pedido').update(cambios).eq('id', p.id); if (error) return aviso(errorDe(error), true);
+    cerrarModal(); aviso('Entrega guardada'); despues(); };
+}
+function formEditarPrecios(p, despues) {
+  modal(`<h2>Editar precios · ${esc(p.numero)}</h2><form id="f-pre"><div class="campos">
+    <label class="campo">Venta <input name="precio_venta" type="number" value="${p.precio_venta ?? 0}" required></label>
+    <label class="campo">Despacho <input name="precio_despacho" type="number" value="${p.precio_despacho ?? 0}"></label>
+    <label class="campo">Instalación <input name="precio_instalacion" type="number" value="${p.precio_instalacion ?? 0}"></label>
+    <label class="campo">Embalaje <input name="precio_embalaje" type="number" value="${p.precio_embalaje ?? 0}"></label></div>
+    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">El total y el saldo se recalculan solos; los abonos no cambian.</p>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f-pre').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const n = k => Number(f.get(k) || 0);
+    const antes = { precio_venta: p.precio_venta, precio_despacho: p.precio_despacho, precio_instalacion: p.precio_instalacion, precio_embalaje: p.precio_embalaje };
+    const cambios = { precio_venta: n('precio_venta'), precio_despacho: n('precio_despacho'), precio_instalacion: n('precio_instalacion'), precio_embalaje: n('precio_embalaje') };
+    const { error } = await sb.from('pedido').update(cambios).eq('id', p.id); if (error) return aviso(errorDe(error), true);
+    anotarCambio(`precios de ${p.numero}`, () => sb.from('pedido').update(antes).eq('id', p.id).then(r => { if (r.error) throw r.error; }));
+    cerrarModal(); aviso('Precios guardados'); despues(); };
 }
 async function formPedido() {
   const { data: comunas } = await sb.from('comuna').select('nombre').order('nombre');
