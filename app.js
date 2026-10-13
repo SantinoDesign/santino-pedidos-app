@@ -390,7 +390,7 @@ function celdaPieza(x, p, l1, l2) {
 function alertasPedido(p) {
   const a = [];
   if (p.urgente) a.push(['URG', 'urgente']);
-  if (p.pago_pendiente) a.push(['PAGO PEND', 'pago']);
+  if (p.pago_pendiente && (p.total || 0) > 0) a.push(['PAGO PEND', 'pago']);
   if ((p.piezas || []).some(x => x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado)) a.push(['¿ACABADO?', 'atrasado']);
   if ((p.piezas || []).some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.medida_texto && !/\.(MOS|LIN)\./.test(x.color || ''))) a.push(['SIN MEDIDAS', 'atrasado']);
   return a.map(([t, c]) => `<span class="chip ${c}">${t}</span>`).join(' ');
@@ -408,11 +408,11 @@ function pintarLista() {
     ['com', 'Comuna', 'Debajo: RM, regiones o retiro, y si lleva instalación'], ...(celdas ? [] : [['pz', 'Piezas', 'Toca para avanzar; mantener para volver']]), ...(esOp ? [] : [['saldo', 'Saldo', '']])];
   const nCols = cab.length; const hoy = hoyISO();
   const dos = (a, b) => `<div class="l1">${esc(a || '-')}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
-  const filaMov = (m, p) => `<tr class="mov-fila ${m.fecha < hoy && !m.confirmado ? 'atrasado' : ''}" data-mov="${m.id}">
+  const filaMov = (m, p) => `<tr class="fila mov-fila ${m.fecha < hoy && !m.confirmado ? 'atrasado' : ''}" data-mov="${m.id}" data-id="${p.id}">
       <td class="c-est"><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2"><span class="chip inst">${esc(m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase())}</span> ${movChip(m)}</div></td>
       <td colspan="4"><div class="l1">${esc(m.nota || m.tipo)}</div><div class="l2">${esc(m.direccion || p.direccion || 'dirección pendiente')}</div></td>
-      <td class="c-ent fecha-mov">${movFechaCelda(m)}</td><td class="c-com">${dos(p.comuna || '', esOp ? 'propón el día' : '')}</td>
+      <td class="c-ent fecha-mov">${movFechaTxt(m)}</td><td class="c-com">${dos(p.comuna || '', '')}</td>
       ${celdas ? '' : '<td class="c-pz"></td>'}<td class="${esOp ? 'c-com' : 'c-saldo'}"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td></tr>`;
   const feP = p => p.fecha_comprometida || p.fecha_estimada || '9999';
   const ids = new Set(lista.map(p => p.id));
@@ -433,7 +433,7 @@ function pintarLista() {
     const r = rasgos(p);
     const envio = (p.tipo_entrega === 'Despacho regiones' ? 'Regiones' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro en taller' : 'RM') + (p.instalacion ? ' + instalación' : '');
     const fe = feP(p); const atraso = p.atrasado ? Math.max(1, Math.round((new Date(hoy) - new Date(fe)) / 864e5)) : 0;
-    const ent = fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.fecha_comprometida ? '' : '<div class="l2">aprox. (+21 d)</div>'}`;
+    const ent = fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.fecha_comprometida ? '<div class="l2">comprometida</div>' : '<div class="l2">aprox. (+21 d)</div>'}`;
     const cubL1 = r.parcial === 'solo bases' ? '-' : [r.cub.material_cubierta ? codMaterial(r.cub.material_cubierta) : '', r.cub.espesor_mm ? num(r.cub.espesor_mm) + ' mm' : ''].filter(Boolean).join(' · ') || (celdas && r.cub.area ? (r.cub.tipo === 'Servicio' ? 'Instalación' : r.cub.tipo) : '-');
     const cubL2 = r.cubierta2.slice(1).filter(Boolean).join(' · ');
     const conBase = r.base.tipo || ['Cubierta', 'Mesa'].includes(r.cub.tipo);  // un mueble, banca o servicio no tiene base: la celda queda vacía
@@ -450,7 +450,7 @@ function pintarLista() {
       <td class="c-cub">${celdaCub}</td><td class="c-base">${celdaBase}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
       <td class="c-sillas">${celdaSil}</td>
-      ${mp ? `<td class="c-ent fecha-mov">${movFechaCelda(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="Clic para cambiar la fecha de entrega">${ent}</td>`}
+      ${mp ? `<td class="c-ent fecha-mov">${movFechaTxt(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="Clic para cambiar la fecha de entrega">${ent}</td>`}
       <td class="c-com">${dos(p.comuna || (p.tipo_entrega === 'Retiro en taller' ? 'Taller' : ''), envio).replace('<div class="l1">-</div>', '<div class="l1 falta-dato">¿comuna?</div>')}</td>
       ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}${esOp ? '' : `<td class="c-saldo mono ${p.saldo > 0 ? 'rojo' : ''}">${p.saldo > 0 ? pesos(p.saldo) : '<span class="gris">pagado</span>'}</td>`}</tr>`;
   }).join('');
@@ -521,9 +521,11 @@ function abrirDetalleFila(tr) {
     <section class="d-bloque d-piezas"><h4>Piezas (${piezas.length}) <small class="gris">toca el chip para avanzar · mantener para volver · toca el nombre para editar</small></h4>
       ${piezas.length ? `<table class="d-tabla"><thead><tr><th>Etapa</th><th>Pieza</th><th>Madera</th><th>Medidas L × A × Al</th><th>Term.</th><th>Acabado</th><th>Fecha maestro</th><th>Indicaciones</th></tr></thead><tbody>${piezas.map(filaPz).join('')}</tbody></table>` : '<div class="gris">Sin piezas de taller</div>'}
     </section>
+    ${(p.movimientos = movsDe(p.id)).length || !esOp ? `<div class="d-bloque d-mov">${movimientosHtml(p, esOp)}</div>` : ''}
     ${p.observacion ? `<section class="d-bloque d-obs"><h4>Observación</h4><div>${esc(p.observacion)}</div></section>` : ''}
     </div></td>`;
   tr.after(d);
+  activarMovimientos(d, p, async () => { await cargarMovimientos(); reabrir(); });
   const reabrir = () => { pintarLista(); const t2 = $(`#tabla tr.fila[data-id="${p.id}"]`); if (t2) abrirDetalleFila(t2); };
   activarEtapas(d, reabrir);
   activarPiezasEdicion(d, reabrir);
@@ -948,6 +950,7 @@ function movFechaCelda(m) {
   if (yo.rol === 'operacion') return `<span style="${rojo}">${fecha(m.fecha)}</span> ${movChip(m)}${e === 'confirmado' ? '' : `<div><small class="gris">Proponer:</small> <input type="date" value="${m.fecha_propuesta || ''}" data-mov-prop="${m.id}" title="Propón el día; Harold lo confirma con el cliente" style="${chico}"></div>`}`;
   return `<input type="date" value="${m.fecha}" data-mov-fecha="${m.id}" title="Fecha ${e === 'confirmado' ? 'confirmada' : 'tentativa'} (clic para cambiarla)" style="${chico};${rojo}"> ${movChip(m)}${e === 'confirmado' ? '' : ` <button class="btn chico borde" data-mov-conf="${m.id}" title="${e === 'propuesto' ? 'El cliente aceptó el día propuesto: queda en la Ruta' : 'Dejar esta fecha como confirmada'}">Confirmar</button>`}`;
 }
+const movFechaTxt = m => { const e = movEstado(m); const tarde = m.fecha < hoyISO() && e !== 'confirmado' && !m.hecho; return `<div class="l1 ${tarde ? 'rojo' : ''}">${fecha(m.fecha)}</div><div class="l2 ${tarde ? 'rojo' : ''}">${e === 'propuesto' ? 'propuesta ' + fecha(m.fecha_propuesta) : e === 'confirmado' ? 'confirmada' : e === 'hecho' ? 'hecho' : 'tentativa'}</div>`; };
 const MOV_TIPOS = ['Retiro en cliente', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
 const movEtiqueta = m => `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()} ${fecha(m.fecha)}`;
 async function cargarMovimientos() { const { data } = await sb.from('movimiento').select('*').eq('hecho', false).order('fecha'); cache.movs = data || []; }
