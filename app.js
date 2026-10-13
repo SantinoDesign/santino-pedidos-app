@@ -1495,6 +1495,9 @@ async function modalOC(id, ocDado) {
   on('#oc-x', cerrarModal);
   activarEtapas($('#modal'), () => refrescar());
   $$('[data-ver]', $('#modal')).forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
+  // Guardar queda como "Guardado ✓" y deshabilitado mientras lo escrito sea igual a lo guardado (Harold 13-oct: "si ya está guardada debe quedar marcado sin poder guardar de nuevo")
+  const estadoGuardar = () => { const b = $('#oc-guardar'); if (!b) return; const igual = ($('#oc-fecha').value || '') === (oc.fecha_prometida || '') && ($('#oc-ref').value.trim() || '') === (oc.referencia_prov || ''); b.disabled = igual; b.textContent = igual ? 'Guardado ✓' : 'Guardar'; b.classList.toggle('primario', !igual); };
+  estadoGuardar(); ['#oc-fecha', '#oc-ref'].forEach(s => { const el = $(s); if (el) el.oninput = el.onchange = estadoGuardar; });
   on('#oc-guardar', async () => { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { fecha_prometida: $('#oc-fecha').value || '', referencia_prov: $('#oc-ref').value || '' } }); aviso('Guardado (queda en el historial de cada pedido)'); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
   const guardarTexto = async () => { if (!pc) return; const t = $('#oc-texto').value; if (t !== (oc.texto_enviado || '')) { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { texto_enviado: t } }); oc.texto_enviado = t; } catch (e) { } } };
   on('#oc-copiar', async () => { await guardarTexto(); try { await navigator.clipboard.writeText($('#oc-texto').value); aviso('Texto copiado: pégalo en WhatsApp o en el correo'); } catch (e) { aviso('No se pudo copiar: selecciona el texto y cópialo', true); } });
