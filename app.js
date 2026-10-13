@@ -401,9 +401,9 @@ function pintarLista() {
   const celdas = LISTA_PIEZAS === 'celda';
   const nMov = cache.filtro === 'pendientes' ? (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.piezas || []).some(x => x.area); }).length : 0;
   $('#resumen-lista').textContent = `${lista.length} pedidos${nMov ? ` · ${nMov} movimiento${nMov > 1 ? 's' : ''}` : ''}`;
-  const cab = [['est', 'Est.', 'Estado del pedido (ver leyenda en ?)'], ['num', 'N°', 'Abre la ficha'], ['cli', 'Cliente', 'Nombre; debajo el tipo de pedido y las alertas'], ['mod', 'Modelo', ''],
+  const cab = [['est', 'Est.', 'Estado del pedido (ver leyenda en ?)'], ['num', 'N°', 'Abre la ficha'], ['cli', 'Cliente', 'Nombre; debajo el tipo de pedido y las alertas'], ['mod', 'Modelo', ''], ['med', 'Medida', 'Largo × ancho (× alto); debajo forma y personas'],
     ['cub', celdas ? 'Cubierta / pieza' : 'Cubierta', celdas ? 'Material y espesor; debajo el tono. La celda es el botón de etapa: toca para avanzar, mantener apretado para volver' : 'Material y espesor; debajo el tono'],
-    ['base', 'Base', celdas ? 'Material; debajo el color. Toca para avanzar la etapa' : 'Material; debajo el color'], ['med', 'Medida', 'Largo × ancho (× alto); debajo forma y personas'],
+    ['base', 'Base', celdas ? 'Material; debajo el color. Toca para avanzar la etapa' : 'Material; debajo el color'],
     ['sillas', 'Sillas', 'Cantidad × modelo; debajo tapiz y pata' + (celdas ? '. Toca para avanzar la compra' : '')], ['ent', 'Entrega cliente', 'Fecha de entrega; "aprox." = estimada, no comprometida. Clic para cambiarla'],
     ['com', 'Comuna', 'Debajo: RM, regiones o retiro, y si lleva instalación'], ...(celdas ? [] : [['pz', 'Piezas', 'Toca para avanzar; mantener para volver']]), ...(esOp ? [] : [['saldo', 'Saldo', '']])];
   const nCols = cab.length; const hoy = hoyISO();
@@ -447,8 +447,8 @@ function pintarLista() {
       <td class="c-est">${estadoHtml(p.estado, true)}</td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a></td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2">${tipoHtml(p.tipo_pedido)} ${alertasPedido(p)}${esOp && p.saldo_por_cobrar > 0 ? ' ' + chip('COBRAR ' + pesos(p.saldo_por_cobrar)) : ''}</div></td>
       <td class="c-mod" title="${esc(r.descripcion || '')}"><div class="l1">${esc(r.modelo)}</div>${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td>
-      <td class="c-cub">${celdaCub}</td><td class="c-base">${celdaBase}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
+      <td class="c-cub">${celdaCub}</td><td class="c-base">${celdaBase}</td>
       <td class="c-sillas">${celdaSil}</td>
       ${mp ? `<td class="c-ent fecha-mov" data-mov-id="${mp.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="${esOp ? 'Clic para proponer una fecha de entrega (Harold la acepta)' : 'Clic para cambiar la fecha de entrega'}">${ent}</td>`}
       <td class="c-com">${dos(p.comuna || (p.tipo_entrega === 'Retiro en taller' ? 'Taller' : ''), envio).replace('<div class="l1">-</div>', '<div class="l1 falta-dato">¿comuna?</div>')}</td>
