@@ -322,3 +322,29 @@ col.c-fecha{width:9.5%}col.c-num{width:5%}col.c-cli{width:11%}col.c-pieza{width:
   .odt-print .caja-ok{border:1.5px solid #333!important}
   .odt-print .titulo-print{font-size:13px;margin:0 0 6px}
 }
+
+/* ===== Lista v2 (Harold 13-oct-2026, variante B aprobada): anchos fijos, dos líneas por celda, semanas, celdas-botón por pieza ===== */
+table.lista.v2{font-size:12.5px;table-layout:fixed;width:100%;min-width:1180px}
+table.lista.v2 th{white-space:normal;padding:7px 6px;line-height:1.2}
+table.lista.v2 td{padding:5px 6px;line-height:1.25;overflow-wrap:normal;word-break:normal;hyphens:none;vertical-align:top}
+table.lista.v2 .l1{font-weight:600}
+table.lista.v2 .l2{color:var(--gris-2);font-size:11px}
+table.lista.v2 .l2.parcial{color:var(--rojo-txt);font-weight:700}
+table.lista.v2 .rojo{color:var(--rojo-txt)}
+table.lista.v2 .gris{color:var(--gris-3)}
+table.lista.v2 td.c-saldo{text-align:right}
+table.lista.v2 tr.semana td{background:#F4F6F7;color:var(--gris-2);font-weight:700;font-size:11.5px;padding:5px 8px;letter-spacing:.3px}
+table.lista.v2 tr.mov-fila td{background:#FBFDFE}
+table.lista.v2 a.ficha-num{color:var(--azul);font-weight:700;text-decoration:none}
+table.lista.v2 a.ficha-num:hover{text-decoration:underline}
+table.lista.v2 .falta-dato{color:var(--rojo-txt);font-weight:700}
+table.lista.v2 col.c-est{width:5%}table.lista.v2 col.c-num{width:4.8%}table.lista.v2 col.c-cli{width:13.5%}table.lista.v2 col.c-mod{width:8.5%}table.lista.v2 col.c-cub{width:8.5%}table.lista.v2 col.c-base{width:7.5%}table.lista.v2 col.c-med{width:8.5%}table.lista.v2 col.c-sillas{width:10.5%}table.lista.v2 col.c-ent{width:7.5%}table.lista.v2 col.c-com{width:8.5%}table.lista.v2 col.c-pz{width:11.5%}table.lista.v2 col.c-saldo{width:5.7%}
+table.lista.v2.b col.c-cli{width:14%}table.lista.v2.b col.c-cub{width:12%}table.lista.v2.b col.c-base{width:10.5%}table.lista.v2.b col.c-sillas{width:12%}table.lista.v2.b col.c-med{width:9%}table.lista.v2.b col.c-mod{width:9%}table.lista.v2.b col.c-saldo{width:7%}
+table.lista.v2.b td{padding:4px 5px}
+.celda-pieza{display:block;width:100%;text-align:left;border:1.5px solid #CCD4D8;border-radius:8px;background:#fff;color:var(--gris);padding:4px 7px 3px;font:inherit;line-height:1.2;margin:1px 0;cursor:pointer}
+.celda-pieza .l1{font-weight:600}.celda-pieza .l2{color:var(--gris-2);font-size:11px}
+.celda-pieza .etapa-tag{display:block;margin-top:3px;font-size:10.5px;font-weight:700;color:var(--gris-3);border-top:1px dashed #E3E8EB;padding-top:2px}
+.celda-pieza.proceso{border-color:var(--azul)}.celda-pieza.proceso .etapa-tag{color:var(--azul-osc)}
+.celda-pieza.lista{background:var(--azul);border-color:var(--azul);color:#fff}.celda-pieza.lista .l2,.celda-pieza.lista .etapa-tag{color:#E6F3F7;border-top-color:rgba(255,255,255,.35)}
+.celda-pieza.falta{border-color:var(--rojo-txt)}.celda-pieza.falta .etapa-tag{color:var(--rojo-txt)}
+.tablet table.lista.v2{font-size:13px;min-width:1080px}.tablet table.lista.v2 .l2{font-size:11.5px}.tablet .celda-pieza{padding:7px 9px 5px;min-height:52px}.tablet .celda-pieza .etapa-tag{font-size:12px}
