@@ -102,7 +102,7 @@ function rasgos(p) {
     baseTipo: tipoBase(cub, base),
     // Base de madera sin material propio: es la misma madera de la cubierta (Gonqui pino = base pino); solo si la cubierta no es madera queda "MADERA" (Harold 12-oct)
     base2: [codMaterial(base.material_base || cub.material_base) || (tipoBase(cub, base) === 'MADERA' ? (maderaBase(cub, base) || 'MADERA') : tipoBase(cub, base)) || '-', base.color || cub.color || '', ES_VIDRIO(cub.material_cubierta) && cub.tono && ['MADERA', 'ENCHAPADO'].includes(tipoBase(cub, base)) && !TONOS_VIDRIO.includes(String(cub.tono).toUpperCase()) ? tonoTxt(cub.tono) : ''],
-    medida: cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''}` : '-',
+    medida: medidaTxt(cub) || '-',
     tono: cub.tono || '-', sillas: sil ? `${sil.cantidad} ${sil.tipo_silla || ''} ${sil.color_silla || ''}`.trim() : '-',
     entrega: (p.tipo_entrega === 'Despacho regiones' ? 'REG' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
   };
@@ -110,6 +110,8 @@ function rasgos(p) {
 /* Etapa por pieza (Harold 12-oct): cada pieza avanza por las etapas de su área (carpintería: Por hacer → Fabricación → Barniz → Embalado;
    soldadura: → Soldadura → Pintura → Embalado; compras: Por pedir → Pedido → Recibido → Embalado...). Un toque avanza; clic derecho
    o mantener apretado vuelve atrás. Embalado = pieza lista. Las etapas las define la base (privado.etapas_de). */
+/* Medida de una pieza; las extensibles muestran el largo abierta: "130 x 90 a 180 ext" (Harold 13-oct, Sandra W3149) */
+const medidaTxt = (x, sep = ' x ', cm = '') => !x.largo_cm ? '' : `${num(x.largo_cm)}${sep}${num(x.ancho_cm)}${x.alto_cm ? sep + num(x.alto_cm) : ''}${x.largo_ext_cm ? ` a ${num(x.largo_ext_cm)}` : ''}${cm}${x.largo_ext_cm ? ' ext' : ''}`;
 function etapaChip(x, pedidoId) {
   const et = x.etapas || []; const i = et.indexOf(x.etapa); const ultima = i >= 0 && i === et.length - 1;
   const cls = ultima ? 'lista' : i > 0 ? 'proceso' : '';
@@ -135,11 +137,17 @@ function activarEtapas(raiz, despues) {
     let timer = null, largo = false;
     const mover = async atras => {
       try {
-        const r = await rpc('avanzar_etapa', { p_linea_id: Number(b.dataset.etapa), p_atras: atras });
+        const lid = Number(b.dataset.etapa);
+        const p0 = cache.pedidos.find(x => x.id === Number(b.dataset.pedido)); const x0 = p0 && (p0.piezas || []).find(y => y.id === lid);
+        const antes = x0 ? x0.etapa : null;
+        const r = await rpc('avanzar_etapa', { p_linea_id: lid, p_atras: atras });
         const p = cache.pedidos.find(x => x.id === r.pedido_id);
         if (p) { p.piezas = r.piezas; p.estado = r.estado; p.piezas_listas = r.piezas.filter(x => x.area && x.estado === 'Lista').length; }
         if (r.todas_listas) aviso('Todas las piezas embaladas: se puede marcar LISTO EN TALLER');
-        despues && despues(r);
+        if (despues) await despues(r);
+        // Deshacer también para las piezas (Harold 13-oct: en ODT la pieza desaparece de la lista al avanzar): vuelve un paso atrás
+        const x1 = (r.piezas || []).find(y => y.id === lid);
+        if (x1 && antes && x1.etapa !== antes) anotarCambio(`${p ? p.numero + ' ' : ''}${x1.tipo} ${x1.etapa} (volver a ${antes})`, async () => { await rpc('avanzar_etapa', { p_linea_id: lid, p_atras: !atras }); });
       } catch (e) { aviso(errorDe(e), true); }
     };
     b.onclick = ev => { ev.stopPropagation(); if (largo) { largo = false; return; } mover(false); };
@@ -549,7 +557,7 @@ async function vFicha(id) {
     <div class="grid-ficha"><div class="columna">
       <section class="seccion"><div class="cab"><h2>Piezas del pedido · toca una para avanzar de etapa (clic derecho: volver)</h2>${esOp ? '' : `<button class="btn chico" id="b-linea">+ Agregar línea</button>`}</div>
         <div class="tabla-env"><table class="lista"><thead><tr><th>Pieza</th><th>Descripción</th><th>Diseño</th><th>Material</th><th>Medida</th><th title="Color de la base (estructura) y tono de la cubierta, por separado">Color base / tono cubierta</th><th>Área</th><th title="Define si la pieza pasa por Barniz o Pintura">Acabado</th><th>Etapa</th>${esOp ? '' : '<th></th>'}</tr></thead><tbody>
-        ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.alto_cm ? ' x ' + num(x.alto_cm) : ''}` : '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color ? 'base ' + x.color : null, x.tono ? tonoTxt(x.tono) : null, x.color_silla ? 'silla ' + x.color_silla : null].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
+        ${piezas.map(x => `<tr><td><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion)}${x.nota_acabado ? `<div style="color:var(--gris-2)">${esc(x.nota_acabado)}</div>` : ''}</td><td>${esc([x.modelo_cubierta, x.modelo_base].filter(Boolean).join(' / ') || '-')}</td><td>${esc([x.material_cubierta, x.material_base].filter(Boolean).join(' / ') || '-')}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${medidaTxt(x) || '-'}${x.personas ? ` · ${x.personas} pers.` : ''}</td><td>${esc([x.color ? 'base ' + x.color : null, x.tono ? tonoTxt(x.tono) : null, x.color_silla ? 'silla ' + x.color_silla : null].filter(Boolean).join(' · ') || '-')}</td><td class="nw">${esc(x.area || '-')}</td>
           <td>${acabadoHtml(x)}</td><td>${x.area ? etapaChip(x, p.id) : '-'}</td>${esOp ? '' : `<td><button class="btn chico borde" data-editar-pieza="${x.id}">Editar</button></td>`}</tr>`).join('')}
         </tbody></table></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -673,6 +681,7 @@ function camposLinea(prefijo = '') {
     <label class="campo">Largo cm <input name="${prefijo}largo_cm" type="number" step="0.5"></label>
     <label class="campo">Ancho cm <input name="${prefijo}ancho_cm" type="number" step="0.5"></label>
     <label class="campo">Alto cm <input name="${prefijo}alto_cm" type="number" step="0.5" value="76"></label>
+    <label class="campo">Largo abierta (solo extensible) <input name="${prefijo}largo_ext_cm" type="number" step="0.5" placeholder="180"></label>
     <label class="campo">Forma <select name="${prefijo}forma"><option value="">-</option><option>RECT</option><option>CUA</option><option>CIRC</option><option>OVAL</option></select></label>
     <label class="campo">Personas <input name="${prefijo}personas" type="number"></label>
     <label class="campo">Tono o barniz <select name="${prefijo}tono"><option value="">-</option>${['1', '2', '3', '4', '5', 'NGR', 'BL', 'GRIS', 'NOG', 'SIN BARNIZ', 'ESPECIAL'].map(t => `<option>${t}</option>`).join('')}</select></label>
@@ -685,7 +694,7 @@ function camposLinea(prefijo = '') {
 function leerLinea(f, prefijo = '') {
   const v = k => { const x = f.get(prefijo + k); return x === '' || x == null ? null : x; };
   const n = k => v(k) == null ? null : Number(v(k));
-  return { tipo_linea: v('tipo_linea'), descripcion: v('descripcion'), cantidad: n('cantidad') || 1, modelo_cubierta: v('modelo_cubierta'), modelo_base: v('modelo_base'), material_cubierta: v('material_cubierta'), material_base: v('material_base'), color_estructura: v('color_estructura'), espesor_mm: n('espesor_mm'), largo_cm: n('largo_cm'), ancho_cm: n('ancho_cm'), alto_cm: n('alto_cm'), forma: v('forma'), personas: n('personas'), tono: v('tono'), nota_acabado: v('nota_acabado'), tipo_silla: v('tipo_silla'), color_silla: v('color_silla'), area_taller: v('area_taller') };
+  return { tipo_linea: v('tipo_linea'), descripcion: v('descripcion'), cantidad: n('cantidad') || 1, modelo_cubierta: v('modelo_cubierta'), modelo_base: v('modelo_base'), material_cubierta: v('material_cubierta'), material_base: v('material_base'), color_estructura: v('color_estructura'), espesor_mm: n('espesor_mm'), largo_cm: n('largo_cm'), ancho_cm: n('ancho_cm'), alto_cm: n('alto_cm'), largo_ext_cm: n('largo_ext_cm'), forma: v('forma'), personas: n('personas'), tono: v('tono'), nota_acabado: v('nota_acabado'), tipo_silla: v('tipo_silla'), color_silla: v('color_silla'), area_taller: v('area_taller') };
 }
 function formLinea(p, despues) {
   modal(`<h2>Agregar línea · ${esc(p.numero)}</h2><form id="f">${camposLinea()}<div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
@@ -836,7 +845,7 @@ async function vOdt() {
     .sort((a, b) => String(fe(a.p) || '9').localeCompare(String(fe(b.p) || '9')) || String(a.p.numero).localeCompare(String(b.p.numero)));
   const ahora = filas(x => x.etapa === etapa);
   const vienen = acabado ? filas(x => x.acabado === acabado && ['Por hacer', 'Fabricación', 'Armado', 'Soldadura'].includes(x.etapa)) : [];
-  const med = x => x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.alto_cm ? ' x ' + num(x.alto_cm) : ''}` : '-';
+  const med = x => medidaTxt(x) || '-';
   const mat = x => [x.tipo === 'Base' ? x.material_base : x.material_cubierta || x.material_base].filter(Boolean).map(nombreMaterial).join(' / ') || '-';
   const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? 'color ' + (nombreColor(x.color) || x.color) : null) : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · ') || '-';
   const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><thead><tr><th>Entrega</th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Modelo</th><th>Material</th><th>Medida</th><th>Tono / color / nota</th><th>Etapa</th><th class="solo-impresion">OK</th></tr></thead><tbody>${lista.map(({ p, x }) => `<tr class="${p.atrasado ? 'atrasado' : ''}">
@@ -916,7 +925,7 @@ function bultosDe(p) {
 function descProducto(x) {
   if (['Mueble', 'Repuesto', 'Servicio'].includes(x.tipo)) return x.descripcion || x.tipo;
   const cod = x.modelo_cubierta || x.modelo_base; const mat = x.material_cubierta || x.material_base;
-  const medida = x.largo_cm ? `${num(x.largo_cm)}x${num(x.ancho_cm)}${x.alto_cm ? 'x' + num(x.alto_cm) : ''} cm` : '';
+  const medida = medidaTxt(x, 'x', ' cm');
   const partes = [`${x.tipo === 'Mesa' || x.tipo === 'Cubierta' ? 'Mesa ' : ''}${nombreModelo(cod) || ''} ${cap(nombreMaterial(mat))}`.trim()];
   const tras = [medida, x.personas ? `[${x.personas} personas]` : ''].filter(Boolean).join(' ');
   if (tras) partes.push(tras);
@@ -1013,7 +1022,7 @@ function activarArrastreHorizontal(env) {
    Cuando llegan: "Recibido" (un toque). Atrasadas contra la fecha prometida en rojo. Más adelante: orden de compra formal (Harold). */
 const formatoPedido = (prov, piezas) => {
   const hoy = fecha(hoyISO(), true);
-  const med = x => x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)} cm` : '';
+  const med = x => medidaTxt(x, ' x ', ' cm');
   if (prov && prov.formato === 'vidrio') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} vidrio${x.cantidad > 1 ? 's' : ''} ${nombreMaterial(x.material_cubierta)}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}, ${med(x)}${x.forma === 'CIRC' ? ' (redondo)' : x.forma === 'OVAL' ? ' (ovalado)' : ''}${x.nota_acabado ? ', ' + x.nota_acabado : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n') + `\nRetiro en taller Lo Blanco 1919, La Pintana. Gracias.`;
   if (prov && prov.formato === 'sillas_aliwen') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.tipo_linea === 'Silla' ? 'Silla Santino' : x.descripcion}, pata ${({ NGR: 'negra', BL: 'blanca', NAT: 'natural' }[x.color_estructura] || x.color_estructura || 'negra')}, tapiz ${x.color_silla || 'por definir'}, madera lenga  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
   return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.descripcion || x.tipo_linea}${med(x) ? ', ' + med(x) : ''}${x.color_silla ? ', ' + x.color_silla : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
