@@ -375,3 +375,4 @@ table.lista.v2.b td{padding:4px 5px}
 .d-bloque .rojo{color:var(--rojo-txt)}
 .cli-edit{color:var(--azul-osc);font-weight:600;text-decoration:underline dotted;cursor:pointer}
 @media (max-width:1100px){.desp2{grid-template-columns:1fr 1fr}}
+.celda-pieza.mov{border-style:dashed;border-color:var(--azul)}.celda-pieza.mov .etapa-tag{color:var(--azul-osc)}

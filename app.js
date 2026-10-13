@@ -399,7 +399,7 @@ function pintarLista() {
   const lista = filtrar(cache.pedidos);
   const esOp = yo.rol === 'operacion';
   const celdas = LISTA_PIEZAS === 'celda';
-  const nMov = cache.filtro === 'pendientes' ? (cache.movs || []).filter(m => lista.some(p => p.id === m.pedido_id)).length : 0;
+  const nMov = cache.filtro === 'pendientes' ? (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.piezas || []).some(x => x.area); }).length : 0;
   $('#resumen-lista').textContent = `${lista.length} pedidos${nMov ? ` · ${nMov} movimiento${nMov > 1 ? 's' : ''}` : ''}`;
   const cab = [['est', 'Est.', 'Estado del pedido (ver leyenda en ?)'], ['num', 'N°', 'Abre la ficha'], ['cli', 'Cliente', 'Nombre; debajo el tipo de pedido y las alertas'], ['mod', 'Modelo', ''],
     ['cub', celdas ? 'Cubierta / pieza' : 'Cubierta', celdas ? 'Material y espesor; debajo el tono. La celda es el botón de etapa: toca para avanzar, mantener apretado para volver' : 'Material y espesor; debajo el tono'],
@@ -417,11 +417,15 @@ function pintarLista() {
   const feP = p => p.fecha_comprometida || p.fecha_estimada || '9999';
   const ids = new Set(lista.map(p => p.id));
   const entradas = lista.map(p => ({ k: feP(p), p }));
-  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => ids.has(m.pedido_id)).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
+  // Un pedido SIN piezas de taller (postventa: visita técnica, retiro) se muestra como una sola fila con su movimiento adentro, en la fecha del movimiento (Harold 13-oct, W3142)
+  const sinPiezas = p => !(p.piezas || []).some(x => x.area);
+  const movDelPedido = p => sinPiezas(p) ? (cache.movs || []).filter(m => m.pedido_id === p.id).sort((a, b) => a.fecha.localeCompare(b.fecha))[0] : null;
+  entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha; } });
+  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => ids.has(m.pedido_id) && !sinPiezas(lista.find(p => p.id === m.pedido_id))).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
   else lista.forEach(p => movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })));
   entradas.sort((a, b) => String(a.k).localeCompare(String(b.k)));
   let semAct = null;
-  const cuerpo = entradas.map(({ p, m, k }) => {
+  const cuerpo = entradas.map(({ p, m, k, mp }) => {
     let sep = '';
     if (cache.filtro === 'pendientes' && k !== '9999') { const sw = semanaDe(k); if (sw !== semAct) { semAct = sw; sep = `<tr class="semana"><td colspan="${nCols}">${sw}</td></tr>`; } }
     else if (cache.filtro === 'pendientes' && k === '9999' && semAct !== 'sin') { semAct = 'sin'; sep = `<tr class="semana"><td colspan="${nCols}">Sin fecha de entrega</td></tr>`; }
@@ -435,7 +439,8 @@ function pintarLista() {
     const conBase = r.base.tipo || ['Cubierta', 'Mesa'].includes(r.cub.tipo);  // un mueble, banca o servicio no tiene base: la celda queda vacía
     const baseL1 = conBase ? r.base2[0] : '-', baseL2 = conBase ? r.base2.slice(1).filter(Boolean).join(' · ') : '';
     const medL1 = r.medida !== '-' ? r.medida.replace(/ x /g, ' × ') : (r.cub.medida_texto || ''), medL2 = [{ RECT: 'Rect', CUA: 'Cuad', CIRC: 'Circ', OVAL: 'Oval' }[r.cub.forma], r.cub.personas ? r.cub.personas + 'P' : ''].filter(Boolean).join(' · ');
-    const celdaCub = celdas ? celdaPieza(r.cub.area ? r.cub : null, p, cubL1, cubL2) + r.extras.map(x => celdaPieza(x, p, (x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0]) + (x.cantidad > 1 ? ' ×' + x.cantidad : ''), codMaterial(x.material_cubierta || x.material_base) || '')).join('') : dos(cubL1, cubL2);
+    const celdaMov = mp ? `<button class="celda-pieza mov ${mp.fecha < hoy && !mp.confirmado ? 'falta' : mp.confirmado ? 'proceso' : ''}" data-mov-hecho="${mp.id}" title="${esc(mp.nota || '')}. Toca cuando esté hecho."><div class="l1">${esc(mp.tipo)}</div><div class="l2">${esc(mp.nota || mp.direccion || '')}</div><span class="etapa-tag">${esc(movEstado(mp).toUpperCase())} · toca: hecho</span></button>` : '';
+    const celdaCub = mp ? celdaMov : celdas ? celdaPieza(r.cub.area ? r.cub : null, p, cubL1, cubL2) + r.extras.map(x => celdaPieza(x, p, (x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0]) + (x.cantidad > 1 ? ' ×' + x.cantidad : ''), codMaterial(x.material_cubierta || x.material_base) || '')).join('') : dos(cubL1, cubL2);
     const celdaBase = celdas ? celdaPieza(r.base.tipo ? r.base : null, p, baseL1, baseL2) : dos(baseL1, baseL2);
     const celdaSil = r.sillasL1 ? (celdas ? celdaPieza(r.sil, p, r.sillasL1, r.sillasL2) : dos(r.sillasL1, r.sillasL2)) : '<span class="gris">-</span>';
     return sep + `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
@@ -445,7 +450,7 @@ function pintarLista() {
       <td class="c-cub">${celdaCub}</td><td class="c-base">${celdaBase}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
       <td class="c-sillas">${celdaSil}</td>
-      <td class="c-ent fecha-ent" data-id="${p.id}" title="Clic para cambiar la fecha de entrega">${ent}</td>
+      ${mp ? `<td class="c-ent fecha-mov">${movFechaCelda(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="Clic para cambiar la fecha de entrega">${ent}</td>`}
       <td class="c-com">${dos(p.comuna || (p.tipo_entrega === 'Retiro en taller' ? 'Taller' : ''), envio).replace('<div class="l1">-</div>', '<div class="l1 falta-dato">¿comuna?</div>')}</td>
       ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}${esOp ? '' : `<td class="c-saldo mono ${p.saldo > 0 ? 'rojo' : ''}">${p.saldo > 0 ? pesos(p.saldo) : '<span class="gris">pagado</span>'}</td>`}</tr>`;
   }).join('');
@@ -492,7 +497,7 @@ function abrirDetalleFila(tr) {
       <div class="d-fila"><span>Entrega cliente</span><b>${fe ? fecha(fe, true) : 'sin fecha'}</b>${fe && !p.fecha_comprometida ? ' <small class="gris">aprox., sin comprometer</small>' : ''}</div>
       <div class="d-fila"><span>Origen</span><b>${esc(p.origen || '')}</b>${p.cotizacion_numero ? ` <small class="gris">· ${esc(p.cotizacion_numero)}</small>` : ''}</div>
       <div class="d-acciones">
-        ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn chico primario" data-listo="${p.id}" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''} title="${p.piezas_listas} de ${p.piezas_total} piezas embaladas">Marcar LISTO EN TALLER</button>` : ''}
+        ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) && p.piezas_total > 0 ? `<button class="btn chico primario" data-listo="${p.id}" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''} title="${p.piezas_listas} de ${p.piezas_total} piezas embaladas">Marcar LISTO EN TALLER</button>` : ''}
         ${esOp && p.estado === 'LISTO EN TALLER' ? `<label style="font-size:12px">Proponer despacho <input type="date" data-fecha="${p.id}" value="${p.despacho_propuesto || ''}"></label><button class="btn chico borde" data-prop="${p.id}">Proponer</button>` : ''}
         ${esOp && p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn chico primario" data-entregar="${p.id}">Entregar</button>` : ''}
         ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' && !esOp ? `<span class="chip prop">Alexis propone ${fecha(p.despacho_propuesto, true)}</span><button class="btn chico borde" data-confirmar="${p.id}">Cliente confirmó: programar</button><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WSP despacho</a>` : ''}
@@ -688,7 +693,7 @@ async function vFicha(id) {
           <td>${acabadoHtml(x)}</td><td>${x.area ? etapaChip(x, p.id) : '-'}</td>${esOp ? '' : `<td><button class="btn chico borde" data-editar-pieza="${x.id}">Editar</button></td>`}</tr>`).join('')}
         </tbody></table></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? `<button class="btn primario" id="b-listo" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas embaladas</span>` : ''}
+          ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? (p.piezas_total > 0 ? `<button class="btn primario" id="b-listo" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas embaladas</span>` : '<span style="font-size:12px;color:var(--gris-2)">Sin piezas de taller: este pedido se resuelve con su movimiento (visita, retiro); si lleva una pieza, agrégala con "Agregar línea".</span>') : ''}
           ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" id="f-prop" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" id="b-prop">Proponer</button>${!esOp ? `<button class="btn primario" id="b-conf">Cliente confirmó: programar</button>` : ''}` : ''}
           ${!esOp && p.cliente_telefono ? `<a class="btn" target="_blank" href="${waLink(p, 'despacho')}" title="Mensaje 1 de las plantillas de despacho">WhatsApp: confirmar despacho</a>${p.saldo > 0 ? `<button class="btn" id="b-wa-saldo">WhatsApp: saldo pendiente</button>` : ''}` : ''}
           ${p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn primario" id="b-entregar">Marcar ENTREGADO</button>` : ''}
