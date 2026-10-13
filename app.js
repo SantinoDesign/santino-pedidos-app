@@ -502,6 +502,16 @@ function activarFechaMaestro(raiz, p, despues) {
     try { const r = await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: inp.value || null } }); actualizarPiezas(r); aviso('Fecha para el maestro: ' + (inp.value ? fecha(inp.value, true) : 'sin fecha'));
       anotarCambio(`fecha para el maestro (volver a ${antes ? fecha(antes) : 'sin fecha'})`, async () => { actualizarPiezas(await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: antes || null } })); }); despues(); } catch (e) { aviso(errorDe(e), true); } }; });
 }
+/* Programar despacho en un paso (Harold 13-oct): estado DESPACHO PROGRAMADO más la fecha; Alexis también puede, confirmando que el cliente acordó el día. */
+function activarProgramar(raiz, p, despues) {
+  $$('[data-programar]', raiz).forEach(b => b.onclick = async ev => {
+    ev.stopPropagation(); const inp = $(`[data-prog-fecha="${p.id}"]`, raiz); const f = inp && inp.value; if (!f) return aviso('Elige el día de entrega', true);
+    const faltan = (p.piezas || []).filter(x => x.area && x.estado !== 'Lista').length;
+    const msg = (yo.rol === 'operacion' ? `¿El cliente acordó recibir el ${fecha(f, true)}? Harold verá el cambio en el historial.` : `¿Programar la entrega para el ${fecha(f, true)}?`) + (faltan ? `\nOjo: faltan ${faltan} pieza${faltan > 1 ? 's' : ''} por embalar.` : '');
+    if (!confirm(msg)) return;
+    try { await rpc('programar_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Despacho programado para el ' + fecha(f, true)); anotarCambio(`despacho de ${p.numero} (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); despues(); } catch (e) { aviso(errorDe(e), true); }
+  });
+}
 function abrirDetalleFila(tr) {
   const sig = tr.nextElementSibling;
   if (sig && sig.classList.contains('detalle')) { sig.remove(); return; }
@@ -527,6 +537,7 @@ function abrirDetalleFila(tr) {
         ${esOp && p.estado === 'LISTO EN TALLER' ? `<label style="font-size:12px">Proponer despacho <input type="date" data-fecha="${p.id}" value="${p.despacho_propuesto || ''}"></label><button class="btn chico borde" data-prop="${p.id}">Proponer</button>` : ''}
         ${esOp && p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn chico primario" data-entregar="${p.id}">Entregar</button>` : ''}
         ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' && !esOp ? `<span class="chip prop">Alexis propone ${fecha(p.despacho_propuesto, true)}</span><button class="btn chico borde" data-confirmar="${p.id}">Cliente confirmó: programar</button><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WSP despacho</a>` : ''}
+        ${p.estado !== 'DESPACHO PROGRAMADO' ? `<span class="prog-desp"><input type="date" data-prog-fecha="${p.id}" value="${p.despacho_propuesto || p.fecha_comprometida || ''}" title="Día de entrega acordado con el cliente"><button class="btn chico primario" data-programar="${p.id}" title="Deja el pedido en DESPACHO PROGRAMADO con esa fecha: entra a la Ruta de ese día">Programar despacho</button></span>` : ''}
         ${esOp ? '' : `<button class="btn chico borde" data-urgente="${p.id}">${p.urgente ? 'Quitar urgente' : 'Urgente'}</button>`}
         <a class="btn chico" href="#/pedido/${p.id}">Abrir ficha${p.planos ? ` · planos (${p.planos})` : ''}</a>
       </div>
@@ -568,6 +579,7 @@ function abrirDetalleFila(tr) {
   const bl = $('[data-listo]', d); if (bl) bl.onclick = async () => { try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller ✓'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const bp = $('[data-prop]', d); if (bp) bp.onclick = async () => { const f = $('[data-fecha]', d).value; if (!f) return aviso('Elige la fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Propuesta enviada a Harold'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const be = $('[data-entregar]', d); if (be) be.onclick = () => formEntregar(p, () => vLista());
+  activarProgramar(d, p, () => vLista());
   const bu = $('[data-urgente]', d); if (bu) bu.onclick = async () => { const v = !p.urgente; const { error } = await sb.from('pedido').update({ urgente: v }).eq('id', p.id); if (error) return aviso(errorDe(error), true); p.urgente = v; aviso(v ? 'Marcado urgente' : 'Ya no es urgente'); anotarCambio(`urgente de ${p.numero}`, async () => { await sb.from('pedido').update({ urgente: !v }).eq('id', p.id); p.urgente = !v; }); reabrir(); };
 }
 const CUENTA_SANTINO = 'Santino Design SpA\nRUT 77.551.022-6\nBanco Santander\nCuenta Corriente 87727157\nhola@santinodesign.cl';
@@ -719,7 +731,7 @@ async function vFicha(id) {
           ${['EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) ? (p.piezas_total > 0 ? `<button class="btn primario" id="b-listo" ${p.piezas_listas < p.piezas_total ? 'disabled' : ''}>Marcar LISTO EN TALLER</button><span style="font-size:12px;color:var(--gris-2)">${p.piezas_listas} de ${p.piezas_total} piezas embaladas</span>` : '<span style="font-size:12px;color:var(--gris-2)">Sin piezas de taller: este pedido se resuelve con su movimiento (visita, retiro); si lleva una pieza, agrégala con "Agregar línea".</span>') : ''}
           ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" id="f-prop" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" id="b-prop">Proponer</button>${!esOp ? `<button class="btn primario" id="b-conf">Cliente confirmó: programar</button>` : ''}` : ''}
           ${!esOp && p.cliente_telefono ? `<a class="btn" target="_blank" href="${waLink(p, 'despacho')}" title="Mensaje 1 de las plantillas de despacho">WhatsApp: confirmar despacho</a>${p.saldo > 0 ? `<button class="btn" id="b-wa-saldo">WhatsApp: saldo pendiente</button>` : ''}` : ''}
-          ${p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn primario" id="b-entregar">Marcar ENTREGADO</button>` : ''}
+          ${p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn primario" id="b-entregar">Marcar ENTREGADO</button>` : `<span class="prog-desp"><input type="date" data-prog-fecha="${p.id}" value="${p.despacho_propuesto || p.fecha_comprometida || ''}" style="min-height:32px;padding:4px 8px"><button class="btn primario" data-programar="${p.id}">Programar despacho</button></span>`}
           ${p.cotizacion_numero ? `<span style="font-size:12px;color:var(--gris-2)">Cotización ${esc(p.cotizacion_numero)}</span>` : ''}
         </div>
       </section>
@@ -762,6 +774,7 @@ async function vFicha(id) {
   activarEtapas(app, recargar);
   activarPiezasEdicion(app, recargar);
   activarFechaMaestro(app, p, recargar);
+  activarProgramar(app, p, recargar);
   activarMovimientos(app, p, recargar);
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
@@ -1359,12 +1372,12 @@ async function vCompras() {
   if (error) throw error;
   cache.compras = piezas || []; cache.proveedores = provs || [];
   const grupos = {}; cache.compras.forEach(x => { const k = x.proveedor || x.proveedor_sugerido || 'Sin proveedor definido'; (grupos[k] = grupos[k] || []).push(x); });
-  const fila = x => `<tr class="${x.atrasado_prov ? 'atrasado' : ''}"><td><input type="checkbox" data-sel="${x.linea_id}" ${['Por pedir'].includes(x.etapa) ? '' : 'disabled'}></td><td class="num"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a>${x.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td>${esc(x.cliente)}</td><td>${esc(x.tipo_linea)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion || '')}${x.color_silla ? ' · ' + esc(x.color_silla) : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.espesor_mm ? ' · ' + x.espesor_mm + ' mm' : ''}` : ''}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw"><span class="estado-pieza ${x.etapa === 'Embalado' || x.etapa === 'Embaladas' ? 'lista' : ''}">${esc(x.etapa || '')}</span>${x.fecha_prometida_prov ? `<div style="font-size:11px;color:${x.atrasado_prov ? 'var(--rojo-txt)' : 'var(--gris-2)'}">llega ${fecha(x.fecha_prometida_prov)}${x.referencia_prov ? ' · ' + esc(x.referencia_prov) : ''}</div>` : ''}</td><td>${['Pedido', 'Pedidas'].includes(x.etapa) ? `<button class="btn chico borde" data-recibido="${x.linea_id}">Recibido</button>` : ''}</td></tr>`;
+  const fila = x => `<tr class="${x.atrasado_prov ? 'atrasado' : ''}"><td><input type="checkbox" data-sel="${x.linea_id}" ${['Por pedir'].includes(x.etapa) ? '' : 'disabled'}></td><td class="num"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a>${x.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td>${esc(x.cliente)}</td><td>${esc(x.tipo_linea)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion || '')}${x.color_silla ? ' · ' + esc(x.color_silla) : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.espesor_mm ? ' · ' + x.espesor_mm + ' mm' : ''}` : ''}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw"><button class="etapa-chip ${/^(Embalad|Recibid)/.test(x.etapa || '') ? 'proceso' : ''}${/^Embalad/.test(x.etapa || '') ? ' lista' : ''}" data-etapa="${x.linea_id}" data-pedido="${x.pedido_id}" title="Toca: pasa al siguiente paso (Por pedir → Pedido → Recibido → Embalado). Mantener apretado o clic derecho: vuelve.">${esc(x.etapa || '')}<small>${/^Por pedir/.test(x.etapa || '') ? 'toca: pedida' : /^Pedid/.test(x.etapa || '') ? 'toca: recibida' : /^Recibid/.test(x.etapa || '') ? 'toca: embalada' : 'lista ✓'}</small></button>${x.fecha_prometida_prov ? `<div style="font-size:11px;color:${x.atrasado_prov ? 'var(--rojo-txt)' : 'var(--gris-2)'}">llega ${fecha(x.fecha_prometida_prov)}${x.referencia_prov ? ' · ' + esc(x.referencia_prov) : ''}</div>` : ''}</td></tr>`;
   app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><span>Piezas que se compran, de pedidos pendientes. Marca las de un mismo proveedor y arma el pedido.</span><span style="margin-left:auto;color:var(--gris-3)">${cache.compras.length} piezas</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
     ${Object.keys(grupos).sort().map(k => { const prov = cache.proveedores.find(p => p.nombre === k); return `<section class="seccion"><div class="cab"><h2>${esc(k)}${prov && prov.que_vende ? ` <span style="font-weight:400;color:var(--gris-2);font-size:13px">· ${esc(prov.que_vende)}</span>` : ''}</h2><button class="btn chico primario" data-armar="${esc(k)}">Armar pedido con las marcadas</button></div>
-      <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Descripción</th><th>Medida</th><th>Entrega al cliente</th><th>Etapa</th><th></th></tr></thead><tbody>${grupos[k].map(fila).join('')}</tbody></table></div></section>`; }).join('') || '<div class="seccion">No hay piezas por comprar.</div>'}
+      <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Descripción</th><th>Medida</th><th>Entrega al cliente</th><th title="Toca para avanzar; mantener para volver">Etapa</th></tr></thead><tbody>${grupos[k].map(fila).join('')}</tbody></table></div></section>`; }).join('') || '<div class="seccion">No hay piezas por comprar.</div>'}
   </div>`;
-  $$('[data-recibido]').forEach(b => b.onclick = async () => { try { await rpc('avanzar_etapa', { p_linea_id: Number(b.dataset.recibido), p_atras: false }); aviso('Recibido'); vCompras(); } catch (e) { aviso(errorDe(e), true); } });
+  activarEtapas(app, () => vCompras());
   $$('[data-armar]').forEach(b => b.onclick = () => {
     const sec = b.closest('section'); const ids = $$('input[data-sel]:checked', sec).map(i => Number(i.dataset.sel));
     if (!ids.length) return aviso('Marca al menos una pieza (las que están Por pedir)', true);

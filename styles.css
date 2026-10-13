@@ -379,3 +379,4 @@ table.lista.v2.b td{padding:4px 5px}
 .d-mov{grid-column:1/-1;padding:0;border:none;background:none}.d-mov .seccion{padding:10px 12px}.d-mov .seccion h2{font-size:12px;color:var(--azul-osc);text-transform:uppercase;letter-spacing:.4px}
 table.lista.v2 .l2.propone{color:var(--azul-osc);font-weight:700}
 table.lista td.fecha-mov{cursor:pointer}table.lista td.fecha-mov:hover{background:var(--azul-suave)}
+.prog-desp{display:inline-flex;gap:6px;align-items:center}.prog-desp input{min-height:30px;padding:2px 6px;font-size:12px}
