@@ -720,6 +720,7 @@ async function vFicha(id) {
       ${esOp && p.saldo_por_cobrar > 0 ? `<span class="chip saldo">COBRAR ${pesos(p.saldo_por_cobrar)} AL ENTREGAR</span>` : ''}
       <div class="espacio"></div>
       ${esOp ? '' : `<label style="font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="c-urgente" ${p.urgente ? 'checked' : ''}> Urgente</label>
+      ${p.estado === 'ENTREGADO' ? `<button class="btn chico borde" id="b-postventa" title="Crea un pedido de postventa ligado a este (visita técnica, retiro, reparación)">+ Postventa</button>` : ''}
       <label style="font-size:13px">Tipo <select id="s-tipo" title="Cambiar el tipo de pedido si se ingresó mal">${Object.keys(COD_TIPO).map(t => `<option ${t === p.tipo_pedido ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label style="font-size:13px">Estado <select id="s-estado">${ESTADOS.map(e => `<option ${e === p.estado ? 'selected' : ''}>${e}</option>`).join('')}</select></label>`}
     </div>
@@ -792,6 +793,7 @@ async function vFicha(id) {
     on('#b-doc', async () => { const { error } = await sb.from('pedido').update({ documento_tributario: $('#s-doc').value, documento_numero: $('#i-docnum').value || null, documento_fecha: $('#i-docfecha').value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Documento guardado', !!error); recargar(); });
     on('#b-abono', () => formAbono(p, recargar));
     on('#b-cliente', () => formEditarCliente(p, recargar));
+    on('#b-postventa', () => formPostventa(p));
     on('#b-entrega', () => formEditarEntrega(p, recargar));
     on('#b-precios', () => formEditarPrecios(p, recargar));
     on('#b-subir', () => formSubir(p, recargar));
@@ -882,6 +884,29 @@ function leerLinea(f, prefijo = '') {
 function formLinea(p, despues) {
   modal(`<h2>Agregar línea · ${esc(p.numero)}</h2><form id="f">${camposLinea()}<div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f').onsubmit = async ev => { ev.preventDefault(); const l = leerLinea(new FormData(ev.target)); l.pedido_id = p.id; l.orden = (p.piezas || []).length + 1; const { error } = await sb.from('linea_pedido').insert(l); if (error) return aviso(errorDe(error), true); aviso('Línea agregada'); cerrarModal(); despues(); };
+}
+/* Postventa desde un pedido entregado (Harold 13-oct): crea un pedido Postventa ligado al original (mismo cliente, sin valor, sin piezas)
+   con su movimiento (visita técnica, retiro, otro). Si después lleva una pieza (repuesto, cubierta nueva) se agrega desde la ficha nueva. */
+function formPostventa(p) {
+  modal(`<h2>Nueva postventa · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pv"><div class="campos">
+    <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO(1)}"></label>
+    <label class="campo">Dirección (vacía = la del pedido) <input name="direccion" placeholder="${esc(p.direccion_entrega || p.direccion || '')}"></label></div>
+    <label class="campo" style="display:block;margin-top:8px">Qué se hace o se revisa <textarea name="nota" rows="2" style="width:100%" required placeholder="Ej. revisar cajón que no cierra, llevar rieles de 35 mm"></textarea></label>
+    <label class="campo" style="display:block;margin-top:8px">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label>
+    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Se crea un pedido POSTVENTA con número W nuevo, ligado a este, con el movimiento en la fecha indicada. Si lleva una pieza de taller, agrégala después en su ficha con "Agregar línea".</p>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Crear postventa</button></div></form>`);
+  $('#f-pv').onsubmit = async ev => {
+    ev.preventDefault(); const f = new FormData(ev.target);
+    try {
+      const numero = await rpc('siguiente_numero_w', {});
+      const { data: np, error } = await sb.from('pedido').insert({ numero, tipo_pedido: 'Postventa', cliente_id: p.cliente_id, pedido_origen_id: p.id, origen: 'Interno', estado: 'POR FABRICAR', fecha_compra: hoyISO(), fecha_comprometida: f.get('fecha'), tipo_entrega: p.tipo_entrega || 'Despacho RM', instalacion: false, direccion_entrega: p.direccion_entrega || null, comuna_entrega: p.comuna_entrega || null, precio_venta: Number(f.get('valor') || 0), precio_despacho: 0, precio_instalacion: 0, precio_embalaje: 0, observacion: `Postventa de ${p.numero}: ${f.get('nota')}` }).select('id').single();
+      if (error) throw error;
+      const { error: e2 } = await sb.from('movimiento').insert({ pedido_id: np.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: (f.get('direccion') || '').trim() || null, nota: f.get('nota') });
+      if (e2) throw e2;
+      cerrarModal(); aviso(`Postventa ${numero} creada`); location.hash = '#/pedido/' + np.id;
+    } catch (e) { aviso(errorDe(e), true); }
+  };
 }
 /* Ficha: editar cliente, entrega y precios (Harold 13-oct: "si lo ingresaste sin número ni dirección, debería poder dejar ingresarlos") */
 async function opcionesComuna(actual) { const { data } = await sb.from('comuna').select('nombre').order('nombre'); return `<option value="">-</option>` + (data || []).map(c => `<option ${c.nombre === actual ? 'selected' : ''}>${esc(c.nombre)}</option>`).join(''); }
