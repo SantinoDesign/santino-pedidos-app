@@ -287,3 +287,10 @@ table.lista thead.flotando th{box-shadow:0 2px 4px rgba(0,0,0,.14)}
 table.lista tr.fabricando td{background:var(--azul-suave)}
 @media print{table.impresion tr.fabricando td{font-weight:700;background:#E6F3F7!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 .parada.mov{border-left:4px solid var(--azul)}
+/* Movimiento como fila propia en la Lista y en el listado impreso (tanda 24) */
+.estado.e-MOV{background:var(--azul-suave);color:var(--azul-osc)}
+table.lista tr.mov-fila td{background:#F3F9FB;border-top:1px solid var(--azul-claro)}
+table.lista tr.mov-fila td:first-child{box-shadow:inset 3px 0 0 var(--azul)}
+table.lista tr.mov-fila.atrasado td:first-child{box-shadow:inset 3px 0 0 var(--rojo)}
+table.impresion tr.mov td{background:#EEF6F9;font-style:italic}
+@media print{table.impresion tr.mov td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
