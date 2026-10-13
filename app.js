@@ -934,8 +934,9 @@ async function vOdt() {
   const FORMA_TXT = { RECT: 'Rect.', CUA: 'Cuadr.', CIRC: 'Circ.', OVAL: 'Oval.' };
   const hoyI = hoyISO();
   const falta = t => `<span class="falta-dato">${t}</span>`;
-  const maderaTxt = (x, esBase) => { const m = esBase ? x.material_base : (x.material_cubierta || x.material_base); return m ? nombreMaterial(m).toUpperCase() + (x.espesor_mm ? ' ' + num(x.espesor_mm) + ' mm' : '') : ''; };
-  const espesorHtml = x => x.espesor_mm ? '' : (x.area === 'Carpintería' && x.tipo !== 'Servicio' ? ' ' + falta('esp.?') : '');
+  const maderaHtml = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base);
+    const esp = x.espesor_mm ? num(x.espesor_mm) + ' mm' : (x.area === 'Carpintería' && x.tipo !== 'Servicio' && !/espesor/i.test(x.indicaciones || '') ? falta('esp.?') : '');
+    return (m ? esc(nombreMaterial(m).toUpperCase()) : falta('madera?')) + (esp ? `<div class="l2">${esp}</div>` : ''); };
   const tamanoHtml = (x, p) => {
     if (x.medida_texto) return (/por definir|pendiente/i.test(x.medida_texto) ? falta(esc(x.medida_texto)) : esc(x.medida_texto)) + (x.tipo === 'Base' ? paraCub(x, p) : '');
     if (x.tipo === 'Base') {
@@ -964,20 +965,22 @@ async function vOdt() {
     return partes[0] || nombreModelo(x.modelo_cubierta || x.modelo_base) || '-';
   };
   const filaFecha = (x, p) => { const k = x.fecha_taller || null; return `<td class="nw"><span class="no-imprimir"><input type="date" class="f-taller" value="${k || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro (cuándo debe estar lista esta pieza)"></span><span class="solo-impresion">${k ? fecha(k, true) : '________'}</span>${p.urgente ? ' <strong>URG</strong>' : ''}</td>`; };
-  const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><thead><tr><th title="Fecha comprometida para el maestro">Fecha</th><th>N°</th><th>Cliente</th><th>Modelo / pieza</th><th title="Madera y espesor">Madera</th><th title="Largo × ancho × alto, siempre en ese orden">Medidas L × A × Al</th><th>Form.</th><th>Ctd</th><th title="Tono o color">Term.</th><th>Indicaciones</th><th class="no-imprimir">${conChip ? 'Estado' : ''}</th><th class="solo-impresion">Hecho</th><th class="solo-impresion">Entrega / Rev.</th></tr></thead><tbody>${lista.map(({ p, x }) => {
+  // Anchos fijos por columna (Harold 13-oct: "deja un ancho estándar máximo"); al imprimir no hay columna de estado.
+  const COLS = [['fecha', 'Fecha', 'Fecha comprometida para el maestro'], ['num', 'N°', ''], ['cli', 'Cliente', 'Toca el nombre para editar la pieza'], ['pieza', 'Pieza', ''], ['madera', 'Madera', 'Material y espesor'], ['medidas', 'Medidas L × A × Al', 'Largo × ancho × alto, siempre en ese orden'], ['forma', 'Form.', 'Formato'], ['ctd', 'Ctd', ''], ['term', 'Term.', 'Tono o color y acabado'], ['indic', 'Indicaciones', ''], ['estado no-imprimir', 'Estado', ''], ['hecho solo-impresion', 'Hecho', ''], ['rev solo-impresion', 'Entrega / Rev.', '']];
+  const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><colgroup>${COLS.map(([c]) => `<col class="c-${c.split(' ')[0]} ${c.includes(' ') ? c.split(' ')[1] : ''}">`).join('')}</colgroup><thead><tr>${COLS.map(([c, t, tt]) => `<th class="${c}" title="${esc(tt)}">${c.startsWith('estado') && !conChip ? '' : esc(t)}</th>`).join('')}</tr></thead><tbody>${lista.map(({ p, x }) => {
     const fab = area && x.etapa === etapa, tarde = (x.fecha_taller || '9999') < hoyI || (!x.fecha_taller && p.atrasado);
     const ind = [x.indicaciones].filter(Boolean);
-    return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}">${filaFecha(x, p)}<td class="nw">${esc(p.numero)}</td><td class="cli">${esc(p.cliente)}</td>
+    return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}">${filaFecha(x, p)}<td class="num">${esc(p.numero)}</td><td class="cli"><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza (medidas, formato, indicaciones, fecha para el maestro)">${esc(p.cliente)}</a></td>
     <td class="pieza"><strong>${esc(nombrePieza(x))}</strong><div class="l2">${esc(x.tipo)}</div></td>
-    <td>${esc(maderaTxt(x, x.tipo === 'Base')) || falta('madera?')}${espesorHtml(x)}</td><td>${tamanoHtml(x, p)}</td><td>${esc(formatoTxt(x))}</td><td style="text-align:center">${x.cantidad || 1}</td><td>${esc(terminacion(x))}</td><td class="indic">${ind.map(esc).join(' · ')}</td>
-    <td class="no-imprimir">${conChip ? `${etapaChip(x, p.id)} <button class="btn chico borde" data-editar-pieza="${x.id}" title="Cambiar medidas, formato, indicaciones o la fecha para el maestro">Editar</button>` : esc(x.etapa)}</td><td class="solo-impresion caja-ok">${fab ? '<small>FABR.</small>' : ''}</td><td class="solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
+    <td class="madera">${maderaHtml(x)}</td><td class="medidas">${tamanoHtml(x, p)}</td><td class="forma">${esc(formatoTxt(x))}</td><td class="ctd">${x.cantidad || 1}</td><td class="term">${esc(terminacion(x))}</td><td class="indic">${ind.map(esc).join(' · ')}</td>
+    <td class="estado no-imprimir">${conChip ? etapaChip(x, p.id) : esc(x.etapa)}</td><td class="hecho solo-impresion caja-ok"></td><td class="rev solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
   const hoy = new Date();
   app.innerHTML = barra('#/odt') + `<div class="sub no-imprimir">
       <span class="fgrupo"><span class="fgrupo-t">Etapa</span>${ODT_ETAPAS.map(([v, t]) => `<button class="ftog ${v === etapa ? 'on' : ''}" data-odt="${esc(v)}">${esc(t)}</button>`).join('')}</span>
       <button class="btn primario" onclick="window.print()">Imprimir ODT</button>
       <span style="color:var(--gris-3)">${area ? 'Una sola lista, ordenada por la fecha comprometida para el maestro (si una pieza no la tiene, por la entrega al cliente): la cola más lo que se está haciendo. Toca la pieza cuando el maestro la empiece (queda marcada y no sale de la lista); tócala de nuevo al terminar y pasa a barniz, pintura o embalado.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
     <div class="contenido listado-print odt-print"><div class="titulo-print">ORDEN DE TRABAJO · ${esc(titulo.toUpperCase())} · ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()} · ${ahora.length} pieza${ahora.length === 1 ? '' : 's'}</div>
-    <h3>${area ? `Orden de trabajo por fecha de entrega (${ahora.length} piezas, ${fabricando} fabricándose ahora)` : `En ${esc(etapa.toLowerCase())} ahora (${ahora.length})`}</h3>${tabla(ahora, true)}
+    <h3 class="no-imprimir">${area ? `Orden de trabajo por fecha comprometida (${ahora.length} piezas, ${fabricando} fabricándose ahora)` : `En ${esc(etapa.toLowerCase())} ahora (${ahora.length})`}</h3>${tabla(ahora, true)}
     ${acabado ? `<h3 class="no-imprimir">Vienen a ${esc(etapa.toLowerCase())} (todavía en fabricación, armado o soldadura: ${vienen.length})</h3><div class="no-imprimir">${tabla(vienen, true)}</div>` : ''}</div>`;
   $$('[data-odt]').forEach(b => b.onclick = () => { cache.odt = b.dataset.odt; vOdt(); });
   $$('[data-ftaller]').forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => {
