@@ -25,7 +25,7 @@ function hoyISO(dias = 0) { const d = new Date(); d.setDate(d.getDate() + dias);
 function num(v) { return v == null ? '' : String(Number(v)).replace(/\.0$/, ''); }
 function aviso(msg, error) { const a = $('#aviso'); a.textContent = msg; a.className = 'aviso' + (error ? ' error' : ''); clearTimeout(a._t); a._t = setTimeout(() => a.classList.add('oculto'), error ? 6000 : 3000); }
 function errorDe(e) { return (e && (e.message || e.error_description || e.hint)) || String(e); }
-function modal(html) { const m = $('#modal'); m.innerHTML = `<div class="caja">${html}</div>`; m.classList.remove('oculto'); m.onclick = ev => { if (ev.target === m) cerrarModal(); }; return m; }
+function modal(html, clase = '') { const m = $('#modal'); m.innerHTML = `<div class="caja ${clase}">${html}</div>`; m.classList.remove('oculto'); m.onclick = ev => { if (ev.target === m) cerrarModal(); }; return m; }
 function cerrarModal() { $('#modal').classList.add('oculto'); $('#modal').innerHTML = ''; }
 function chip(t) {
   const cls = t.startsWith('URGENTE') ? 'urgente' : t.startsWith('ATRASADO') ? 'atrasado' : t.startsWith('SALDO') ? 'saldo' : t.startsWith('PAGO') ? 'pago' : t.startsWith('INSTAL') ? 'inst' : t.startsWith('A MEDIDA') ? 'medida' : t.startsWith('PROPUESTO') ? 'prop' : /^(RETIRO|VISITA|ENTREGA|INSTALACIÓN|OTRO) /.test(t) ? 'inst' : '';
@@ -120,11 +120,11 @@ function abrev(n) { n = (n || '').trim(); if (n.length <= 22) return n; const t 
 /* Medida de una pieza; las extensibles muestran el largo abierta: "130 x 90 a 180 ext" (Harold 13-oct, Sandra W3149) */
 const medidaTxt = (x, sep = ' x ', cm = '') => !x.largo_cm ? '' : `${num(x.largo_cm)}${sep}${num(x.ancho_cm)}${x.alto_cm ? sep + num(x.alto_cm) : ''}${x.largo_ext_cm ? ` a ${num(x.largo_ext_cm)}` : ''}${cm}${x.largo_ext_cm ? ' ext' : ''}`;
 function etapaChip(x, pedidoId) {
-  const et = x.etapas || []; const i = et.indexOf(x.etapa); const ultima = i >= 0 && i === et.length - 1;
-  const cls = ultima ? 'lista' : i > 0 ? 'proceso' : '';
-  const sig = !ultima ? et[i + 1] : null;
+  const et = x.etapas || []; const devuelta = x.etapa === 'Devuelta al proveedor'; const i = et.indexOf(x.etapa); const ultima = i >= 0 && i === et.length - 1;
+  const cls = devuelta ? 'devuelta' : ultima ? 'lista' : i > 0 ? 'proceso' : '';
+  const sig = devuelta ? et[2] : !ultima ? et[i + 1] : null;   // devuelta al proveedor: tocar = volvió conforme (Recibido)
   const faltaAcabado = x.area && x.area !== 'Vidrio/compras' && x.area !== 'Barniz' && !x.acabado;
-  return `<button class="etapa-chip ${cls}${faltaAcabado ? ' falta-acabado' : ''}" data-etapa="${x.id}" data-pedido="${pedidoId}" title="${esc((x.descripcion || '') + (x.area ? ' · ' + x.area : ''))}. ${sig ? 'Toca: pasa a ' + esc(sig) + '.' : 'Pieza lista.'} Clic derecho o mantener apretado: vuelve atrás.">${esc(x.tipo === 'Servicio' ? 'Instalación' : x.tipo)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}<small>${esc(x.etapa || et[0] || '')}${ultima ? ' ✓' : ''}${faltaAcabado ? ' · ¿acabado?' : ''}</small></button>`;
+  return `<button class="etapa-chip ${cls}${faltaAcabado ? ' falta-acabado' : ''}" data-etapa="${x.id}" data-pedido="${pedidoId}" title="${esc((x.descripcion || '') + (x.area ? ' · ' + x.area : ''))}. ${devuelta ? 'Está en el proveedor. Toca: volvió conforme (Recibido).' : sig ? 'Toca: pasa a ' + esc(sig) + '.' : 'Pieza lista.'} Clic derecho o mantener apretado: vuelve atrás.">${esc(x.tipo === 'Servicio' ? 'Instalación' : x.tipo)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}<small>${esc(x.etapa || et[0] || '')}${ultima ? ' ✓' : ''}${faltaAcabado ? ' · ¿acabado?' : ''}</small></button>`;
 }
 function etapasHtml(p) { return `<div class="etapas">${(p.piezas || []).filter(x => x.area).map(x => etapaChip(x, p.id)).join('')}</div>`; }
 function piezasHtml(p) {
@@ -344,6 +344,7 @@ const PENDIENTES_MIOS = {
   'Sin acabado': p => (p.piezas || []).some(x => x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado),
   'Sin medidas': p => (p.piezas || []).some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.medida_texto && !/\.(MOS|LIN)\./.test(x.color || '')),
   'Sin fecha maestro': p => (p.piezas || []).some(x => x.area && x.area !== 'Vidrio/compras' && ['En cola', 'Fabricación', 'Soldadura', 'Armado'].includes(x.etapa) && !x.fecha_taller),
+  'Devueltas': p => (p.piezas || []).some(x => x.etapa === 'Devuelta al proveedor'),
   'Sin comuna': p => !p.comuna && p.tipo_entrega !== 'Retiro en taller',
   'Con saldo': p => (p.saldo ?? p.saldo_por_cobrar) > 0,
   'Pago pendiente': p => !!p.pago_pendiente,
@@ -360,7 +361,7 @@ async function vLista() {
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir filtros-v2">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
-      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Taller</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Fabricándose ahora en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
+      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Taller</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Fabricándose ahora en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Devuelta al proveedor', 'Piezas compradas que volvieron al proveedor por venir mal'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
       ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">${esOp ? 'Pendientes' : 'Pendientes míos'}</span>${Object.keys(PENDIENTES_MIOS).filter(k => !esOp || !['Con saldo', 'Pago pendiente'].includes(k)).map(k => toggle('mios', k, k, 'Solo pedidos con: ' + k.toLowerCase()).replace('class="ftog', 'class="ftog alerta')).join('')}</span>` : ''}
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo, comuna" value="${esc(cache.busqueda)}" style="width:210px"></label>
       <button class="ayuda" type="button" title="${esc(leyenda)}" id="b-leyenda">?</button>
@@ -383,15 +384,16 @@ const LISTA_PIEZAS = 'celda';
 function semanaDe(iso) { const d = new Date(iso + 'T12:00:00'); const lun = new Date(d); lun.setDate(d.getDate() - ((d.getDay() + 6) % 7)); const dom = new Date(lun); dom.setDate(lun.getDate() + 6); return `Semana del ${fecha(lun.toISOString())} al ${fecha(dom.toISOString())}`; }
 function celdaPieza(x, p, l1, l2) {
   if (!x || !x.area) return `<div class="l1">${esc(l1 || '-')}</div>${l2 ? `<div class="l2">${esc(l2)}</div>` : ''}`;
-  const et = x.etapas || []; const i = et.indexOf(x.etapa); const ult = i >= 0 && i === et.length - 1;
+  const et = x.etapas || []; const devuelta = x.etapa === 'Devuelta al proveedor'; const i = et.indexOf(x.etapa); const ult = i >= 0 && i === et.length - 1;
   const falta = x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado;
-  return `<button class="celda-pieza ${ult ? 'lista' : i > 0 ? 'proceso' : ''}${falta ? ' falta' : ''}" data-etapa="${x.id}" data-pedido="${p.id}" title="${esc(x.descripcion || x.tipo)}. ${!ult ? 'Toca: pasa a ' + esc(et[i + 1] || '') + '.' : 'Pieza lista.'} Mantener apretado o clic derecho: vuelve atrás."><div class="l1">${esc(l1 || '-')}</div>${l2 ? `<div class="l2">${esc(l2)}</div>` : ''}<span class="etapa-tag">${esc(x.etapa || et[0] || '')}${ult ? ' ✓' : ''}${falta ? ' · ¿acabado?' : ''}</span></button>`;
+  return `<button class="celda-pieza ${devuelta ? 'devuelta' : ult ? 'lista' : i > 0 ? 'proceso' : ''}${falta ? ' falta' : ''}" data-etapa="${x.id}" data-pedido="${p.id}" title="${esc(x.descripcion || x.tipo)}. ${devuelta ? 'Está en el proveedor. Toca: volvió conforme (Recibido).' : !ult ? 'Toca: pasa a ' + esc(et[i + 1] || '') + '.' : 'Pieza lista.'} Mantener apretado o clic derecho: vuelve atrás."><div class="l1">${esc(l1 || '-')}</div>${l2 ? `<div class="l2">${esc(l2)}</div>` : ''}<span class="etapa-tag">${esc(x.etapa || et[0] || '')}${ult ? ' ✓' : ''}${falta ? ' · ¿acabado?' : ''}</span></button>`;
 }
 function alertasPedido(p) {
   const a = [];
   if (p.urgente) a.push(['URG', 'urgente']);
   if (p.pago_pendiente && (p.total || 0) > 0) a.push(['PAGO PEND', 'pago']);
   if ((p.piezas || []).some(x => x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado)) a.push(['¿ACABADO?', 'atrasado']);
+  if ((p.piezas || []).some(x => x.etapa === 'Devuelta al proveedor')) a.push(['DEVUELTA', 'atrasado']);
   if ((p.piezas || []).some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.medida_texto && !/\.(MOS|LIN)\./.test(x.color || ''))) a.push(['SIN MEDIDAS', 'atrasado']);
   return a.map(([t, c]) => `<span class="chip ${c}">${t}</span>`).join(' ');
 }
@@ -493,7 +495,7 @@ function tablaPiezasHtml(p, esOp) {
   const nombrePz = x => x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
   const madera = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base); return (m ? esc(codMaterial(m)) : (x.tipo === 'Silla' ? '' : '-')) + (x.espesor_mm ? `<div class="l2">${num(x.espesor_mm)} mm</div>` : (x.area === 'Carpintería' && !/espesor/i.test(x.indicaciones || '') ? '<div class="l2 falta-dato">esp.?</div>' : '')); };
   const term = x => x.tipo === 'Silla' || x.tipo === 'Banca' ? [x.tapiz ? x.tapiz + (x.color_silla ? ' ' + x.color_silla : '') : (x.color_silla ? 'tapiz ' + x.color_silla : ''), x.color ? 'pata ' + x.color : ''].filter(Boolean).join(' · ') || '<span class="falta-dato">tapiz por definir</span>' : esc([x.tipo === 'Base' || !x.tono ? x.color : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · '));
-  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${x.tipo === 'Silla' ? `<div class="l2">${esc(x.proveedor || 'compra a proveedor')}</div>` : ''}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td><td class="gris">${esc(x.indicaciones || '')}</td></tr>`;
+  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${ocLineaPieza(x)}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td><td class="gris">${esc(x.indicaciones || '')}</td></tr>`;
   return piezas.length ? `<table class="d-tabla"><thead><tr><th>Etapa</th><th>Pieza</th><th>Madera</th><th>Medidas L × A × Al</th><th>Term.</th><th>Acabado</th><th>Fecha maestro</th><th>Indicaciones</th></tr></thead><tbody>${piezas.map(filaPz).join('')}</tbody></table>` : '<div class="gris">Sin piezas de taller</div>';
 }
 function activarFechaMaestro(raiz, p, despues) {
@@ -567,6 +569,7 @@ function abrirDetalleFila(tr) {
   activarEtapas(d, reabrir);
   activarPiezasEdicion(d, reabrir);
   activarFechaMaestro(d, p, reabrir);
+  activarCompras(d, p, reabrir);
   const se = $('[data-estado-pedido]', d);
   se.onclick = ev => ev.stopPropagation();
   se.onchange = async () => {
@@ -777,6 +780,7 @@ async function vFicha(id) {
   activarFechaMaestro(app, p, recargar);
   activarProgramar(app, p, recargar);
   activarMovimientos(app, p, recargar);
+  activarCompras(app, p, recargar);
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
   on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
@@ -1380,45 +1384,233 @@ function activarArrastreHorizontal(env) {
   if (!window._flechasTabla) { window._flechasTabla = true; document.addEventListener('keydown', ev => { const t = $('#tabla'); if (!t || ev.target.closest('input,select,textarea') || !['ArrowLeft', 'ArrowRight'].includes(ev.key)) return; t.scrollLeft += ev.key === 'ArrowRight' ? 160 : -160; ev.preventDefault(); }); }
 }
 
-/* ---------- Compras (12-oct-2026, versión rápida): piezas compradas (vidrio, piedra, sillas, sofás) por proveedor ----------
-   Toda pieza con área Vidrio/compras de un pedido pendiente aparece aquí sola. Se marcan las del mismo proveedor, "Armar pedido"
-   genera el texto para WhatsApp en el formato del proveedor, y al confirmar quedan como Pedido con fecha prometida y referencia.
-   Cuando llegan: "Recibido" (un toque). Atrasadas contra la fecha prometida en rojo. Más adelante: orden de compra formal (Harold). */
-const formatoPedido = (prov, piezas) => {
-  const hoy = fecha(hoyISO(), true);
-  const med = x => medidaTxt(x, ' x ', ' cm');
-  if (prov && prov.formato === 'vidrio') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} vidrio${x.cantidad > 1 ? 's' : ''} ${nombreMaterial(x.material_cubierta)}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}, ${med(x)}${x.forma === 'CIRC' ? ' (redondo)' : x.forma === 'OVAL' ? ' (ovalado)' : ''}${x.nota_acabado ? ', ' + x.nota_acabado : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n') + `\nRetiro en taller Lo Blanco 1919, La Pintana. Gracias.`;
-  if (prov && prov.formato === 'sillas_aliwen') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.tipo_linea === 'Silla' ? 'Silla Santino' : x.descripcion}, pata ${({ NGR: 'negra', BL: 'blanca', NAT: 'natural' }[x.color_estructura] || x.color_estructura || 'negra')}, tapiz ${x.color_silla || 'por definir'}, madera lenga  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
-  return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.descripcion || x.tipo_linea}${med(x) ? ', ' + med(x) : ''}${x.color_silla ? ', ' + x.color_silla : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
+/* ---------- Compras (tanda 26, 13-oct-2026): orden de compra completa según el proceso real de Harold ----------
+   Harold 13-oct: "primero le mando el texto y luego el proveedor da una fecha aproximada, no antes"; "la orden de compra primero se
+   envía para que el proveedor mande su cotización, ahí recién se paga"; "la orden de compra que parta en el 2000"; "las guías serían
+   del proveedor: Alexis tacha la guía del proveedor y ahí ves que se fue de vuelta y que se recibió conforme y queda en bodega".
+   Flujo: marcar piezas por pedir del mismo proveedor → Crear OC-2000 (sin fecha) → mandar el texto (Copiar, WhatsApp al proveedor o
+   PDF con logo que en celular y tablet abre la hoja de compartir) → el proveedor cotiza (monto y cotización adjunta) → se paga (monto,
+   fecha, medio y comprobante) → llega: Recibir pieza a pieza, conforme (bodega) o devuelta al proveedor, con la guía del proveedor
+   tachada adjunta → al volver, conforme de nuevo → embalado cierra la OC. Todo queda en el historial de cada pedido. */
+const OC_ESTADOS = ['Enviada', 'Cotizada', 'Pagada', 'Recibida', 'Con devolución', 'Cerrada'];
+const ocChip = e => `<span class="chip oc-estado oc-${(e || '').replace(/ /g, '_')}">${esc(e || '')}</span>`;
+const puedeComprar = () => yo.rol !== 'operacion' || !!yo.ve_compras;
+const descCompra = (prov, x) => {
+  const med = medidaTxt(x, ' x ', ' cm');
+  if (prov && prov.formato === 'vidrio') return `${x.cantidad} ${ES_VIDRIO(x.material_cubierta) ? 'vidrio' : 'cubierta'}${x.cantidad > 1 ? 's' : ''} ${nombreMaterial(x.material_cubierta)}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}${med ? ', ' + med : ''}${x.forma === 'CIRC' ? ' (redondo)' : x.forma === 'OVAL' ? ' (ovalado)' : ''}${x.nota_acabado ? ', ' + x.nota_acabado : ''}`;
+  if (prov && prov.formato === 'sillas_aliwen') return `${x.cantidad} ${x.tipo_linea === 'Silla' || x.tipo === 'Silla' ? 'Silla Santino' : (x.descripcion || 'mueble')}, pata ${({ NGR: 'negra', BL: 'blanca', NAT: 'natural' }[x.color_estructura] || x.color_estructura || 'negra')}, tapiz ${[x.tapiz, x.color_silla].filter(Boolean).join(' ') || 'por definir'}, madera lenga`;
+  const nom = (x.tipo_linea || x.tipo) === 'Silla' ? `silla${x.cantidad > 1 ? 's' : ''} ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || ''}`.trim() : (x.descripcion || x.tipo_linea || x.tipo);
+  return `${x.cantidad} ${nom}${med ? ', ' + med : ''}${x.espesor_mm && !med ? ', ' + x.espesor_mm + ' mm' : ''}${x.tapiz || x.color_silla ? ', ' + [x.tapiz, x.color_silla].filter(Boolean).join(' ') : ''}`;
 };
+const refPedido = x => `[${x.numero} ${nombrePila({ cliente: x.cliente })}]`;
+// Texto de la OC para WhatsApp o correo. {OC} se reemplaza por el número real al crearla (lo hace la base).
+const textoOC = (prov, piezas, codigo = '{OC}', fechaOC = hoyISO()) => {
+  const cab = `Orden de compra ${codigo} · Santino Design · ${fecha(fechaOC, true)}\n`;
+  const lineas = piezas.map((x, i) => `${i + 1}) ${descCompra(prov, x)}  ${refPedido(x)}`).join('\n');
+  const pie = `\nFavor confirmar valor y fecha de entrega citando la ${codigo}.` + (prov && prov.formato === 'vidrio' ? '\nRetiro en taller Lo Blanco 1919, La Pintana.' : '') + ' Gracias.';
+  return cab + lineas + pie;
+};
+const waProveedor = (prov, texto) => `https://wa.me/${prov && prov.telefono ? String(prov.telefono).replace(/\D/g, '') : ''}?text=${encodeURIComponent(texto)}`;
+async function cargarProveedores() { if (!cache.proveedores) { const { data } = await sb.from('proveedor').select('*').eq('activo', true).order('nombre'); cache.proveedores = data || []; } return cache.proveedores; }
+const provDe = oc => (cache.proveedores || []).find(p => p.id === oc.proveedor_id) || { id: oc.proveedor_id, nombre: oc.proveedor, telefono: oc.proveedor_telefono, formato: oc.proveedor_formato, contacto: oc.proveedor_contacto };
+
 async function vCompras() {
-  await cargarModelos();
-  const [{ data: piezas, error }, { data: provs }] = await Promise.all([sb.from('v_compras').select('*').order('fecha_entrega', { ascending: true, nullsFirst: false }), sb.from('proveedor').select('*').eq('activo', true).order('nombre')]);
+  await cargarModelos(); await cargarProveedores();
+  const verCerradas = !!cache.ocCerradas;
+  const [{ data: piezas, error }, ocs] = await Promise.all([sb.from('v_compras').select('*').order('fecha_entrega', { ascending: true, nullsFirst: false }), rpc('ordenes_compra_json', { p_todas: verCerradas })]);
   if (error) throw error;
-  cache.compras = piezas || []; cache.proveedores = provs || [];
-  const grupos = {}; cache.compras.forEach(x => { const k = x.proveedor || x.proveedor_sugerido || 'Sin proveedor definido'; (grupos[k] = grupos[k] || []).push(x); });
-  const fila = x => `<tr class="${x.atrasado_prov ? 'atrasado' : ''}"><td><input type="checkbox" data-sel="${x.linea_id}" ${['Por pedir'].includes(x.etapa) ? '' : 'disabled'}></td><td class="num"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a>${x.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td>${esc(x.cliente)}</td><td>${esc(x.tipo_linea)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion || '')}${x.color_silla ? ' · ' + esc(x.color_silla) : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.espesor_mm ? ' · ' + x.espesor_mm + ' mm' : ''}` : ''}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw"><button class="etapa-chip ${/^(Embalad|Recibid)/.test(x.etapa || '') ? 'proceso' : ''}${/^Embalad/.test(x.etapa || '') ? ' lista' : ''}" data-etapa="${x.linea_id}" data-pedido="${x.pedido_id}" title="Toca: pasa al siguiente paso (Por pedir → Pedido → Recibido → Embalado). Mantener apretado o clic derecho: vuelve.">${esc(x.etapa || '')}<small>${/^Por pedir/.test(x.etapa || '') ? 'toca: pedida' : /^Pedid/.test(x.etapa || '') ? 'toca: recibida' : /^Recibid/.test(x.etapa || '') ? 'toca: embalada' : 'lista ✓'}</small></button>${x.fecha_prometida_prov ? `<div style="font-size:11px;color:${x.atrasado_prov ? 'var(--rojo-txt)' : 'var(--gris-2)'}">llega ${fecha(x.fecha_prometida_prov)}${x.referencia_prov ? ' · ' + esc(x.referencia_prov) : ''}</div>` : ''}</td></tr>`;
-  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><span>Piezas que se compran, de pedidos pendientes. Marca las de un mismo proveedor y arma el pedido.</span><span style="margin-left:auto;color:var(--gris-3)">${cache.compras.length} piezas</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
-    ${Object.keys(grupos).sort().map(k => { const prov = cache.proveedores.find(p => p.nombre === k); return `<section class="seccion"><div class="cab"><h2>${esc(k)}${prov && prov.que_vende ? ` <span style="font-weight:400;color:var(--gris-2);font-size:13px">· ${esc(prov.que_vende)}</span>` : ''}</h2><button class="btn chico primario" data-armar="${esc(k)}">Armar pedido con las marcadas</button></div>
-      <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Descripción</th><th>Medida</th><th>Entrega al cliente</th><th title="Toca para avanzar; mantener para volver">Etapa</th></tr></thead><tbody>${grupos[k].map(fila).join('')}</tbody></table></div></section>`; }).join('') || '<div class="seccion">No hay piezas por comprar.</div>'}
+  cache.compras = piezas || []; cache.ocs = ocs || [];
+  const sinOC = cache.compras.filter(x => !x.orden_compra_id);
+  const grupos = {}; sinOC.forEach(x => { const k = x.proveedor || x.proveedor_sugerido || 'Sin proveedor definido'; (grupos[k] = grupos[k] || []).push(x); });
+  const fila = x => `<tr class="${x.atrasado_prov ? 'atrasado' : ''}"><td><input type="checkbox" data-sel="${x.linea_id}" ${/^(Por pedir|Pedid)/.test(x.etapa || '') ? '' : 'disabled'} title="${/^Pedid/.test(x.etapa || '') ? 'Pedida sin orden de compra: puede sumarse a una OC nueva' : ''}"></td><td class="num"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a>${x.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td>${esc(x.cliente)}</td><td>${esc(x.tipo_linea)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion || '')}${x.tapiz || x.color_silla ? ' · ' + esc([x.tapiz, x.color_silla].filter(Boolean).join(' ')) : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.espesor_mm ? ' · ' + x.espesor_mm + ' mm' : ''}` : ''}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw">${etapaChip({ id: x.linea_id, tipo: x.tipo_linea, etapa: x.etapa, etapas: x.etapas_de_json, area: 'Vidrio/compras', cantidad: x.cantidad, descripcion: x.descripcion }, x.pedido_id)}${/^Pedid/.test(x.etapa || '') ? '<div class="l2 gris" style="font-size:11px">pedida sin OC</div>' : ''}</td></tr>`;
+  const filaOC = oc => `<tr class="fila-oc ${oc.atrasada ? 'atrasado' : ''}" data-oc="${oc.id}" title="Abrir la orden de compra">
+    <td class="num"><b>${esc(oc.codigo)}</b></td><td>${esc(oc.proveedor)}</td><td class="nw">${fecha(oc.fecha)}</td><td>${ocChip(oc.estado)}</td>
+    <td>${oc.piezas.map(x => `<div class="l2">${esc(x.numero)} ${esc(nombrePila({ cliente: x.cliente }))} · ${esc(x.tipo)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''} · <span class="${x.etapa === 'Devuelta al proveedor' ? 'rojo' : ''}">${esc(x.etapa)}</span></div>`).join('')}</td>
+    <td class="nw ${oc.atrasada ? 'rojo' : ''}">${oc.fecha_prometida ? fecha(oc.fecha_prometida, true) : '<span class="gris">sin fecha aún</span>'}${oc.referencia_prov ? `<div class="l2">${esc(oc.referencia_prov)}</div>` : ''}</td>
+    ${puedeComprar() ? `<td class="nw mono">${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) : '<span class="gris">-</span>'}</td><td class="nw mono">${oc.monto_pagado != null ? pesos(oc.monto_pagado) + `<div class="l2">${fecha(oc.fecha_pago)}${oc.medio_pago ? ' · ' + esc(oc.medio_pago) : ''}</div>` : '<span class="gris">-</span>'}</td>` : ''}
+    <td class="nw">${oc.documentos.length ? oc.documentos.map(d => `<span class="chip" title="${esc(d.nombre)}">${esc(abrevDoc(d.tipo))}</span>`).join(' ') : '<span class="gris">-</span>'}</td>
+  </tr>`;
+  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><span>Arriba, las órdenes de compra; abajo, las piezas por pedir agrupadas por proveedor: marca las de un mismo proveedor y crea la orden (la fecha la da el proveedor después).</span><span style="margin-left:auto;color:var(--gris-3)">${cache.ocs.length} OC · ${sinOC.length} piezas sin OC</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
+    <section class="seccion"><div class="cab"><h2>Órdenes de compra</h2><label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="c-cerradas" ${verCerradas ? 'checked' : ''}> ver también las cerradas</label></div>
+      ${cache.ocs.length ? `<div class="tabla-env"><table class="lista oc-tabla"><thead><tr><th>OC</th><th>Proveedor</th><th>Enviada</th><th>Estado</th><th>Piezas</th><th>Llega</th>${puedeComprar() ? '<th>Cotizó</th><th>Pagado</th>' : ''}<th>Docs</th></tr></thead><tbody>${cache.ocs.map(filaOC).join('')}</tbody></table></div>` : '<div class="gris">No hay órdenes de compra abiertas.</div>'}
+    </section>
+    ${Object.keys(grupos).sort().map(k => { const prov = cache.proveedores.find(p => p.nombre === k); return `<section class="seccion"><div class="cab"><h2>${esc(k)}${prov && prov.que_vende ? ` <span style="font-weight:400;color:var(--gris-2);font-size:13px">· ${esc(prov.que_vende)}</span>` : ''}</h2>${puedeComprar() ? `<button class="btn chico primario" data-armar="${esc(k)}">Crear orden de compra con las marcadas</button>` : ''}</div>
+      <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Descripción</th><th>Medida</th><th>Entrega al cliente</th><th title="Toca para avanzar; mantener para volver">Etapa</th></tr></thead><tbody>${grupos[k].map(fila).join('')}</tbody></table></div></section>`; }).join('') || '<div class="seccion">No hay piezas por comprar sin orden de compra.</div>'}
   </div>`;
+  $('#c-cerradas').onchange = ev => { cache.ocCerradas = ev.target.checked; vCompras(); };
   activarEtapas(app, () => vCompras());
+  $$('tr.fila-oc').forEach(tr => tr.onclick = () => modalOC(Number(tr.dataset.oc)));
   $$('[data-armar]').forEach(b => b.onclick = () => {
     const sec = b.closest('section'); const ids = $$('input[data-sel]:checked', sec).map(i => Number(i.dataset.sel));
-    if (!ids.length) return aviso('Marca al menos una pieza (las que están Por pedir)', true);
-    const piezas = cache.compras.filter(x => ids.includes(x.linea_id));
-    const nombreGrupo = b.dataset.armar; const prov0 = cache.proveedores.find(p => p.nombre === nombreGrupo);
-    const texto = formatoPedido(prov0, piezas);
-    modal(`<h2>Pedido a proveedor · ${piezas.length} pieza${piezas.length > 1 ? 's' : ''}</h2>
-      <label class="campo">Proveedor <select id="c-prov">${cache.proveedores.map(p => `<option value="${p.id}" ${prov0 && p.id === prov0.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></label>
-      <label class="campo">Texto para WhatsApp o correo (edítalo si hace falta) <textarea id="c-texto" style="min-height:160px;font-family:ui-monospace,monospace;font-size:12px">${esc(texto)}</textarea></label>
-      <div class="campos"><label class="campo">Fecha prometida por el proveedor <input type="date" id="c-fecha"></label><label class="campo">Referencia (N° de pedido, guía, cotización) <input id="c-ref"></label></div>
-      <div class="acciones"><button type="button" class="btn" id="c-cancelar">Cancelar</button><button type="button" class="btn" id="c-copiar">Copiar texto</button><button type="button" class="btn primario" id="c-ok">Registrar como pedido</button></div>`);
-    $('#c-cancelar').onclick = cerrarModal;
-    $('#c-copiar').onclick = async () => { try { await navigator.clipboard.writeText($('#c-texto').value); aviso('Texto copiado'); } catch (e) { aviso('No se pudo copiar: selecciona el texto y cópialo', true); } };
-    $('#c-prov').onchange = () => { const pv = cache.proveedores.find(p => p.id === Number($('#c-prov').value)); $('#c-texto').value = formatoPedido(pv, piezas); };
-    $('#c-ok').onclick = async () => { try { const n = await rpc('registrar_pedido_proveedor', { p_linea_ids: ids, p_proveedor_id: Number($('#c-prov').value), p_fecha_prometida: $('#c-fecha').value || null, p_referencia: $('#c-ref').value || null }); cerrarModal(); aviso(`${n} pieza${n > 1 ? 's' : ''} registrada${n > 1 ? 's' : ''} como pedidas`); vCompras(); } catch (e) { aviso(errorDe(e), true); } };
+    if (!ids.length) return aviso('Marca al menos una pieza (las que están Por pedir o pedidas sin OC)', true);
+    formCrearOC(cache.compras.filter(x => ids.includes(x.linea_id)), cache.proveedores.find(p => p.nombre === b.dataset.armar));
   });
+  const q = location.hash.split('?')[1]; const m = q && q.match(/oc=(\d+)/); if (m) { history.replaceState(null, '', '#/compras'); modalOC(Number(m[1])); }
+}
+const abrevDoc = t => ({ 'Cotización proveedor': 'COT', 'Comprobante proveedor': 'PAGO', 'Guía proveedor': 'GUÍA', 'Orden de compra': 'OC', 'Cotización': 'COT', 'Comprobante': 'PAGO' }[t] || (t || '').slice(0, 4).toUpperCase());
+
+/* Crear la OC: proveedor, nota y el texto que se va a mandar (con {OC} hasta tener el número) */
+function formCrearOC(piezas, prov0) {
+  const provs = cache.proveedores;
+  modal(`<h2>Nueva orden de compra · ${piezas.length} pieza${piezas.length > 1 ? 's' : ''}</h2>
+    <div class="gris" style="font-size:12px">Se crea con el número correlativo siguiente (desde OC-2000) y sin fecha: la fecha prometida la da el proveedor cuando responda. Después la mandas por WhatsApp, correo o PDF.</div>
+    <label class="campo">Proveedor <select id="c-prov">${provs.map(p => `<option value="${p.id}" ${prov0 && p.id === prov0.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></label>
+    <label class="campo">Texto para el proveedor (edítalo si hace falta; {OC} será el número real) <textarea id="c-texto" class="oc-texto">${esc(textoOC(prov0, piezas))}</textarea></label>
+    <label class="campo">Nota interna (opcional) <input id="c-nota" placeholder="ej. pedir con urgencia, retiro el viernes"></label>
+    <div class="acciones"><button type="button" class="btn" id="c-cancelar">Cancelar</button><button type="button" class="btn primario" id="c-ok">Crear orden de compra</button></div>`);
+  const ids = piezas.map(x => x.linea_id);
+  $('#c-cancelar').onclick = cerrarModal;
+  $('#c-prov').onchange = () => { const pv = provs.find(p => p.id === Number($('#c-prov').value)); $('#c-texto').value = textoOC(pv, piezas); };
+  $('#c-ok').onclick = async () => { try { const oc = await rpc('crear_orden_compra', { p_linea_ids: ids, p_proveedor_id: Number($('#c-prov').value), p_texto: $('#c-texto').value, p_nota: $('#c-nota').value || null }); cerrarModal(); aviso(`${oc.codigo} creada con ${oc.piezas.length} pieza${oc.piezas.length > 1 ? 's' : ''}: ahora mándala al proveedor`); await vCompras(); modalOC(oc.id, oc); } catch (e) { aviso(errorDe(e), true); } };
+}
+
+/* La orden de compra: todo lo que se hace con ella en una sola ventana (Harold: una acción se hace desde donde uno está) */
+async function modalOC(id, ocDado) {
+  await cargarProveedores();
+  const oc = ocDado || await rpc('orden_compra_json', { p_id: id }); if (!oc) return aviso('No se pudo abrir la orden de compra', true);
+  const prov = provDe(oc); const pc = puedeComprar(); const esOp = yo.rol === 'operacion';
+  const recibibles = oc.piezas.filter(x => /^(Pedid|Recibid|Devuelta)/.test(x.etapa || ''));
+  const pz = x => `<tr><td>${etapaChip({ ...x, tipo: x.tipo, etapas: x.etapas }, x.pedido_id)}</td><td><a href="#/pedido/${x.pedido_id}" onclick="cerrarModal()">${esc(x.numero)}</a> ${esc(nombrePila({ cliente: x.cliente }))}</td><td>${esc(descCompra(prov, x))}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw">${x.etapa === 'Devuelta al proveedor' ? `<span class="rojo">devuelta ${fecha(x.devuelta_en)}</span>` : x.recibida_en ? `recibida ${fecha(x.recibida_en)}` : ''}${x.recepcion_nota ? `<div class="l2">${esc(x.recepcion_nota)}</div>` : ''}</td></tr>`;
+  const doc = d => `<div class="doc"><span>${esc(d.nombre)}<div class="tipo">${esc(d.tipo)} · ${esc(d.subido_por)} · ${fecha(d.subido_en)}</div></span><span>${d.storage_path ? `<button class="btn chico" data-ver="${esc(d.storage_path)}">Ver</button>` : d.url ? `<a class="btn chico" href="${esc(d.url)}" target="_blank">Abrir</a>` : ''}</span></div>`;
+  modal(`<div class="cab"><h2>${esc(oc.codigo)} · ${esc(oc.proveedor)} ${ocChip(oc.estado)}${oc.atrasada ? ' <span class="chip atrasado">ATRASADA</span>' : ''}</h2><button type="button" class="btn chico" id="oc-x">Cerrar ventana</button></div>
+    <div class="gris" style="font-size:12px">Enviada el ${fecha(oc.fecha, true)} por ${esc(oc.creado_por)}${prov.contacto ? ' · ' + esc(prov.contacto) : ''}${prov.telefono ? ' · ' + esc(prov.telefono) : ''}${oc.nota ? ' · nota: ' + esc(oc.nota) : ''}</div>
+    <div class="campos" style="align-items:end">
+      <label class="campo">Fecha prometida por el proveedor <input type="date" id="oc-fecha" value="${oc.fecha_prometida || ''}" ${pc ? '' : 'disabled'}></label>
+      <label class="campo">Referencia del proveedor (cotización, pedido, guía) <input id="oc-ref" value="${esc(oc.referencia_prov || '')}" ${pc ? '' : 'disabled'}></label>
+      ${pc ? '<button type="button" class="btn chico" id="oc-guardar" style="margin-bottom:2px">Guardar</button>' : ''}
+    </div>
+    <table class="d-tabla"><thead><tr><th>Etapa</th><th>Pedido</th><th>Pieza</th><th>Entrega cliente</th><th>Recepción</th></tr></thead><tbody>${oc.piezas.map(pz).join('')}</tbody></table>
+    ${pc ? `<div class="oc-dinero"><div><b>Cotización del proveedor:</b> ${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) : '<span class="gris">aún no cotiza</span>'} <button type="button" class="btn chico" id="oc-cot">${oc.monto_cotizado != null ? 'Corregir' : 'Registrar cotización'}</button></div>
+      <div><b>Pago:</b> ${oc.monto_pagado != null ? `${pesos(oc.monto_pagado)} el ${fecha(oc.fecha_pago)}${oc.medio_pago ? ' · ' + esc(oc.medio_pago) : ''}` : '<span class="gris">sin pagar</span>'} <button type="button" class="btn chico" id="oc-pago">${oc.monto_pagado != null ? 'Corregir' : 'Registrar pago'}</button></div></div>` : ''}
+    <div><div class="cab"><h2 style="font-size:14px">Documentos (${oc.documentos.length})</h2>${pc || esOp ? '<button type="button" class="btn chico" id="oc-adj">Adjuntar</button>' : ''}</div><div class="docs">${oc.documentos.map(doc).join('') || '<div class="gris" style="font-size:12px">Nada adjunto aún: cotización del proveedor, comprobante de pago, guía del proveedor tachada.</div>'}</div></div>
+    <details ${oc.estado === 'Enviada' ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">Texto enviado al proveedor</summary><textarea id="oc-texto" class="oc-texto" ${pc ? '' : 'readonly'}>${esc(oc.texto_enviado || textoOC(prov, oc.piezas, oc.codigo, oc.fecha))}</textarea>
+      <div class="acciones" style="justify-content:flex-start"><button type="button" class="btn" id="oc-copiar">Copiar</button><button type="button" class="btn" id="oc-wa">WhatsApp${prov.telefono ? '' : ' (elige el chat)'}</button><button type="button" class="btn" id="oc-pdf">PDF${navigator.canShare ? ' · compartir' : ''}</button></div></details>
+    <div class="acciones">
+      ${recibibles.length ? `<button type="button" class="btn primario" id="oc-recibir">Recibir / devolver piezas</button>` : ''}
+      ${pc && oc.estado !== 'Cerrada' ? `<button type="button" class="btn" id="oc-cerrar" title="Cerrarla a mano (se cierra sola cuando todas las piezas quedan embaladas)">Cerrar OC</button>` : ''}
+      ${pc && oc.estado === 'Cerrada' ? `<button type="button" class="btn" id="oc-reabrir">Reabrir</button>` : ''}
+    </div>`, 'ancha');
+  const refrescar = async () => { if (location.hash.startsWith('#/compras')) await vCompras(); else if (typeof render === 'function') await render(); modalOC(oc.id); };
+  const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+  on('#oc-x', cerrarModal);
+  activarEtapas($('#modal'), () => refrescar());
+  $$('[data-ver]', $('#modal')).forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
+  on('#oc-guardar', async () => { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { fecha_prometida: $('#oc-fecha').value || '', referencia_prov: $('#oc-ref').value || '' } }); aviso('Guardado (queda en el historial de cada pedido)'); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+  const guardarTexto = async () => { if (!pc) return; const t = $('#oc-texto').value; if (t !== (oc.texto_enviado || '')) { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { texto_enviado: t } }); oc.texto_enviado = t; } catch (e) { } } };
+  on('#oc-copiar', async () => { await guardarTexto(); try { await navigator.clipboard.writeText($('#oc-texto').value); aviso('Texto copiado: pégalo en WhatsApp o en el correo'); } catch (e) { aviso('No se pudo copiar: selecciona el texto y cópialo', true); } });
+  on('#oc-wa', async () => { await guardarTexto(); window.open(waProveedor(prov, $('#oc-texto').value), '_blank'); });
+  on('#oc-pdf', async () => { await guardarTexto(); try { const r = await pdfOC(oc, prov); if (r) aviso(r); } catch (e) { aviso(errorDe(e), true); } });
+  on('#oc-cot', () => formCotizacionOC(oc, refrescar));
+  on('#oc-pago', () => formPagoOC(oc, refrescar));
+  on('#oc-adj', () => formAdjuntarOC(oc, refrescar));
+  on('#oc-recibir', () => formRecibir(recibibles.map(x => ({ ...x, oc })), oc, refrescar));
+  on('#oc-cerrar', async () => { if (!confirm(`¿Cerrar la ${oc.codigo}? Se cierra sola cuando todas las piezas quedan embaladas; ciérrala a mano solo si ya no llegará nada más.`)) return; try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { estado: 'Cerrada' } }); aviso(`${oc.codigo} cerrada`); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+  on('#oc-reabrir', async () => { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { estado: oc.monto_pagado != null ? 'Pagada' : oc.monto_cotizado != null ? 'Cotizada' : 'Enviada' } }); aviso(`${oc.codigo} reabierta`); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+}
+/* Subir un archivo a la OC (carpeta compras/<id>/ del bucket) y registrarlo como documento */
+async function subirDocOC(oc, tipo, archivo, nombre, url) {
+  const fila = { orden_compra_id: oc.id, tipo, nombre: nombre || (archivo && archivo.name) || url, subido_por: yo.nombre, url: url || null };
+  if (archivo && archivo.size) { const path = `compras/${oc.id}/${Date.now()}_${archivo.name.replace(/[^\w.\-]/g, '_')}`; const { error } = await sb.storage.from('documentos').upload(path, archivo, { contentType: archivo.type || undefined }); if (error) throw error; fila.storage_path = path; }
+  else if (!fila.url) return null;
+  const { error } = await sb.from('documento').insert(fila); if (error) throw error;
+  return fila;
+}
+function formCotizacionOC(oc, despues) {
+  modal(`<h2>Cotización del proveedor · ${esc(oc.codigo)}</h2><form id="f"><div class="campos">
+    <label class="campo">Monto cotizado ($, con IVA) <input name="monto" type="number" min="0" step="1" value="${oc.monto_cotizado != null ? oc.monto_cotizado : ''}" required></label>
+    <label class="campo">N° de cotización o referencia <input name="ref" value="${esc(oc.referencia_prov || '')}"></label>
+    <label class="campo">Fecha prometida (si ya la dio) <input name="fecha" type="date" value="${oc.fecha_prometida || ''}"></label>
+    <label class="campo">Archivo de la cotización (PDF o foto) <input name="archivo" type="file" accept="application/pdf,image/*"></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
+    await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { monto_cotizado: f.get('monto') || '', referencia_prov: f.get('ref') || '', ...(f.get('fecha') ? { fecha_prometida: f.get('fecha') } : {}) } });
+    const a = f.get('archivo'); if (a && a.size) await subirDocOC(oc, 'Cotización proveedor', a, `Cotización ${oc.codigo} ${oc.proveedor}`);
+    aviso('Cotización registrada'); cerrarModal(); despues(); } catch (e) { aviso(errorDe(e), true); } };
+}
+function formPagoOC(oc, despues) {
+  modal(`<h2>Pago al proveedor · ${esc(oc.codigo)}</h2><div class="gris" style="font-size:12px">Se anota aquí junto al comprobante (sin módulo de gastos todavía; cuando exista, lee de aquí).</div><form id="f"><div class="campos">
+    <label class="campo">Monto pagado ($) <input name="monto" type="number" min="0" step="1" value="${oc.monto_pagado != null ? oc.monto_pagado : (oc.monto_cotizado != null ? oc.monto_cotizado : '')}" required></label>
+    <label class="campo">Fecha del pago <input name="fecha" type="date" value="${oc.fecha_pago || hoyISO()}" required></label>
+    <label class="campo">Medio <select name="medio">${['Transferencia', 'Tarjeta', 'Efectivo', 'Otro'].map(m => `<option ${(oc.medio_pago || 'Transferencia') === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+    <label class="campo">Comprobante (foto o PDF) <input name="archivo" type="file" accept="application/pdf,image/*"></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar pago</button></div></form>`);
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
+    await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { monto_pagado: f.get('monto') || '', fecha_pago: f.get('fecha') || '', medio_pago: f.get('medio') || '' } });
+    const a = f.get('archivo'); if (a && a.size) await subirDocOC(oc, 'Comprobante proveedor', a, `Comprobante ${oc.codigo} ${fecha(f.get('fecha'))}`);
+    aviso('Pago registrado'); cerrarModal(); despues(); } catch (e) { aviso(errorDe(e), true); } };
+}
+function formAdjuntarOC(oc, despues) {
+  const esOp = yo.rol === 'operacion';
+  const tipos = esOp ? ['Guía proveedor'] : ['Guía proveedor', 'Cotización proveedor', 'Comprobante proveedor', 'Orden de compra', 'Otro'];
+  modal(`<h2>Adjuntar a ${esc(oc.codigo)}</h2><form id="f"><div class="campos">
+    <label class="campo">Tipo <select name="tipo">${tipos.map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Archivo (foto o PDF, hasta 25 MB) <input name="archivo" type="file" accept="application/pdf,image/*"></label>
+    <label class="campo">o enlace (Drive) <input name="url" type="url" placeholder="https://drive.google.com/..."></label>
+    <label class="campo">Nombre <input name="nombre" placeholder="se toma del archivo si va vacío"></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try { const r = await subirDocOC(oc, f.get('tipo'), f.get('archivo'), f.get('nombre'), f.get('url')); if (!r) throw new Error('Adjunta un archivo o pega un enlace'); aviso('Documento guardado'); cerrarModal(); despues(); } catch (e) { aviso(errorDe(e), true); } };
+}
+/* Recepción (Alexis tacha la guía del proveedor): por cada pieza, conforme (queda en bodega) o devuelta al proveedor con el motivo;
+   la foto de la guía tachada se adjunta a la OC (o al pedido si la pieza no tiene OC). */
+function formRecibir(piezas, oc, despues) {
+  const fila = x => `<div class="recibir-fila"><div><b>${esc(x.numero || '')}</b> ${esc(x.cliente ? nombrePila({ cliente: x.cliente }) : '')} · ${esc(descCompra(x.oc ? provDe(x.oc) : null, x))}<div class="l2 gris">hoy: ${esc(x.etapa)}${x.recepcion_nota ? ' · ' + esc(x.recepcion_nota) : ''}</div></div>
+    <div class="recibir-opc"><label><input type="radio" name="r${x.id}" value="conforme" ${x.etapa === 'Devuelta al proveedor' ? '' : 'checked'}> Conforme, a bodega</label><label><input type="radio" name="r${x.id}" value="devuelta"> Devuelta al proveedor</label><label><input type="radio" name="r${x.id}" value="" ${x.etapa === 'Devuelta al proveedor' ? 'checked' : ''}> Sin cambio</label><input name="n${x.id}" placeholder="motivo o nota (ej. vino trizado)" style="width:100%"></div></div>`;
+  modal(`<h2>Recibir piezas${oc ? ' · ' + esc(oc.codigo) : ''}</h2><div class="gris" style="font-size:12px">Marca cada pieza como llegó. Conforme = queda en bodega (etapa Recibido). Devuelta = vuelve al proveedor con el motivo; cuando vuelva bien, tócala de nuevo o vuelve a recibirla conforme. Adjunta la foto de la guía del proveedor tachada.</div>
+    <form id="f">${piezas.map(fila).join('')}
+    <label class="campo" style="margin-top:8px">Guía del proveedor (foto o PDF, opcional) <input name="guia" type="file" accept="application/pdf,image/*" capture="environment"></label>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar recepción</button></div></form>`, 'ancha');
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
+    const items = piezas.map(x => ({ linea_id: x.id, resultado: f.get('r' + x.id) || '', nota: f.get('n' + x.id) || '' })).filter(i => i.resultado);
+    if (!items.length) throw new Error('No marcaste ninguna pieza');
+    const r = await rpc('recibir_compra', { p_items: items });
+    (r.pedidos || []).forEach(actualizarPiezas);
+    const g = f.get('guia'); if (g && g.size) {
+      if (oc) await subirDocOC(oc, 'Guía proveedor', g, `Guía ${oc.proveedor} ${fecha(hoyISO())}`);
+      else { const x = piezas[0]; const path = `compras/pedido_${x.pedido_id}/${Date.now()}_${g.name.replace(/[^\w.\-]/g, '_')}`; const { error } = await sb.storage.from('documentos').upload(path, g); if (error) throw error; const { error: e2 } = await sb.from('documento').insert({ pedido_id: x.pedido_id, tipo: 'Guía proveedor', nombre: `Guía proveedor ${fecha(hoyISO())}`, storage_path: path, subido_por: yo.nombre }); if (e2) throw e2; }
+    }
+    const dev = items.filter(i => i.resultado === 'devuelta').length;
+    aviso(`${items.length - dev} recibida${items.length - dev === 1 ? '' : 's'} conforme${dev ? ` · ${dev} devuelta${dev > 1 ? 's' : ''} al proveedor` : ''}`); cerrarModal(); despues(r); } catch (e) { aviso(errorDe(e), true); } };
+}
+/* Enlaces de compra en la tabla de piezas (despliegue y ficha): abrir la OC y recibir/devolver desde el pedido */
+function activarCompras(raiz, p, despues) {
+  $$('[data-oc]', raiz).forEach(a => { if (a.tagName === 'TR') return; a.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); modalOC(Number(a.dataset.oc)); }; });
+  $$('[data-recibir]', raiz).forEach(a => a.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); const x = (p.piezas || []).find(y => y.id === Number(a.dataset.recibir)); if (!x) return;
+    const oc = x.oc_id ? { id: x.oc_id, codigo: 'OC-' + x.oc_numero, proveedor: x.proveedor, proveedor_id: null } : null;
+    formRecibir([{ ...x, numero: p.numero, cliente: p.cliente, tipo_linea: x.tipo, oc }], oc, despues); });
+}
+const ocLineaPieza = x => x.area !== 'Vidrio/compras' ? '' : `<div class="l2">${x.oc_numero ? `<a href="#" data-oc="${x.oc_id}" title="Abrir la orden de compra">OC-${x.oc_numero}</a> · ${esc(x.oc_estado || '')}${x.fecha_prometida_prov ? ` · llega ${fecha(x.fecha_prometida_prov)}` : ''}` : esc(x.proveedor ? x.proveedor + ' · sin OC' : 'sin orden de compra')}${/^(Pedid|Recibid|Devuelta)/.test(x.etapa || '') ? ` · <a href="#" data-recibir="${x.id}">recibir / devolver</a>` : ''}</div>`;
+
+/* PDF de la OC con logo y número: en el Mac se descarga; en celular o tablet abre la hoja de compartir (WhatsApp, Mail).
+   jsPDF se carga solo cuando se pide el primer PDF. El PDF generado queda adjunto a la OC (tipo "Orden de compra") la primera vez. */
+async function cargarJsPDF() { if (window.jspdf) return; await new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload = ok; s.onerror = () => no(new Error('No se pudo cargar el generador de PDF (revisa la conexión)')); document.head.appendChild(s); }); }
+async function logoDataUrl() { if (cache.logoData) return cache.logoData; const b = await (await fetch('logo.png')).blob(); cache.logoData = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); }); return cache.logoData; }
+async function pdfOC(oc, prov) {
+  await cargarJsPDF(); const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'letter' }); const W = 215.9, M = 18, A = W - 2 * M; let y = 16;
+  try { doc.addImage(await logoDataUrl(), 'PNG', M, y - 2, 58, 12); } catch (e) { }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(0, 129, 166); doc.text('ORDEN DE COMPRA', W - M, y, { align: 'right' });
+  doc.setFontSize(22); doc.setTextColor(26, 26, 26); doc.text(oc.codigo, W - M, y + 9, { align: 'right' });
+  doc.setFontSize(8); doc.setTextColor(120); doc.text('Fecha: ' + fecha(oc.fecha), W - M, y + 14, { align: 'right' });
+  y += 22; doc.setDrawColor(0, 129, 166); doc.setLineWidth(0.6); doc.line(M, y, W - M, y); y += 7;
+  const bloque = (x, titulo, filas) => { doc.setFontSize(7); doc.setTextColor(0, 129, 166); doc.text(titulo.toUpperCase(), x, y); let yy = y + 5; doc.setFontSize(9); filas.forEach(([k, v]) => { doc.setTextColor(120); doc.text(k, x, yy); doc.setTextColor(40); doc.text(String(v || '-'), x + 22, yy); yy += 4.6; }); return yy; };
+  const y1 = bloque(M, 'Emisor', [['Empresa', EMISOR.empresa], ['RUT', EMISOR.rut], ['Dirección', EMISOR.direccion], ['Teléfono', EMISOR.telefono], ['Email', EMISOR.email]]);
+  const y2 = bloque(M + A / 2 + 4, 'Proveedor', [['Nombre', prov.nombre], ['Contacto', prov.contacto], ['Teléfono', prov.telefono], ['Dirección', prov.direccion], ['Referencia', oc.referencia_prov]]);
+  y = Math.max(y1, y2) + 4;
+  doc.setFontSize(7); doc.setTextColor(0, 129, 166); doc.text('DETALLE', M, y); y += 3;
+  const cols = [[M, 10, 'N°'], [M + 10, 14, 'Cant.'], [M + 24, A - 24 - 34, 'Descripción'], [W - M - 34, 34, 'Pedido']];
+  doc.setFillColor(230, 243, 247); doc.rect(M, y, A, 7, 'F'); doc.setFontSize(8.5); doc.setTextColor(40); cols.forEach(([x, w, t]) => doc.text(t, x + 2, y + 4.8)); y += 7;
+  doc.setFontSize(9); doc.setDrawColor(221, 227, 230); doc.setLineWidth(0.2);
+  oc.piezas.forEach((x, i) => { const d = doc.splitTextToSize(descCompra(prov, x), cols[2][1] - 4); const h = Math.max(7, d.length * 4.4 + 3); if (y + h > 250) { doc.addPage(); y = 20; }
+    doc.setTextColor(40); doc.text(String(i + 1), cols[0][0] + 2, y + 4.8); doc.text(String(x.cantidad), cols[1][0] + 2, y + 4.8); doc.text(d, cols[2][0] + 2, y + 4.8); doc.setTextColor(120); doc.text(refPedido(x).replace(/[\[\]]/g, ''), cols[3][0] + 2, y + 4.8); y += h; doc.line(M, y, W - M, y); });
+  y += 8; doc.setFontSize(9); doc.setTextColor(40);
+  const pie = doc.splitTextToSize(`Favor confirmar valor y fecha de entrega citando la ${oc.codigo}.` + (prov.formato === 'vidrio' ? ' Retiro en taller Lo Blanco 1919, La Pintana.' : '') + (oc.nota ? '' : ''), A); doc.text(pie, M, y); y += pie.length * 4.6 + 4;
+  doc.setFontSize(7.5); doc.setTextColor(140); doc.text(`${EMISOR.empresa} · RUT ${EMISOR.rut} · ${EMISOR.email} · ${EMISOR.telefono}`, W / 2, 268, { align: 'center' });
+  const blob = doc.output('blob'); const nombre = `${oc.codigo}_${(prov.nombre || '').replace(/[^\w]+/g, '_')}.pdf`;
+  if (puedeComprar() && !(oc.documentos || []).some(d => d.tipo === 'Orden de compra')) { try { await subirDocOC(oc, 'Orden de compra', new File([blob], nombre, { type: 'application/pdf' }), nombre); oc.documentos = [...(oc.documentos || []), { tipo: 'Orden de compra' }]; } catch (e) { } }
+  const file = new File([blob], nombre, { type: 'application/pdf' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: oc.codigo, text: `Orden de compra ${oc.codigo} · Santino Design` }); return 'PDF compartido'; } catch (e) { if (e && e.name === 'AbortError') return ''; } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return 'PDF descargado: ' + nombre;
 }
 
 /* ---------- Títulos de columna que siguen al bajar (Harold 12-oct, tanda 20) ----------

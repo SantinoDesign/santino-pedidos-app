@@ -380,3 +380,26 @@ table.lista.v2.b td{padding:4px 5px}
 table.lista.v2 .l2.propone{color:var(--azul-osc);font-weight:700}
 table.lista td.fecha-mov{cursor:pointer}table.lista td.fecha-mov:hover{background:var(--azul-suave)}
 .prog-desp{display:inline-flex;gap:6px;align-items:center}.prog-desp input{min-height:30px;padding:2px 6px;font-size:12px}
+
+/* Orden de compra (tanda 26, 13-oct-2026): estados de la OC, pieza devuelta al proveedor, ventana ancha, recepción */
+.etapa-chip.devuelta,.celda-pieza.devuelta{border-color:var(--rojo);color:var(--rojo-txt)}
+.etapa-chip.devuelta small,.celda-pieza.devuelta .etapa-tag{color:var(--rojo-txt)}
+.chip.oc-estado{font-weight:700}
+.chip.oc-Enviada{background:var(--panel);color:var(--gris)}
+.chip.oc-Cotizada{background:var(--azul-suave);color:var(--azul-osc)}
+.chip.oc-Pagada{background:var(--azul-claro);color:var(--azul-osc)}
+.chip.oc-Recibida{background:var(--verde-fondo);color:var(--verde)}
+.chip.oc-Con_devolución{background:var(--rojo-fondo);color:var(--rojo-txt)}
+.chip.oc-Cerrada{background:var(--gris);color:#fff}
+.modal .caja.ancha{max-width:900px}
+.oc-texto{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;width:100%;white-space:pre-wrap}
+.oc-dinero{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;align-items:center}
+.oc-dinero>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+table.lista tr.fila-oc{cursor:pointer}
+table.lista tr.fila-oc:hover td{background:var(--azul-suave)}
+table.lista.oc-tabla td{vertical-align:top}
+.recibir-fila{display:grid;grid-template-columns:1fr minmax(240px,320px);gap:6px 14px;align-items:start;padding:8px 0;border-bottom:1px solid var(--linea);font-size:13px}
+.recibir-opc{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.recibir-opc label{display:flex;gap:6px;align-items:center}
+.recibir-opc input[type=text],.recibir-opc input:not([type]){min-height:30px;padding:3px 6px;font-size:12px}
+@media (max-width:640px){.recibir-fila{grid-template-columns:1fr}}
