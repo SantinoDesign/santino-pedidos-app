@@ -951,13 +951,22 @@ async function vOdt() {
   };
   const paraCub = (x, p) => { const cub = (p.piezas || []).find(y => y.tipo === 'Cubierta' && y.largo_cm); return cub ? `<div class="l2">para cubierta ${esc(medidaTxt(cub))} cm</div>` : ''; };
   const formatoTxt = x => x.tipo === 'Base' ? '' : [FORMA_TXT[x.forma], x.largo_ext_cm ? 'extensible' : ''].filter(Boolean).join(' · ');
-  const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? nombreColor(x.color) : null) : tonoTxt(x.tono)].filter(Boolean).join(' · ');
+  // Regla de columnas (Harold 13-oct): Modelo / pieza = solo el nombre (modelo de catálogo o nombre corto de la pieza) y el tipo;
+  // Madera = material y espesor; Medidas = números o el texto de medidas; Term. = tono o color más la nota de acabado;
+  // Indicaciones = lo que no cabe en las otras. Nada se repite entre columnas.
+  const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? nombreColor(x.color) : null) : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · ');
+  const esMedida = t => /^\s*[\dØ]/.test(t) || /\d\s*[x×]\s*\d/.test(t) || /\bcm\b|\bmm\b/.test(t);
+  const nombrePieza = x => {
+    if (!['Mueble', 'Banca', 'Servicio', 'Repuesto', 'Barniz'].includes(x.tipo)) return nombreModelo(x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base)) || (x.descripcion || '').split(/\s[·:,]\s|\s·\s|:\s/)[0] || '-';
+    const partes = (x.descripcion || '').split(/\s·\s|:\s|,\s/).map(t => t.trim()).filter(t => t && !esMedida(t));
+    return partes[0] || nombreModelo(x.modelo_cubierta || x.modelo_base) || '-';
+  };
   const filaFecha = (x, p) => { const k = x.fecha_taller || null; return `<td class="nw"><span class="no-imprimir"><input type="date" class="f-taller" value="${k || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro (cuándo debe estar lista esta pieza)"></span><span class="solo-impresion">${k ? fecha(k, true) : '________'}</span>${p.urgente ? ' <strong>URG</strong>' : ''}</td>`; };
   const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><thead><tr><th title="Fecha comprometida para el maestro">Fecha</th><th>N°</th><th>Cliente</th><th>Modelo / pieza</th><th title="Madera y espesor">Madera</th><th title="Largo × ancho × alto, siempre en ese orden">Medidas L × A × Al</th><th>Form.</th><th>Ctd</th><th title="Tono o color">Term.</th><th>Indicaciones</th><th class="no-imprimir">${conChip ? 'Estado' : ''}</th><th class="solo-impresion">Hecho</th><th class="solo-impresion">Entrega / Rev.</th></tr></thead><tbody>${lista.map(({ p, x }) => {
     const fab = area && x.etapa === etapa, tarde = (x.fecha_taller || '9999') < hoyI || (!x.fecha_taller && p.atrasado);
-    const ind = [x.indicaciones, x.nota_acabado].filter(Boolean);
+    const ind = [x.indicaciones].filter(Boolean);
     return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}">${filaFecha(x, p)}<td class="nw">${esc(p.numero)}</td><td class="cli">${esc(p.cliente)}</td>
-    <td><strong>${esc(nombreModelo(x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base)) || x.descripcion || '-')}</strong><div class="l2">${esc(x.tipo)}${x.tipo === 'Mueble' && x.descripcion ? ': ' + esc(x.descripcion) : ''}</div></td>
+    <td class="pieza"><strong>${esc(nombrePieza(x))}</strong><div class="l2">${esc(x.tipo)}</div></td>
     <td>${esc(maderaTxt(x, x.tipo === 'Base')) || falta('madera?')}${espesorHtml(x)}</td><td>${tamanoHtml(x, p)}</td><td>${esc(formatoTxt(x))}</td><td style="text-align:center">${x.cantidad || 1}</td><td>${esc(terminacion(x))}</td><td class="indic">${ind.map(esc).join(' · ')}</td>
     <td class="no-imprimir">${conChip ? `${etapaChip(x, p.id)} <button class="btn chico borde" data-editar-pieza="${x.id}" title="Cambiar medidas, formato, indicaciones o la fecha para el maestro">Editar</button>` : esc(x.etapa)}</td><td class="solo-impresion caja-ok">${fab ? '<small>FABR.</small>' : ''}</td><td class="solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
   const hoy = new Date();

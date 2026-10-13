@@ -302,6 +302,7 @@ table.odt{font-size:12px;table-layout:auto}
 table.odt th,table.odt td{padding:3px 5px;white-space:normal;vertical-align:top}
 table.odt td.nw{white-space:nowrap}
 table.odt td.cli{max-width:120px;overflow-wrap:anywhere}
+table.odt td.pieza{max-width:130px;overflow-wrap:anywhere}
 table.odt .l2{color:var(--gris-2);font-size:10px;font-weight:400}
 table.odt td.indic{min-width:120px;max-width:220px}
 table.odt input.f-taller{min-height:26px;padding:1px 3px;font-size:11px;width:118px}
@@ -312,6 +313,7 @@ table.odt input.f-taller{min-height:26px;padding:1px 3px;font-size:11px;width:11
   .odt-print table.odt th,.odt-print table.odt td{padding:2px 3px;line-height:1.2}
   .odt-print table.odt .l2{color:#333;font-size:8.5px}
   .odt-print table.odt td.cli{max-width:95px}
+  .odt-print table.odt td.pieza{max-width:100px}
   .odt-print table.odt td.indic{max-width:150px}
   .odt-print .caja-ok{width:46px}
   .odt-print .titulo-print{font-size:11px;margin:0 0 4px}
