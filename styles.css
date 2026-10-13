@@ -345,7 +345,9 @@ table.lista.v2.b td{padding:4px 5px}
 .celda-pieza .l1{font-weight:600}.celda-pieza .l2{color:var(--gris-2);font-size:11px}
 .celda-pieza .etapa-tag{display:block;margin-top:3px;font-size:10.5px;font-weight:700;color:var(--gris-3);border-top:1px dashed #E3E8EB;padding-top:2px}
 .celda-pieza.proceso{border-color:var(--azul)}.celda-pieza.proceso .etapa-tag{color:var(--azul-osc)}
-.celda-pieza.lista{background:var(--azul);border-color:var(--azul);color:#fff}.celda-pieza.lista .l2,.celda-pieza.lista .etapa-tag{color:#E6F3F7;border-top-color:rgba(255,255,255,.35)}
+.celda-pieza.lista{background:var(--azul);border-color:var(--azul);color:#fff}
+/* Harold 13-oct: la segunda línea no se leía sobre el azul (table.lista.v2 .l2 ganaba por especificidad): blanco casi puro */
+table.lista.v2 .celda-pieza.lista .l2,.celda-pieza.lista .l2,.celda-pieza.lista .etapa-tag{color:#F4FAFC;border-top-color:rgba(255,255,255,.4)}
 .celda-pieza.falta{border-color:var(--rojo-txt)}.celda-pieza.falta .etapa-tag{color:var(--rojo-txt)}
 .tablet table.lista.v2{font-size:13px;min-width:1080px}.tablet table.lista.v2 .l2{font-size:11.5px}.tablet .celda-pieza{padding:7px 9px 5px;min-height:52px}.tablet .celda-pieza .etapa-tag{font-size:12px}
 
