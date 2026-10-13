@@ -107,7 +107,7 @@ function rasgos(p) {
     entrega: (p.tipo_entrega === 'Despacho regiones' ? 'REG' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro' : 'RM') + (p.instalacion ? ' + INS' : ''),
   };
 }
-/* Etapa por pieza (Harold 12-oct): cada pieza avanza por las etapas de su área (carpintería: Por hacer → Fabricación → Barniz → Embalado;
+/* Etapa por pieza (Harold 12-oct): cada pieza avanza por las etapas de su área (carpintería: En cola → Fabricación → Barniz → Embalado; "En cola" = cola de producción, Harold 13-oct;
    soldadura: → Soldadura → Pintura → Embalado; compras: Por pedir → Pedido → Recibido → Embalado...). Un toque avanza; clic derecho
    o mantener apretado vuelve atrás. Embalado = pieza lista. Las etapas las define la base (privado.etapas_de). */
 /* Medida de una pieza; las extensibles muestran el largo abierta: "130 x 90 a 180 ext" (Harold 13-oct, Sandra W3149) */
@@ -328,7 +328,7 @@ async function vLista() {
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
       <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
       <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['ENCHAPADO', 'Base de MDF enchapado (armado de muebles, ej. Montecarlo)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
-      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Etapa</span>${[['Por hacer', 'Piezas sin empezar'], ['Fabricación', 'Piezas en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
+      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Etapa</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Piezas en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
       ${esOp ? '' : '<button class="btn" id="b-nuevo">+ Nuevo pedido</button><button class="btn" id="b-export">Exportar a Excel (CSV)</button>'}
       ${esOp ? '' : '<a class="btn" href="#/imprimir-listado" title="Respaldo en papel mientras Alexis no tenga la tablet">Imprimir listado operacional</a>'}
@@ -833,18 +833,19 @@ async function vImprimirListado() {
 /* ---------- ODT: orden de trabajo por etapa (Harold 12-oct, tanda 19) ----------
    Lo que está HOY en una etapa (ej. Barniz), ordenado por fecha de entrega, para imprimirlo y entregárselo al barnizador.
    Abajo, lo que viene a esa etapa (todavía en fabricación, armado o soldadura), para anticiparse. */
-const ODT_ETAPAS = [['Barniz', 'Barniz', 'Barniz'], ['Pintura', 'Pintura', 'Pintura'], ['Fabricación', 'Fabricación (carpintería)', null], ['Soldadura', 'Soldadura', null], ['Armado', 'Armado de muebles', null], ['Por hacer', 'Por hacer (sin empezar)', null]];
+// Harold 13-oct: todo pedido entra de inmediato a la cola de producción (primera pestaña, ordenada por fecha de entrega; cambia si cambian las fechas); Fabricación es solo lo que se está fabricando.
+const ODT_ETAPAS = [['En cola', 'Cola de producción', null], ['Fabricación', 'Fabricación (carpintería)', null], ['Soldadura', 'Soldadura', null], ['Armado', 'Armado de muebles', null], ['Barniz', 'Barniz', 'Barniz'], ['Pintura', 'Pintura', 'Pintura']];
 async function vOdt() {
   const esOp = yo.rol === 'operacion';
   if (esOp) await cargarOperacion(); else { cache.filtro = 'pendientes'; await cargarPedidos(); }
-  cache.odt = cache.odt || 'Barniz';
+  cache.odt = cache.odt || 'En cola';
   const [etapa, titulo, acabado] = ODT_ETAPAS.find(e => e[0] === cache.odt) || ODT_ETAPAS[0];
   const fe = p => p.fecha_comprometida || p.fecha_estimada || null;
   const activos = cache.pedidos.filter(p => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado) && !p.pago_pendiente);
   const filas = cond => activos.flatMap(p => (p.piezas || []).filter(x => x.area && cond(x)).map(x => ({ p, x })))
     .sort((a, b) => String(fe(a.p) || '9').localeCompare(String(fe(b.p) || '9')) || String(a.p.numero).localeCompare(String(b.p.numero)));
   const ahora = filas(x => x.etapa === etapa);
-  const vienen = acabado ? filas(x => x.acabado === acabado && ['Por hacer', 'Fabricación', 'Armado', 'Soldadura'].includes(x.etapa)) : [];
+  const vienen = acabado ? filas(x => x.acabado === acabado && ['En cola', 'Fabricación', 'Armado', 'Soldadura'].includes(x.etapa)) : [];
   const med = x => medidaTxt(x) || '-';
   const mat = x => [x.tipo === 'Base' ? x.material_base : x.material_cubierta || x.material_base].filter(Boolean).map(nombreMaterial).join(' / ') || '-';
   const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? 'color ' + (nombreColor(x.color) || x.color) : null) : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · ') || '-';
@@ -857,9 +858,9 @@ async function vOdt() {
   app.innerHTML = barra('#/odt') + `<div class="sub no-imprimir">
       <span class="fgrupo"><span class="fgrupo-t">Etapa</span>${ODT_ETAPAS.map(([v, t]) => `<button class="ftog ${v === etapa ? 'on' : ''}" data-odt="${esc(v)}">${esc(t)}</button>`).join('')}</span>
       <button class="btn primario" onclick="window.print()">Imprimir ODT</button>
-      <span style="color:var(--gris-3)">Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.</span></div>
+      <span style="color:var(--gris-3)">${etapa === 'En cola' ? 'Todo lo que entra queda aquí, por fecha de entrega. Toca la pieza cuando empiece a fabricarse: pasa a su taller y sale de la cola.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
     <div class="contenido listado-print"><div class="titulo-print">ORDEN DE TRABAJO · ${esc(titulo.toUpperCase())} · ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()} · ${ahora.length} pieza${ahora.length === 1 ? '' : 's'}</div>
-    <h3>En ${esc(etapa.toLowerCase())} ahora (${ahora.length})</h3>${tabla(ahora, true)}
+    <h3>${etapa === 'En cola' ? 'En cola de producción, por fecha de entrega' : 'En ' + esc(etapa.toLowerCase()) + ' ahora'} (${ahora.length})</h3>${tabla(ahora, true)}
     ${acabado ? `<h3 class="no-imprimir">Vienen a ${esc(etapa.toLowerCase())} (todavía en fabricación, armado o soldadura: ${vienen.length})</h3><div class="no-imprimir">${tabla(vienen, true)}</div>` : ''}</div>`;
   $$('[data-odt]').forEach(b => b.onclick = () => { cache.odt = b.dataset.odt; vOdt(); });
   activarEtapas(app, () => vOdt());
