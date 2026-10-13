@@ -28,7 +28,7 @@ function errorDe(e) { return (e && (e.message || e.error_description || e.hint))
 function modal(html) { const m = $('#modal'); m.innerHTML = `<div class="caja">${html}</div>`; m.classList.remove('oculto'); m.onclick = ev => { if (ev.target === m) cerrarModal(); }; return m; }
 function cerrarModal() { $('#modal').classList.add('oculto'); $('#modal').innerHTML = ''; }
 function chip(t) {
-  const cls = t.startsWith('URGENTE') ? 'urgente' : t.startsWith('ATRASADO') ? 'atrasado' : t.startsWith('SALDO') ? 'saldo' : t.startsWith('PAGO') ? 'pago' : t.startsWith('INSTAL') ? 'inst' : t.startsWith('A MEDIDA') ? 'medida' : t.startsWith('PROPUESTO') ? 'prop' : '';
+  const cls = t.startsWith('URGENTE') ? 'urgente' : t.startsWith('ATRASADO') ? 'atrasado' : t.startsWith('SALDO') ? 'saldo' : t.startsWith('PAGO') ? 'pago' : t.startsWith('INSTAL') ? 'inst' : t.startsWith('A MEDIDA') ? 'medida' : t.startsWith('PROPUESTO') ? 'prop' : /^(RETIRO|VISITA|ENTREGA|INSTALACIÓN|OTRO) /.test(t) ? 'inst' : '';
   return `<span class="chip ${cls}">${esc(t)}</span>`;
 }
 /* Códigos cortos para la Lista (Harold 12-oct-2026: columnas acotadas). El nombre completo va en el title (pasar el mouse). */
@@ -288,7 +288,7 @@ function vClave() {
 
 /* ---------- datos ---------- */
 async function cargarPedidos() {
-  await cargarModelos();
+  await cargarModelos(); await cargarMovimientos();
   // La misma Lista para Harold y Alexis (Harold 12-oct): solo cambia la vista (la de operación no trae precios)
   let q = sb.from(yo.rol === 'operacion' ? 'v_pedido_operacion' : 'v_pedido').select('*');
   if (cache.filtro === 'pendientes') q = q.not('estado', 'in', '("ENTREGADO","CANCELADO","DEVUELTO")').order('fecha_comprometida', { ascending: true, nullsFirst: false }).order('fecha_estimada');
@@ -328,7 +328,7 @@ async function vLista() {
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
       <span class="fgrupo"><span class="fgrupo-t">Tipo</span>${Object.keys(COD_TIPO).map(t => toggle('tipo', t, COD_TIPO[t], NOMBRE_TIPO[t] || t)).join('')}</span>
       <span class="fgrupo"><span class="fgrupo-t">Base</span>${[['METAL', 'Estructura metálica (soldadura)'], ['MADERA', 'Base de madera maciza (carpintería)'], ['ENCHAPADO', 'Base de MDF enchapado (armado de muebles, ej. Montecarlo)']].map(([v, t]) => toggle('base', v, v, t)).join('')}</span>
-      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Etapa</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Piezas en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
+      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Etapa</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Fabricándose ahora en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo" value="${esc(cache.busqueda)}" style="width:200px"></label>
       ${esOp ? '' : '<button class="btn" id="b-nuevo">+ Nuevo pedido</button><button class="btn" id="b-export">Exportar a Excel (CSV)</button>'}
       ${esOp ? '' : '<a class="btn" href="#/imprimir-listado" title="Respaldo en papel mientras Alexis no tenga la tablet">Imprimir listado operacional</a>'}
@@ -352,7 +352,7 @@ function pintarLista() {
       <td><a class="ficha-link" href="#/pedido/${p.id}" title="Abrir ficha">Ficha</a></td><td>${estadoHtml(p.estado, true)}</td><td class="num">${esc(p.numero)}</td><td class="cliente">${esc(p.cliente)}</td><td>${tipoHtml(p.tipo_pedido)}</td>
       <td class="modelo" title="${esc(r.descripcion || '')}">${esc(r.modelo)}${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td><td>${esc(r.pers)}</td><td>${esc(r.forma)}</td><td class="celda-lineas">${dos(r.cubierta2)}</td><td class="celda-lineas">${dos(r.base2)}</td><td>${esc(r.esp)}</td><td class="nw">${esc(r.medida)}</td><td class="sillas">${esc(r.sillas)}</td>
       <td class="nw">${fecha(p.fecha_compra)}</td><td class="nw fecha-ent ${p.atrasado ? 'num' : ''}" data-id="${p.id}" title="Clic para cambiar la fecha de entrega" style="${p.atrasado ? 'color:var(--rojo-txt)' : ''}">${p.fecha_comprometida || p.fecha_estimada ? fecha(p.fecha_comprometida || p.fecha_estimada) + (p.fecha_comprometida ? '' : ' <small style="color:var(--gris-3)">est.</small>') : '<span class="sin-fecha">sin fecha</span>'}</td><td class="nw">${esc(r.entrega)}</td><td class="comuna">${esc(p.comuna || '')}</td>
-      <td class="piezas-col">${etapasHtml(p)}</td>${yo.rol === 'operacion' ? '' : `<td class="nw mono">${pesos(p.saldo)}</td>`}<td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}${yo.rol === 'operacion' && p.saldo_por_cobrar > 0 ? ' ' + chip('COBRAR ' + pesos(p.saldo_por_cobrar)) : ''}</td></tr>`;
+      <td class="piezas-col">${etapasHtml(p)}</td>${yo.rol === 'operacion' ? '' : `<td class="nw mono">${pesos(p.saldo)}</td>`}<td class="etiq">${(p.etiquetas || []).filter(t => !t.startsWith('A MEDIDA')).map(chip).join(' ')}${movsDe(p.id).map(m => ' ' + chip(movEtiqueta(m))).join('')}${yo.rol === 'operacion' && p.saldo_por_cobrar > 0 ? ' ' + chip('COBRAR ' + pesos(p.saldo_por_cobrar)) : ''}</td></tr>`;
   }).join('')}</tbody></table>`;
   $$('#tabla a.ficha-link').forEach(a => a.onclick = ev => ev.stopPropagation());
   activarEtapas($('#tabla'), () => pintarLista());
@@ -538,12 +538,14 @@ async function vFicha(id) {
   const vista = esOp ? 'v_pedido_operacion' : 'v_pedido';
   const { data: p, error } = await sb.from(vista).select('*').eq('id', id).maybeSingle(); if (error) throw error;
   if (!p) { app.innerHTML = barra('') + `<div class="contenido"><div class="seccion">Este pedido no está disponible en tu vista.</div></div>`; return; }
-  const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }] = await Promise.all([
+  const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }, { data: movs }] = await Promise.all([
     sb.from('documento').select('*').eq('pedido_id', id).order('subido_en', { ascending: false }),
     esOp ? Promise.resolve({ data: [] }) : sb.from('historial').select('*').eq('pedido_id', id).order('cuando', { ascending: false }).limit(60),
     esOp ? Promise.resolve({ data: [] }) : sb.from('abono').select('*').eq('pedido_id', id).order('fecha'),
     sb.from('guia_despacho').select('*').eq('pedido_id', id).order('numero', { ascending: false }),
+    sb.from('movimiento').select('*').eq('pedido_id', id).order('fecha'),
   ]);
+  p.movimientos = movs || [];
   const r = rasgos(p); const aMedida = A_MEDIDA.includes(p.tipo_pedido);
   const piezas = (p.piezas || []);
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="contenido">
@@ -568,6 +570,7 @@ async function vFicha(id) {
           ${p.cotizacion_numero ? `<span style="font-size:12px;color:var(--gris-2)">Cotización ${esc(p.cotizacion_numero)}</span>` : ''}
         </div>
       </section>
+      ${movimientosHtml(p, esOp)}
       ${esOp ? '' : `<section class="seccion"><div class="cab"><h2>Pagos</h2><button class="btn chico borde" id="b-abono">+ Registrar abono</button></div>
         <div class="cifras"><div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div><div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)}</div></div><div class="cifra"><div>Saldo (calculado)</div><div style="color:${p.saldo > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo)}</div></div></div>
         ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
@@ -598,6 +601,7 @@ async function vFicha(id) {
   cache.pedidos = cache.pedidos || []; if (!cache.pedidos.find(x => x.id === p.id)) cache.pedidos.push(p);
   activarEtapas(app, recargar);
   activarPiezasEdicion(app, recargar);
+  activarMovimientos(app, p, recargar);
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
   on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
@@ -800,8 +804,33 @@ async function vBandeja() {
 }
 
 /* ---------- Alexis · Lista por semana ---------- */
+/* Movimientos de un pedido (Harold 13-oct, Isidora Bauerle): retiro en casa del cliente, entrega, visita técnica, instalación.
+   Se ven en la Lista (etiqueta), en la ficha y en la Ruta del día; hechos quedan en la ficha y el historial. Nunca cuentan como pedido. */
+const MOV_TIPOS = ['Retiro en cliente', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
+const movEtiqueta = m => `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()} ${fecha(m.fecha)}`;
+async function cargarMovimientos() { const { data } = await sb.from('movimiento').select('*').eq('hecho', false).order('fecha'); cache.movs = data || []; }
+const movsDe = id => (cache.movs || []).filter(m => m.pedido_id === id);
+function movimientosHtml(p, esOp) {
+  const ms = p.movimientos || [];
+  return `<section class="seccion"><div class="cab"><h2>Movimientos (retiros, visitas, instalación)</h2>${esOp ? '' : `<button class="btn chico borde" id="b-mov">+ Agregar movimiento</button>`}</div>
+    ${ms.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Qué</th><th>Dirección</th><th>Nota</th><th>Estado</th><th></th></tr></thead><tbody>${ms.map(m => `<tr class="${m.hecho ? '' : 'mov-pend'}"><td class="nw">${fecha(m.fecha, true)}</td><td class="nw"><strong>${esc(m.tipo)}</strong></td><td>${esc(m.direccion || p.direccion || '-')}</td><td>${esc(m.nota || '')}</td><td class="nw">${m.hecho ? `<span class="chip ok">HECHO</span> <span class="gris">${esc(m.hecho_por || '')} ${fecha(m.hecho_en)}</span>` : '<span class="chip prop">PENDIENTE</span>'}</td><td class="nw">${m.hecho ? '' : `<button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button>`}${esOp || m.hecho ? '' : ` <button class="btn chico" data-mov-borrar="${m.id}" title="Borrar este movimiento">×</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin movimientos. Un retiro en casa del cliente, una visita técnica o una instalación con fecha propia se anotan aquí y aparecen en la Ruta de ese día.</div>'}
+  </section>`;
+}
+function activarMovimientos(raiz, p, despues) {
+  $$('[data-mov-hecho]', raiz).forEach(b => b.onclick = async () => { const { error } = await sb.from('movimiento').update({ hecho: true }).eq('id', Number(b.dataset.movHecho)); if (error) return aviso(errorDe(error), true); aviso('Movimiento hecho'); anotarCambio('movimiento hecho (volver a pendiente)', async () => { await sb.from('movimiento').update({ hecho: false, hecho_en: null, hecho_por: null }).eq('id', Number(b.dataset.movHecho)); }); despues(); });
+  $$('[data-mov-borrar]', raiz).forEach(b => b.onclick = async () => { if (!confirm('¿Borrar este movimiento?')) return; const { error } = await sb.from('movimiento').delete().eq('id', Number(b.dataset.movBorrar)); if (error) return aviso(errorDe(error), true); aviso('Movimiento borrado'); despues(); });
+  const ba = $('#b-mov', raiz); if (ba) ba.onclick = () => {
+    modal(`<h2>Nuevo movimiento · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-mov"><div class="campos">
+      <label class="campo">Qué <select name="tipo">${MOV_TIPOS.map(t => `<option>${t}</option>`).join('')}</select></label>
+      <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO()}"></label>
+      <label class="campo">Dirección (vacío = la del pedido) <input name="direccion" placeholder="${esc(p.direccion || '')}"></label>
+      <label class="campo">Nota <input name="nota" placeholder="Qué se retira o se hace"></label></div>
+      <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+    $('#f-mov').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const { error } = await sb.from('movimiento').insert({ pedido_id: p.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: f.get('direccion') || null, nota: f.get('nota') || null }); if (error) return aviso(errorDe(error), true); cerrarModal(); aviso('Movimiento agregado'); despues(); };
+  };
+}
 async function cargarOperacion() {
-  await cargarModelos();
+  await cargarModelos(); await cargarMovimientos();
   const { data, error } = await sb.from('v_pedido_operacion').select('*').order('fecha_entrega', { ascending: true, nullsFirst: false }).order('prioridad'); if (error) throw error; cache.pedidos = data; return data;
 }
 function lunesDe(s) { const d = new Date(s + 'T12:00:00'); const dia = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dia); return d; }
@@ -834,33 +863,36 @@ async function vImprimirListado() {
    Lo que está HOY en una etapa (ej. Barniz), ordenado por fecha de entrega, para imprimirlo y entregárselo al barnizador.
    Abajo, lo que viene a esa etapa (todavía en fabricación, armado o soldadura), para anticiparse. */
 // Harold 13-oct: todo pedido entra de inmediato a la cola de producción (primera pestaña, ordenada por fecha de entrega; cambia si cambian las fechas); Fabricación es solo lo que se está fabricando.
-const ODT_ETAPAS = [['En cola', 'Cola de producción', null], ['Fabricación', 'Fabricación (carpintería)', null], ['Soldadura', 'Soldadura', null], ['Armado', 'Armado de muebles', null], ['Barniz', 'Barniz', 'Barniz'], ['Pintura', 'Pintura', 'Pintura']];
+// Harold 13-oct: la ODT que se le entrega al maestro es UNA lista por taller (lo que está en cola y lo que se está fabricando, por fecha
+// de entrega); marcar FABRICANDO no la cambia, solo dice qué se está haciendo hoy. [clave, título, área, etapa de trabajo, acabado]
+const ODT_ETAPAS = [['Carpintería', 'Carpintería', 'Carpintería', 'Fabricación', null], ['Soldadura', 'Soldadura', 'Soldadura', 'Soldadura', null], ['Armado muebles', 'Armado de muebles', 'Armado muebles', 'Armado', null], ['Barniz', 'Barniz', null, 'Barniz', 'Barniz'], ['Pintura', 'Pintura', null, 'Pintura', 'Pintura']];
 async function vOdt() {
   const esOp = yo.rol === 'operacion';
   if (esOp) await cargarOperacion(); else { cache.filtro = 'pendientes'; await cargarPedidos(); }
-  cache.odt = cache.odt || 'En cola';
-  const [etapa, titulo, acabado] = ODT_ETAPAS.find(e => e[0] === cache.odt) || ODT_ETAPAS[0];
+  cache.odt = ODT_ETAPAS.some(e => e[0] === cache.odt) ? cache.odt : 'Carpintería';
+  const [clave, titulo, area, etapa, acabado] = ODT_ETAPAS.find(e => e[0] === cache.odt) || ODT_ETAPAS[0];
   const fe = p => p.fecha_comprometida || p.fecha_estimada || null;
   const activos = cache.pedidos.filter(p => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado) && !p.pago_pendiente);
   const filas = cond => activos.flatMap(p => (p.piezas || []).filter(x => x.area && cond(x)).map(x => ({ p, x })))
     .sort((a, b) => String(fe(a.p) || '9').localeCompare(String(fe(b.p) || '9')) || String(a.p.numero).localeCompare(String(b.p.numero)));
-  const ahora = filas(x => x.etapa === etapa);
+  const ahora = area ? filas(x => x.area === area && (x.etapa === 'En cola' || x.etapa === etapa)) : filas(x => x.etapa === etapa);
+  const fabricando = ahora.filter(({ x }) => x.etapa === etapa).length;
   const vienen = acabado ? filas(x => x.acabado === acabado && ['En cola', 'Fabricación', 'Armado', 'Soldadura'].includes(x.etapa)) : [];
   const med = x => medidaTxt(x) || '-';
   const mat = x => [x.tipo === 'Base' ? x.material_base : x.material_cubierta || x.material_base].filter(Boolean).map(nombreMaterial).join(' / ') || '-';
   const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? 'color ' + (nombreColor(x.color) || x.color) : null) : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · ') || '-';
-  const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><thead><tr><th>Entrega</th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Modelo</th><th>Material</th><th>Medida</th><th>Tono / color / nota</th><th>Etapa</th><th class="solo-impresion">OK</th></tr></thead><tbody>${lista.map(({ p, x }) => `<tr class="${p.atrasado ? 'atrasado' : ''}">
+  const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><thead><tr><th>Entrega</th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Modelo</th><th>Material</th><th>Medida</th><th>Tono / color / nota</th><th>Etapa</th><th class="solo-impresion">OK</th></tr></thead><tbody>${lista.map(({ p, x }) => `<tr class="${p.atrasado ? 'atrasado' : ''}${area && x.etapa === etapa ? ' fabricando' : ''}">
     <td class="nw">${fe(p) ? fecha(fe(p)) : 'sin fecha'}${p.urgente ? ' <strong>URG</strong>' : ''}</td><td class="nw">${esc(p.numero)}</td><td>${esc(p.cliente)}</td>
     <td class="nw"><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(nombreModelo(x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base)) || x.descripcion || '-')}</td>
     <td>${esc(mat(x))}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${esc(med(x))}</td><td>${esc(terminacion(x))}</td>
-    <td>${conChip ? `<span class="no-imprimir">${etapaChip(x, p.id)}</span><span class="solo-impresion">${esc(x.etapa)}</span>` : esc(x.etapa)}</td><td class="solo-impresion caja-ok"></td></tr>`).join('')}</tbody></table>`;
+    <td>${conChip ? `<span class="no-imprimir">${etapaChip(x, p.id)}</span><span class="solo-impresion">${esc(area && x.etapa === etapa ? 'FABRICANDO' : x.etapa)}</span>` : esc(x.etapa)}</td><td class="solo-impresion caja-ok"></td></tr>`).join('')}</tbody></table>`;
   const hoy = new Date();
   app.innerHTML = barra('#/odt') + `<div class="sub no-imprimir">
       <span class="fgrupo"><span class="fgrupo-t">Etapa</span>${ODT_ETAPAS.map(([v, t]) => `<button class="ftog ${v === etapa ? 'on' : ''}" data-odt="${esc(v)}">${esc(t)}</button>`).join('')}</span>
       <button class="btn primario" onclick="window.print()">Imprimir ODT</button>
-      <span style="color:var(--gris-3)">${etapa === 'En cola' ? 'Todo lo que entra queda aquí, por fecha de entrega. Toca la pieza cuando empiece a fabricarse: pasa a su taller y sale de la cola.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
+      <span style="color:var(--gris-3)">${area ? 'Una sola lista por fecha de entrega: la cola más lo que se está haciendo. Toca la pieza cuando el maestro la empiece (queda marcada y no sale de la lista); tócala de nuevo al terminar y pasa a barniz, pintura o embalado.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
     <div class="contenido listado-print"><div class="titulo-print">ORDEN DE TRABAJO · ${esc(titulo.toUpperCase())} · ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()} · ${ahora.length} pieza${ahora.length === 1 ? '' : 's'}</div>
-    <h3>${etapa === 'En cola' ? 'En cola de producción, por fecha de entrega' : 'En ' + esc(etapa.toLowerCase()) + ' ahora'} (${ahora.length})</h3>${tabla(ahora, true)}
+    <h3>${area ? `Orden de trabajo por fecha de entrega (${ahora.length} piezas, ${fabricando} fabricándose ahora)` : `En ${esc(etapa.toLowerCase())} ahora (${ahora.length})`}</h3>${tabla(ahora, true)}
     ${acabado ? `<h3 class="no-imprimir">Vienen a ${esc(etapa.toLowerCase())} (todavía en fabricación, armado o soldadura: ${vienen.length})</h3><div class="no-imprimir">${tabla(vienen, true)}</div>` : ''}</div>`;
   $$('[data-odt]').forEach(b => b.onclick = () => { cache.odt = b.dataset.odt; vOdt(); });
   activarEtapas(app, () => vOdt());
@@ -877,6 +909,7 @@ async function vRuta() {
   const ordenar = l => l.slice().sort((a, b) => { const ia = ORDEN_COMUNAS.indexOf(a.comuna), ib = ORDEN_COMUNAS.indexOf(b.comuna); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a.comuna || '').localeCompare(b.comuna || ''); });
   let ruta = cache.ordenRuta.length ? cache.ordenRuta.map(id => programados.find(p => p.id === id)).filter(Boolean).concat(programados.filter(p => !cache.ordenRuta.includes(p.id))) : ordenar(programados.filter(p => p.tipo_entrega !== 'Despacho regiones'));
   const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones');
+  const movsDia = (cache.movs || []).filter(m => m.fecha === f);
   app.innerHTML = barra('#/ruta') + `<div class="sub no-imprimir"><label>Fecha <input type="date" id="f-ruta" value="${f}"></label><div class="pasos"><span class="activo">1. Alexis propone</span><span>2. Harold envía mensajes</span><span>3. Cliente confirma</span><span>4. Entra a la ruta</span></div></div>
   <div class="contenido" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
     <section class="seccion no-imprimir"><h2>Propuesta para el ${fecha(f, true)}</h2><div style="font-size:13px;color:var(--gris-2)">Marca lo que se puede despachar ese día. Solo lo confirmado por el cliente entra a la ruta.</div>
@@ -884,6 +917,7 @@ async function vRuta() {
       <div style="font-size:12px;color:var(--gris-2)">Harold envía los WhatsApp y marca "confirmado" cuando el cliente responde; el pedido pasa solo a DESPACHO PROGRAMADO.</div></section>
     <section class="seccion"><div class="cab"><h2>Ruta del ${fecha(f, true)} · confirmados</h2><span class="no-imprimir" style="font-size:12px;color:var(--gris-2)">orden propuesto por comuna, ▲▼ para cambiar</span></div>
       ${ruta.map((p, i) => `<div class="parada"><div class="n">${i + 1}</div><div><div class="num">${esc(p.numero)} ${esc(p.cliente)}</div><div class="gris">${esc(p.comuna || '')} · ${esc(p.direccion || '')}${p.nota_entrega ? ' · ' + esc(p.nota_entrega) : ''}</div></div><div><div>${esc(p.resumen || '')}</div><div class="gris">${esc(p.cliente_telefono || '')}</div></div><div>${saldoDe(p) > 0 ? `<span class="chip saldo">COBRAR ${pesos(saldoDe(p))}</span>` : '<span class="chip ok">PAGADO</span>'} ${p.instalacion ? '<span class="chip inst">INSTALACIÓN</span>' : ''}</div><div class="no-imprimir" style="display:flex;gap:4px"><button class="btn chico" data-sube="${i}" aria-label="Subir">▲</button><button class="btn chico" data-baja="${i}" aria-label="Bajar">▼</button><button class="btn chico primario" data-entregar="${p.id}">Entregado</button></div></div>`).join('') || '<div style="color:var(--gris-3)">Sin despachos confirmados para esta fecha</div>'}
+      ${movsDia.length ? `<h3 style="margin:14px 0 6px">Movimientos del día (${movsDia.length}): retiros, visitas, instalaciones</h3>${movsDia.map(m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; return `<div class="parada mov"><div class="n">${m.tipo === 'Retiro en cliente' ? 'R' : m.tipo[0]}</div><div><div class="num">${esc(m.tipo)} · ${esc(pm.numero || '')} ${esc(pm.cliente || '')}</div><div class="gris">${esc(m.direccion || pm.direccion || 'dirección pendiente')}${pm.comuna ? ' · ' + esc(pm.comuna) : ''}</div></div><div><div>${esc(m.nota || '')}</div><div class="gris">${esc(pm.cliente_telefono || '')}</div></div><div></div><div class="no-imprimir"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></div></div>`; }).join('')}` : ''}
       ${regiones.length ? `<div style="font-size:13px"><strong>Regiones (guía y transporte, no van en ruta):</strong> ${regiones.map(p => `${esc(p.numero)} ${esc(p.cliente)} · ${esc(p.comuna || '')}`).join(' · ')}</div>` : ''}
       <div class="acciones no-imprimir" style="justify-content:flex-start"><button class="btn borde" onclick="window.print()">Imprimir ruta</button><button class="btn borde" id="b-etiq" ${ruta.length ? '' : 'disabled'}>Imprimir etiquetas (${ruta.length})</button></div>
       <div class="no-imprimir" style="font-size:12px;color:var(--gris-2)">Al volver, cada parada se marca ENTREGADO con foto opcional.</div></section></div>`;
@@ -892,6 +926,7 @@ async function vRuta() {
   $$('[data-sube],[data-baja]').forEach(b => b.onclick = () => { const ids = ruta.map(p => p.id); const i = Number(b.dataset.sube ?? b.dataset.baja); const j = b.dataset.sube != null ? i - 1 : i + 1; if (j < 0 || j >= ids.length) return;[ids[i], ids[j]] = [ids[j], ids[i]]; cache.ordenRuta = ids; vRuta(); });
   $$('[data-entregar]').forEach(b => b.onclick = () => formEntregar(cache.pedidos.find(p => p.id === Number(b.dataset.entregar)), () => vRuta()));
   const be = $('#b-etiq'); if (be) be.onclick = () => imprimirEtiquetas(ruta);
+  activarMovimientos(app, {}, () => vRuta());
 }
 function imprimirEtiquetas(lista) {
   const w = window.open('', '_blank');
