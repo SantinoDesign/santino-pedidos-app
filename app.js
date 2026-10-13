@@ -52,21 +52,25 @@ function maderaBase(cub, base) {
 const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en proyectos; el vidrio de catálogo es incoloro y no lleva tono (Harold 12-oct)
 /* Tipo de base. REGLA (Harold 12-oct-2026, error grave corregido): NUNCA deducir "metal" por el color de la estructura.
    Un color NGR puede ser pino pintado (Gonqui). La fuente es material_base de la línea y, si falta, el área de taller
-   del modelo en la tabla modelo (Soldadura = metal, Carpintería = madera, Armado muebles = MDF enchapado). Sin dato = vacío. */
+   del modelo en la tabla modelo: primero modelo.material_base (Montecarlo = ENCHAPADO, aunque su base la fabrica el carpintero,
+   Harold 12-oct) y si no, el área (Soldadura = metal, Carpintería = madera, Armado muebles = MDF enchapado). Sin dato = vacío. */
 async function cargarModelos() {
   if (cache.modelos) return;
   const { data: cods } = await sb.from('codigo').select('*');
   cache.codigos = { material: {}, color: {} }; (cods || []).forEach(c => { cache.codigos[c.tipo][c.codigo] = c; });
-  const { data } = await sb.from('modelo').select('codigo,nombre,area_base,bultos,base_negro');
+  const { data } = await sb.from('modelo').select('codigo,nombre,area_base,bultos,base_negro,material_base');
   cache.modelos = Object.fromEntries((data || []).map(m => [m.codigo, m.area_base]));
   cache.modelosBultos = Object.fromEntries((data || []).map(m => [m.codigo, m.bultos]));
   cache.modelosBaseNegro = Object.fromEntries((data || []).filter(m => m.base_negro).map(m => [m.codigo, m.base_negro]));
   cache.modelosNombre = Object.fromEntries((data || []).map(m => [m.codigo, m.nombre]));  // nombre del modelo desde la tabla, no desde el código
+  cache.modelosMaterialBase = Object.fromEntries((data || []).filter(m => m.material_base).map(m => [m.codigo, m.material_base]));  // Montecarlo = ENCHAPADO aunque la haga el carpintero (Harold 12-oct)
 }
 function tipoBase(cub, base) {
   const mb = base.material_base || cub.material_base;
   if (mb) return ES_VIDRIO(mb) ? 'VIDRIO' : ['METAL', 'FIERRO', 'ACERO'].includes(mb) ? 'METAL' : ['MELAMINA', 'MDF', 'TABLERO', 'ENCHAPADO'].includes(mb) ? 'ENCHAPADO' : 'MADERA';
-  const area = (cache.modelos || {})[base.modelo_base || cub.modelo_base || cub.modelo_cubierta];
+  const mod = base.modelo_base || cub.modelo_base || cub.modelo_cubierta;
+  const mm = (cache.modelosMaterialBase || {})[mod]; if (mm) return ['MELAMINA', 'MDF', 'TABLERO', 'ENCHAPADO'].includes(mm) ? 'ENCHAPADO' : ['METAL', 'FIERRO', 'ACERO'].includes(mm) ? 'METAL' : 'MADERA';
+  const area = (cache.modelos || {})[mod];
   return area === 'Soldadura' ? 'METAL' : area === 'Carpintería' ? 'MADERA' : area === 'Armado muebles' ? 'ENCHAPADO' : '';  // ENCHAPADO = MDF enchapado (Montecarlo), Harold 12-oct
 }
 function estadoHtml(e, corto) { return `<span class="estado e-${e.replace(/ /g, '_')}" title="${esc(e)}">${esc(corto ? (COD_ESTADO[e] || e) : e)}</span>`; }
@@ -210,6 +214,8 @@ async function iniciar() {
   try { yo = await rpc('mi_perfil', {}); } catch (e) { yo = null; }
   if (!yo) { app.innerHTML = `<div class="login"><h1>Sin perfil</h1><p>Tu usuario entró, pero no tiene un rol asignado. Pídele a Harold que te active.</p><button class="btn" id="salir">Salir</button></div>`; $('#salir').onclick = salir; return; }
   document.body.classList.toggle('tablet', yo.rol === 'operacion');
+  // Harold 12-oct (tanda 20): la app se usa en horizontal, también en el celular. Android lo respeta al instalarla; iPhone no deja bloquearla (queda el aviso de girar).
+  try { if (matchMedia('(display-mode: standalone)').matches && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* navegador sin soporte */ }
   if (!location.hash || location.hash === '#/') location.hash = yo.rol === 'operacion' ? '#/taller' : '#/lista';
   render();
 }
@@ -408,7 +414,8 @@ const NOMBRE_MODELO = { VEN: 'Venecia', ROM: 'Roma', MYKHONOS: 'Mykonos', 'MESA 
 const NOMBRE_MATERIAL = { PINO: 'pino', LENGA: 'lenga', LENG: 'lenga', 'V.T': 'vidrio templado', 'V.C': 'vidrio', 'ROB.US': 'roble americano', 'ROB US': 'roble americano', 'ROB.HUALLE': 'roble hualle', HAYA: 'haya', TRAVERTINO: 'travertino', METAL: 'metal' };
 const NOMBRE_COLOR = { NGR: 'negro', NAT: 'natural', BL: 'blanco', GRIS: 'gris', NOG: 'nogal' };
 const nombreMaterial = m => (codigoDe('material', m) || {}).nombre || NOMBRE_MATERIAL[m] || (m || '').toLowerCase();
-const nombreColor = c => (codigoDe('color', c) || {}).nombre || NOMBRE_COLOR[c] || c;
+// Harold 12-oct (tanda 20): en toda la app el color va como CÓDIGO (NGR, BL, GRIS...), nunca traducido a palabra. NOMBRE_COLOR queda solo para textos a clientes o proveedores.
+const nombreColor = c => c ? String(c) : '';
 function nombrePila(p) { return ((p.cliente || '').trim().split(' ')[0] || '').replace(/^./, c => c.toUpperCase()); }
 function telWa(p) { return (p.cliente_telefono || '').replace(/\D/g, ''); }
 // Mensaje 1 de Mensajes_Despacho_e_Instalacion_v1_0.md (confirmación de despacho)
@@ -1008,7 +1015,7 @@ const formatoPedido = (prov, piezas) => {
   const hoy = fecha(hoyISO(), true);
   const med = x => x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)} cm` : '';
   if (prov && prov.formato === 'vidrio') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} vidrio${x.cantidad > 1 ? 's' : ''} ${nombreMaterial(x.material_cubierta)}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}, ${med(x)}${x.forma === 'CIRC' ? ' (redondo)' : x.forma === 'OVAL' ? ' (ovalado)' : ''}${x.nota_acabado ? ', ' + x.nota_acabado : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n') + `\nRetiro en taller Lo Blanco 1919, La Pintana. Gracias.`;
-  if (prov && prov.formato === 'sillas_aliwen') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.tipo_linea === 'Silla' ? 'Silla Santino' : x.descripcion}, pata ${nombreColor(x.color_estructura) || 'negra'}, tapiz ${x.color_silla || 'por definir'}, madera lenga  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
+  if (prov && prov.formato === 'sillas_aliwen') return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.tipo_linea === 'Silla' ? 'Silla Santino' : x.descripcion}, pata ${({ NGR: 'negra', BL: 'blanca', NAT: 'natural' }[x.color_estructura] || x.color_estructura || 'negra')}, tapiz ${x.color_silla || 'por definir'}, madera lenga  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
   return `Pedido Santino Design · ${hoy}\n` + piezas.map((x, i) => `${i + 1}) ${x.cantidad} ${x.descripcion || x.tipo_linea}${med(x) ? ', ' + med(x) : ''}${x.color_silla ? ', ' + x.color_silla : ''}  [${x.numero} ${nombrePila({ cliente: x.cliente })}]`).join('\n');
 };
 async function vCompras() {
@@ -1040,3 +1047,27 @@ async function vCompras() {
     $('#c-ok').onclick = async () => { try { const n = await rpc('registrar_pedido_proveedor', { p_linea_ids: ids, p_proveedor_id: Number($('#c-prov').value), p_fecha_prometida: $('#c-fecha').value || null, p_referencia: $('#c-ref').value || null }); cerrarModal(); aviso(`${n} pieza${n > 1 ? 's' : ''} registrada${n > 1 ? 's' : ''} como pedidas`); vCompras(); } catch (e) { aviso(errorDe(e), true); } };
   });
 }
+
+/* ---------- Títulos de columna que siguen al bajar (Harold 12-oct, tanda 20) ----------
+   Solo los títulos de columna, pegados bajo la barra; los filtros y leyendas se van con el scroll.
+   position:sticky no sirve aquí porque .tabla-env tiene scroll horizontal (es un contenedor de scroll y el sticky
+   se queda dentro de él), así que los th se desplazan con transform según el scroll de la página. */
+(() => {
+  let pedido = false;
+  const ajustar = () => {
+    pedido = false;
+    const b = document.querySelector('.barra'); const tope = b ? b.getBoundingClientRect().bottom : 0;
+    document.querySelectorAll('.tabla-env > table.lista > thead').forEach(th => {
+      const t = th.parentElement.getBoundingClientRect(); const h = th.getBoundingClientRect().height;
+      const d = t.top < tope && t.bottom - h > tope ? Math.round(tope - t.top) : 0;
+      if (String(d) === th.dataset.desp) return;
+      th.dataset.desp = String(d);
+      const tr = d ? `translateY(${d}px)` : '';
+      th.querySelectorAll('th').forEach(c => { c.style.transform = tr; });
+      th.classList.toggle('flotando', d > 0);
+    });
+  };
+  const programar = () => { if (!pedido) { pedido = true; requestAnimationFrame(ajustar); } };
+  addEventListener('scroll', programar, { passive: true }); addEventListener('resize', programar);
+  const raiz = document.getElementById('app'); if (raiz) new MutationObserver(programar).observe(raiz, { childList: true, subtree: true });
+})();

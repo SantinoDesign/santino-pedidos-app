@@ -275,3 +275,11 @@ table.odt td{vertical-align:middle}
 @media print{.caja-ok{border:1.5px solid #333!important}}
 @media print{th.solo-impresion,td.solo-impresion{display:table-cell!important}span.solo-impresion{display:inline!important}}
 .solo-impresion{display:none}
+
+/* Títulos de columna que siguen al bajar (tanda 20): sombra cuando flotan; nunca en impresión */
+table.lista thead.flotando th{box-shadow:0 2px 4px rgba(0,0,0,.14)}
+@media print{table.lista th{transform:none!important}}
+/* Aviso de girar en celular vertical (la app está pensada en horizontal, Harold 12-oct); no sale en tablet ni en el Mac */
+.gira-aviso{display:none;background:var(--azul);color:#fff;text-align:center;font-size:13px;font-weight:600;padding:6px 10px}
+@media (orientation:portrait) and (max-width:700px) and (pointer:coarse){.gira-aviso{display:block}}
+@media print{.gira-aviso{display:none!important}}
