@@ -957,7 +957,9 @@ async function vOdt() {
   const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? nombreColor(x.color) : null) : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · ');
   const esMedida = t => /^\s*[\dØ]/.test(t) || /\d\s*[x×]\s*\d/.test(t) || /\bcm\b|\bmm\b/.test(t);
   const nombrePieza = x => {
-    if (!['Mueble', 'Banca', 'Servicio', 'Repuesto', 'Barniz'].includes(x.tipo)) return nombreModelo(x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base)) || (x.descripcion || '').split(/\s[·:,]\s|\s·\s|:\s/)[0] || '-';
+    const mod = x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base);
+    // ESPECIAL no dice nada al maestro: se usa la descripción corta ("Especial en base a Origen", Harold 13-oct)
+    if (!['Mueble', 'Banca', 'Servicio', 'Repuesto', 'Barniz'].includes(x.tipo) && mod && mod !== 'ESPECIAL') return nombreModelo(mod) || mod;
     const partes = (x.descripcion || '').split(/\s·\s|:\s|,\s/).map(t => t.trim()).filter(t => t && !esMedida(t));
     return partes[0] || nombreModelo(x.modelo_cubierta || x.modelo_base) || '-';
   };
