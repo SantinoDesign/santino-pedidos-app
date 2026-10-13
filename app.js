@@ -185,20 +185,33 @@ function activarPiezasEdicion(raiz, despues) {
 function formEditarPieza(lineaId, despues) {
   const p = cache.pedidos.find(q => (q.piezas || []).some(y => y.id === lineaId)); if (!p) return;
   const x = p.piezas.find(y => y.id === lineaId);
+  const esOp = yo.rol === 'operacion';
   const op = (lista, actual) => lista.map(v => `<option ${v === actual ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const nv = v => v == null ? '' : String(Number(v));
   modal(`<h2>Editar pieza · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pz"><div class="campos">
-    <label class="campo">Tipo de pieza <select name="tipo_linea">${op(TIPOS_LINEA, x.tipo)}</select></label>
+    ${esOp ? '' : `<label class="campo">Tipo de pieza <select name="tipo_linea">${op(TIPOS_LINEA, x.tipo)}</select></label>
     <label class="campo">Descripción <input name="descripcion" value="${esc(x.descripcion || '')}"></label>
-    <label class="campo">Dónde se hace <select name="area_taller"><option value="">(no pasa por el taller)</option>${AREAS_TALLER.map(a => `<option value="${esc(a)}" ${a === x.area ? 'selected' : ''}>${esc(a === 'Vidrio/compras' ? 'Compra a proveedor (vidrio, sillas, sofás)' : a)}</option>`).join('')}</select></label>
-    <label class="campo">Acabado <select name="acabado"><option value="">Por definir</option>${op(ACABADOS, x.acabado)}</select></label></div>
-    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Barniz: madera, pintado o lacado, encina. Pintura: metal. Sin acabado: sin barniz, melamina, tapicería. Lo comprado a proveedor solo se pide, se recibe y se embala.</p>
-    <div class="acciones"><button type="button" class="btn borde" id="b-borrar-pz" style="margin-right:auto;color:var(--rojo-txt)">Borrar pieza</button><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+    <label class="campo">Dónde se hace <select name="area_taller"><option value="">(no pasa por el taller)</option>${AREAS_TALLER.map(a => `<option value="${esc(a)}" ${a === x.area ? 'selected' : ''}>${esc(a === 'Vidrio/compras' ? 'Compra a proveedor (vidrio, sillas, sofás)' : a)}</option>`).join('')}</select></label>`}
+    <label class="campo">Acabado <select name="acabado"><option value="">Por definir</option>${op(ACABADOS, x.acabado)}</select></label>
+    <label class="campo">Fecha comprometida para el maestro <input type="date" name="fecha_taller" value="${x.fecha_taller || ''}"></label></div>
+    ${esOp ? '' : `<div class="campos">
+    <label class="campo">Largo cm <input name="largo_cm" inputmode="decimal" value="${nv(x.largo_cm)}"></label>
+    <label class="campo">Ancho cm <input name="ancho_cm" inputmode="decimal" value="${nv(x.ancho_cm)}"></label>
+    <label class="campo">Alto cm <input name="alto_cm" inputmode="decimal" value="${nv(x.alto_cm)}"></label>
+    <label class="campo">Espesor mm (cubierta) <input name="espesor_mm" inputmode="decimal" value="${nv(x.espesor_mm)}"></label>
+    <label class="campo">Forma <select name="forma"><option value="">-</option>${op(['RECT', 'CUA', 'CIRC', 'OVAL'], x.forma)}</select></label></div>`}
+    <label class="campo" style="display:block;margin-top:8px">Indicaciones del maestro (requerimientos especiales: radio, bisel, cabezales, plano impreso, madera clara...) <textarea name="indicaciones" rows="2" style="width:100%">${esc(x.indicaciones || '')}</textarea></label>
+    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Barniz: madera, pintado o lacado, encina. Pintura: metal. Sin acabado: sin barniz, melamina, tapicería. Lo comprado a proveedor solo se pide, se recibe y se embala. Medidas de una base: largo × ancho × alto.</p>
+    <div class="acciones">${esOp ? '' : '<button type="button" class="btn borde" id="b-borrar-pz" style="margin-right:auto;color:var(--rojo-txt)">Borrar pieza</button>'}<button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f-pz').onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target);
-    const cambios = { tipo_linea: f.get('tipo_linea'), descripcion: f.get('descripcion'), area_taller: f.get('area_taller') || null, acabado: f.get('area_taller') === 'Vidrio/compras' ? null : (f.get('acabado') || null) };
+    const cambios = esOp
+      ? { acabado: f.get('acabado') || null, fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones') }
+      : { tipo_linea: f.get('tipo_linea'), descripcion: f.get('descripcion'), area_taller: f.get('area_taller') || null, acabado: f.get('area_taller') === 'Vidrio/compras' ? null : (f.get('acabado') || null),
+          fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), largo_cm: f.get('largo_cm').replace(',', '.'), ancho_cm: f.get('ancho_cm').replace(',', '.'), alto_cm: f.get('alto_cm').replace(',', '.'), espesor_mm: f.get('espesor_mm').replace(',', '.'), forma: f.get('forma') || null };
     try { const r = await rpc('editar_pieza', { p_linea_id: lineaId, p_cambios: cambios }); actualizarPiezas(r); aviso('Pieza guardada'); cerrarModal(); despues && despues(r); } catch (e) { aviso(errorDe(e), true); }
   };
-  $('#b-borrar-pz').onclick = async () => {
+  if (!esOp) $('#b-borrar-pz').onclick = async () => {
     if (!confirm(`¿Borrar la pieza "${x.tipo} ${x.descripcion || ''}" de ${p.numero}? Queda anotado en el historial.`)) return;
     try { const r = await rpc('editar_pieza', { p_linea_id: lineaId, p_cambios: {}, p_borrar: true }); actualizarPiezas(r); aviso('Pieza borrada'); cerrarModal(); despues && despues(r); } catch (e) { aviso(errorDe(e), true); }
   };
@@ -351,7 +364,7 @@ function pintarLista() {
   const filaMov = (m, p) => `<tr class="mov-fila ${m.fecha < hoy ? 'atrasado' : ''}" data-mov="${m.id}">
       <td><a class="ficha-link" href="#/pedido/${p.id}" title="Abrir ficha del pedido">Ficha</a></td><td><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="num">${esc(p.numero)}</td><td class="cliente">${esc(p.cliente)}</td><td><span class="chip inst" title="${esc(m.tipo)}">${esc(m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase())}</span></td>
       <td class="modelo" colspan="8"><div class="l1">${esc(m.tipo)}${m.nota ? ' · ' + esc(m.nota) : ''}</div><div class="l2">${esc(m.direccion || p.direccion || 'dirección pendiente')}</div></td>
-      <td class="nw">${fecha(m.creado_en)}</td><td class="nw fecha-mov" style="${m.fecha < hoy ? 'color:var(--rojo-txt)' : ''}"><input type="date" value="${m.fecha}" data-mov-fecha="${m.id}" title="Cambiar o proponer el día" style="min-height:28px;padding:2px 4px;font-size:12px"></td><td class="nw">-</td><td class="comuna">${esc(p.comuna || '')}</td>
+      <td class="nw">${fecha(m.creado_en)}</td><td class="nw fecha-mov">${movFechaCelda(m)}</td><td class="nw">-</td><td class="comuna">${esc(p.comuna || '')}</td>
       <td class="piezas-col"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td>${yo.rol === 'operacion' ? '' : '<td></td>'}<td class="etiq">${chip('PENDIENTE ' + m.tipo.toLowerCase())}</td></tr>`;
   const feP = p => p.fecha_comprometida || p.fecha_estimada || '9999';
   const ids = new Set(lista.map(p => p.id));
@@ -371,7 +384,6 @@ function pintarLista() {
   $$('#tabla a.ficha-link').forEach(a => a.onclick = ev => ev.stopPropagation());
   const recargarMovs = async () => { await cargarMovimientos(); pintarLista(); };
   activarMovimientos($('#tabla'), {}, recargarMovs);
-  $$('#tabla [data-mov-fecha]').forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => { const m = (cache.movs || []).find(x => x.id === Number(inp.dataset.movFecha)); const antes = m && m.fecha; const { error } = await sb.from('movimiento').update({ fecha: inp.value }).eq('id', Number(inp.dataset.movFecha)); if (error) return aviso(errorDe(error), true); aviso('Movimiento: ' + fecha(inp.value, true)); if (antes) anotarCambio(`fecha del movimiento (volver a ${fecha(antes)})`, async () => { await sb.from('movimiento').update({ fecha: antes }).eq('id', Number(inp.dataset.movFecha)); await cargarMovimientos(); }); recargarMovs(); }; });
   activarEtapas($('#tabla'), () => pintarLista());
   activarArrastreHorizontal($('#tabla'));
   if (yo.rol === 'admin') $$('#tabla td.fecha-ent').forEach(td => td.onclick = ev => {
@@ -823,6 +835,17 @@ async function vBandeja() {
 /* ---------- Alexis · Lista por semana ---------- */
 /* Movimientos de un pedido (Harold 13-oct, Isidora Bauerle): retiro en casa del cliente, entrega, visita técnica, instalación.
    Se ven en la Lista (etiqueta), en la ficha y en la Ruta del día; hechos quedan en la ficha y el historial. Nunca cuentan como pedido. */
+// Un movimiento sigue el mismo camino que un despacho (Harold 13-oct): Harold pone la fecha TENTATIVA, Alexis propone el día en la Ruta
+// (o aquí mismo), Harold lo confirma con el cliente y recién entonces queda en la Ruta de ese día.
+const movEstado = m => m.hecho ? 'hecho' : m.confirmado ? 'confirmado' : m.fecha_propuesta ? 'propuesto' : 'tentativo';
+const movChip = m => ({ hecho: '<span class="chip ok">HECHO</span>', confirmado: '<span class="chip ok">CONFIRMADO</span>', propuesto: `<span class="chip prop">PROPUESTO ${fecha(m.fecha_propuesta, true)}</span>`, tentativo: '<span class="chip">TENTATIVO</span>' })[movEstado(m)];
+function movFechaCelda(m) {
+  const e = movEstado(m), rojo = m.fecha < hoyISO() && e !== 'confirmado' ? 'color:var(--rojo-txt)' : '';
+  const chico = 'min-height:28px;padding:2px 4px;font-size:12px';
+  if (m.hecho) return fecha(m.fecha, true);
+  if (yo.rol === 'operacion') return `<span style="${rojo}">${fecha(m.fecha)}</span> ${movChip(m)}${e === 'confirmado' ? '' : `<div><small class="gris">Proponer:</small> <input type="date" value="${m.fecha_propuesta || ''}" data-mov-prop="${m.id}" title="Propón el día; Harold lo confirma con el cliente" style="${chico}"></div>`}`;
+  return `<input type="date" value="${m.fecha}" data-mov-fecha="${m.id}" title="Fecha ${e === 'confirmado' ? 'confirmada' : 'tentativa'} (clic para cambiarla)" style="${chico};${rojo}"> ${movChip(m)}${e === 'confirmado' ? '' : ` <button class="btn chico borde" data-mov-conf="${m.id}" title="${e === 'propuesto' ? 'El cliente aceptó el día propuesto: queda en la Ruta' : 'Dejar esta fecha como confirmada'}">Confirmar</button>`}`;
+}
 const MOV_TIPOS = ['Retiro en cliente', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
 const movEtiqueta = m => `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()} ${fecha(m.fecha)}`;
 async function cargarMovimientos() { const { data } = await sb.from('movimiento').select('*').eq('hecho', false).order('fecha'); cache.movs = data || []; }
@@ -830,16 +853,21 @@ const movsDe = id => (cache.movs || []).filter(m => m.pedido_id === id);
 function movimientosHtml(p, esOp) {
   const ms = p.movimientos || [];
   return `<section class="seccion"><div class="cab"><h2>Movimientos (retiros, visitas, instalación)</h2>${esOp ? '' : `<button class="btn chico borde" id="b-mov">+ Agregar movimiento</button>`}</div>
-    ${ms.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Qué</th><th>Dirección</th><th>Nota</th><th>Estado</th><th></th></tr></thead><tbody>${ms.map(m => `<tr class="${m.hecho ? '' : 'mov-pend'}"><td class="nw">${fecha(m.fecha, true)}</td><td class="nw"><strong>${esc(m.tipo)}</strong></td><td>${esc(m.direccion || p.direccion || '-')}</td><td>${esc(m.nota || '')}</td><td class="nw">${m.hecho ? `<span class="chip ok">HECHO</span> <span class="gris">${esc(m.hecho_por || '')} ${fecha(m.hecho_en)}</span>` : '<span class="chip prop">PENDIENTE</span>'}</td><td class="nw">${m.hecho ? '' : `<button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button>`}${esOp || m.hecho ? '' : ` <button class="btn chico" data-mov-borrar="${m.id}" title="Borrar este movimiento">×</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin movimientos. Un retiro en casa del cliente, una visita técnica o una instalación con fecha propia se anotan aquí y aparecen en la Ruta de ese día.</div>'}
+    ${ms.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha (tentativa hasta confirmar)</th><th>Qué</th><th>Dirección</th><th>Nota</th><th>Estado</th><th></th></tr></thead><tbody>${ms.map(m => `<tr class="${m.hecho ? '' : 'mov-pend'}"><td class="nw">${movFechaCelda(m)}</td><td class="nw"><strong>${esc(m.tipo)}</strong></td><td>${esc(m.direccion || p.direccion || '-')}</td><td>${esc(m.nota || '')}</td><td class="nw">${m.hecho ? `<span class="chip ok">HECHO</span> <span class="gris">${esc(m.hecho_por || '')} ${fecha(m.hecho_en)}</span>` : movChip(m)}</td><td class="nw">${m.hecho ? '' : `<button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button>`}${esOp || m.hecho ? '' : ` <button class="btn chico" data-mov-borrar="${m.id}" title="Borrar este movimiento">×</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin movimientos. Un retiro en casa del cliente, una visita técnica o una instalación con fecha propia se anotan aquí con fecha tentativa; Alexis propone el día en la Ruta, Harold lo confirma con el cliente y recién ahí entra a la Ruta.</div>'}
   </section>`;
 }
 function activarMovimientos(raiz, p, despues) {
+  const movDe = id => (cache.movs || []).find(x => x.id === id) || ((p && p.movimientos) || []).find(x => x.id === id);
+  const refrescar = async () => { await cargarMovimientos(); despues(); };
+  $$('[data-mov-fecha]', raiz).forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => { const id = Number(inp.dataset.movFecha), m = movDe(id); const antes = m && m.fecha; if (!inp.value) return; const { error } = await sb.from('movimiento').update({ fecha: inp.value }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso('Movimiento: ' + fecha(inp.value, true)); if (antes) anotarCambio(`fecha del movimiento (volver a ${fecha(antes)})`, async () => { await sb.from('movimiento').update({ fecha: antes }).eq('id', id); await cargarMovimientos(); }); refrescar(); }; });
+  $$('[data-mov-prop]', raiz).forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => { const id = Number(inp.dataset.movProp), m = movDe(id); const antes = m && m.fecha_propuesta; const { error } = await sb.from('movimiento').update({ fecha_propuesta: inp.value || null }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso(inp.value ? 'Propuesto ' + fecha(inp.value, true) + '; Harold lo confirma con el cliente' : 'Propuesta retirada'); anotarCambio('propuesta del movimiento', async () => { await sb.from('movimiento').update({ fecha_propuesta: antes || null }).eq('id', id); await cargarMovimientos(); }); refrescar(); }; });
+  $$('[data-mov-conf]', raiz).forEach(b => b.onclick = async ev => { ev.stopPropagation(); const id = Number(b.dataset.movConf), m = movDe(id); const antes = m && m.fecha; const { error } = await sb.from('movimiento').update({ fecha: (m && m.fecha_propuesta) || antes, confirmado: true }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso('Movimiento confirmado'); anotarCambio('movimiento confirmado (volver a tentativo)', async () => { await sb.from('movimiento').update({ confirmado: false, fecha: antes }).eq('id', id); await cargarMovimientos(); }); refrescar(); });
   $$('[data-mov-hecho]', raiz).forEach(b => b.onclick = async () => { const { error } = await sb.from('movimiento').update({ hecho: true }).eq('id', Number(b.dataset.movHecho)); if (error) return aviso(errorDe(error), true); aviso('Movimiento hecho'); anotarCambio('movimiento hecho (volver a pendiente)', async () => { await sb.from('movimiento').update({ hecho: false, hecho_en: null, hecho_por: null }).eq('id', Number(b.dataset.movHecho)); }); despues(); });
   $$('[data-mov-borrar]', raiz).forEach(b => b.onclick = async () => { if (!confirm('¿Borrar este movimiento?')) return; const { error } = await sb.from('movimiento').delete().eq('id', Number(b.dataset.movBorrar)); if (error) return aviso(errorDe(error), true); aviso('Movimiento borrado'); despues(); });
   const ba = $('#b-mov', raiz); if (ba) ba.onclick = () => {
     modal(`<h2>Nuevo movimiento · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-mov"><div class="campos">
       <label class="campo">Qué <select name="tipo">${MOV_TIPOS.map(t => `<option>${t}</option>`).join('')}</select></label>
-      <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO()}"></label>
+      <label class="campo">Fecha tentativa <input type="date" name="fecha" required value="${hoyISO()}"></label>
       <label class="campo">Dirección (vacío = la del pedido) <input name="direccion" placeholder="${esc(p.direccion || '')}"></label>
       <label class="campo">Nota <input name="nota" placeholder="Qué se retira o se hace"></label></div>
       <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
@@ -866,7 +894,7 @@ async function vImprimirListado() {
     const envio = p.tipo_entrega === 'Despacho regiones' ? 'REGIONES' : p.tipo_entrega === 'Retiro en taller' ? 'RETIRO' : 'RM';
     return [envio, p.instalacion ? 'SI' : '-', p.cliente, cub.cantidad || 1, r.modelo, r.color, cub.personas ? cub.personas + ' PER' : '-', r.forma, r.cubierta + (r.base !== '-' && r.base !== r.cubierta ? ' / ' + r.base : ''), r.esp, r.medida === '-' ? '-' : r.medida + ' cm', String(r.tono).toUpperCase() === 'SIN BARNIZ' ? 'Sin barniz' : r.tono, sil ? (sil.tipo_silla || '-') : 'n/a', sil ? (sil.color_silla || '-') : 'n/a', sil ? sil.cantidad : 'n/a', fecha(fe(p))]; };
   // Movimientos (retiros, visitas, instalaciones) como fila propia en su fecha, marcados MOV (Harold 13-oct); no cuentan como pedido
-  const movFila = (m, p) => ['MOV', '-', p.cliente, 1, `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()}${m.nota ? ': ' + m.nota : ''}`, '-', '-', '-', m.direccion || p.direccion || 'dirección pendiente', '-', '-', '-', 'n/a', 'n/a', 'n/a', fecha(m.fecha)];
+  const movFila = (m, p) => ['MOV', '-', p.cliente, 1, `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()}${m.confirmado ? '' : m.fecha_propuesta ? ' (propuesto ' + fecha(m.fecha_propuesta) + ')' : ' (tentativo)'}${m.nota ? ': ' + m.nota : ''}`, '-', '-', '-', m.direccion || p.direccion || 'dirección pendiente', '-', '-', '-', 'n/a', 'n/a', 'n/a', fecha(m.fecha)];
   const movsAct = (cache.movs || []).map(m => ({ m, p: activos.find(p => p.id === m.pedido_id) })).filter(e => e.p);
   const filaDe = e => e.m ? movFila(e.m, e.p) : fila(e.p);
   const tabla = lista => `<table class="lista impresion"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${lista.map(e => `<tr class="${(e.m ? e.m.fecha < hoyISO() : e.p.atrasado) ? 'atrasado' : ''}${e.m ? ' mov' : ''}">${filaDe(e).map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
@@ -896,28 +924,54 @@ async function vOdt() {
   const fe = p => p.fecha_comprometida || p.fecha_estimada || null;
   const activos = cache.pedidos.filter(p => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado) && !p.pago_pendiente);
   const filas = cond => activos.flatMap(p => (p.piezas || []).filter(x => x.area && cond(x)).map(x => ({ p, x })))
-    .sort((a, b) => String(fe(a.p) || '9').localeCompare(String(fe(b.p) || '9')) || String(a.p.numero).localeCompare(String(b.p.numero)));
+    .sort((a, b) => String(a.x.fecha_taller || fe(a.p) || '9').localeCompare(String(b.x.fecha_taller || fe(b.p) || '9')) || String(a.p.numero).localeCompare(String(b.p.numero)));
   const ahora = area ? filas(x => x.area === area && (x.etapa === 'En cola' || x.etapa === etapa)) : filas(x => x.etapa === etapa);
   const fabricando = ahora.filter(({ x }) => x.etapa === etapa).length;
   const vienen = acabado ? filas(x => x.acabado === acabado && ['En cola', 'Fabricación', 'Armado', 'Soldadura'].includes(x.etapa)) : [];
-  const med = x => medidaTxt(x) || '-';
-  const mat = x => [x.tipo === 'Base' ? x.material_base : x.material_cubierta || x.material_base].filter(Boolean).map(nombreMaterial).join(' / ') || '-';
-  const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? 'color ' + (nombreColor(x.color) || x.color) : null) : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · ') || '-';
-  const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><thead><tr><th>Entrega</th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Modelo</th><th>Material</th><th>Medida</th><th>Tono / color / nota</th><th>Etapa</th><th class="solo-impresion">OK</th></tr></thead><tbody>${lista.map(({ p, x }) => `<tr class="${p.atrasado ? 'atrasado' : ''}${area && x.etapa === etapa ? ' fabricando' : ''}">
-    <td class="nw">${fe(p) ? fecha(fe(p)) : 'sin fecha'}${p.urgente ? ' <strong>URG</strong>' : ''}</td><td class="nw">${esc(p.numero)}</td><td>${esc(p.cliente)}</td>
-    <td class="nw"><strong>${esc(x.tipo)}</strong>${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(nombreModelo(x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base)) || x.descripcion || '-')}</td>
-    <td>${esc(mat(x))}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}</td><td class="nw">${esc(med(x))}</td><td>${esc(terminacion(x))}</td>
-    <td>${conChip ? `<span class="no-imprimir">${etapaChip(x, p.id)}</span><span class="solo-impresion">${esc(area && x.etapa === etapa ? 'FABRICANDO' : x.etapa)}</span>` : esc(x.etapa)}</td><td class="solo-impresion caja-ok"></td></tr>`).join('')}</tbody></table>`;
+  // Formato de la ODT (Harold 13-oct): une su ODT de Excel (cliente, modelo, madera, tamaño, formato, cantidad, fecha comprometida, entrega/revisión, comentario)
+  // con lo de la app (N° de pedido, terminación, estado). La fecha comprometida es PARA EL MAESTRO (por pieza), distinta de la entrega al cliente.
+  const FORMA_TXT = { RECT: 'Rectangular', CUA: 'Cuadrada', CIRC: 'Circular', OVAL: 'Ovalada' };
+  const hoyI = hoyISO();
+  const falta = t => `<span class="falta-dato">${t}</span>`;
+  const maderaTxt = (x, esBase) => { const m = esBase ? x.material_base : (x.material_cubierta || x.material_base); return m ? nombreMaterial(m).toUpperCase() + (!esBase && x.espesor_mm ? ' ' + num(x.espesor_mm) + ' mm' : '') : ''; };
+  const tamanoHtml = (x, p) => {
+    if (x.tipo === 'Base') {
+      const cub = (p.piezas || []).find(y => y.tipo === 'Cubierta' && y.largo_cm);
+      const para = cub ? `<div class="l2">para cubierta ${esc(medidaTxt(cub))} cm</div>` : '';
+      if (x.largo_cm) return `Largo ${num(x.largo_cm)}${x.ancho_cm ? ' × Ancho ' + num(x.ancho_cm) : ''}${x.alto_cm ? ' × Alto ' + num(x.alto_cm) : ''} cm${para}`;
+      if (/\.(MOS|LIN)\./.test(x.color || '')) return `Estándar ${esc(x.color)}${para}`;
+      return falta('medidas por definir') + para;
+    }
+    if (!x.largo_cm) return falta('medidas por definir');
+    if (x.forma === 'CIRC' && !x.ancho_cm || x.forma === 'CIRC' && x.ancho_cm === x.largo_cm && !x.alto_cm) return `Ø ${num(x.largo_cm)} cm${x.largo_ext_cm ? ' a ' + num(x.largo_ext_cm) + ' ext' : ''}`;
+    return esc(medidaTxt(x, ' × ')) + ' cm';
+  };
+  const formatoTxt = x => x.tipo === 'Base' ? '' : [FORMA_TXT[x.forma], x.largo_ext_cm ? 'extensible' : ''].filter(Boolean).join(' · ');
+  const terminacion = x => [x.tipo === 'Base' || !x.tono ? (x.color ? nombreColor(x.color) : null) : tonoTxt(x.tono)].filter(Boolean).join(' · ');
+  const filaFecha = (x, p) => { const k = x.fecha_taller || null; return `<td class="nw"><span class="no-imprimir"><input type="date" class="f-taller" value="${k || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro (cuándo debe estar lista esta pieza)"></span><span class="solo-impresion">${k ? fecha(k, true) : '________'}</span><div class="l2">cliente ${fe(p) ? fecha(fe(p)) : 'sin fecha'}${p.urgente ? ' <strong>URG</strong>' : ''}</div></td>`; };
+  const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><thead><tr><th title="Fecha comprometida para el maestro; abajo, la entrega al cliente">Para el maestro</th><th>N°</th><th>Cliente</th><th>Modelo / pieza</th><th>Madera</th><th title="Largo × ancho × alto, siempre en ese orden">Medidas (L × A × Al)</th><th>Formato</th><th>Ctd</th><th>Terminación</th><th>Indicaciones del maestro</th><th>${conChip ? 'Estado' : ''}</th><th class="solo-impresion">Entrega / Revisión</th></tr></thead><tbody>${lista.map(({ p, x }) => {
+    const fab = area && x.etapa === etapa, tarde = (x.fecha_taller || '9999') < hoyI || (!x.fecha_taller && p.atrasado);
+    const ind = [x.indicaciones, x.nota_acabado].filter(Boolean);
+    return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}">${filaFecha(x, p)}<td class="nw">${esc(p.numero)}</td><td>${esc(p.cliente)}</td>
+    <td><strong>${esc(nombreModelo(x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base)) || x.descripcion || '-')}</strong><div class="l2">${esc(x.tipo)}${x.tipo === 'Mueble' && x.descripcion ? ': ' + esc(x.descripcion) : ''}</div></td>
+    <td class="nw">${esc(maderaTxt(x, x.tipo === 'Base')) || falta('madera?')}</td><td>${tamanoHtml(x, p)}</td><td>${esc(formatoTxt(x))}</td><td class="nw" style="text-align:center">${x.cantidad || 1}</td><td>${esc(terminacion(x))}</td><td class="indic">${ind.map(esc).join(' · ')}</td>
+    <td>${conChip ? `<span class="no-imprimir">${etapaChip(x, p.id)} <button class="btn chico borde" data-editar-pieza="${x.id}" title="Cambiar medidas, formato, indicaciones o la fecha para el maestro">Editar</button></span><span class="solo-impresion">${fab ? 'FABRICANDO' : ''}</span>` : esc(x.etapa)}</td><td class="solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
   const hoy = new Date();
   app.innerHTML = barra('#/odt') + `<div class="sub no-imprimir">
       <span class="fgrupo"><span class="fgrupo-t">Etapa</span>${ODT_ETAPAS.map(([v, t]) => `<button class="ftog ${v === etapa ? 'on' : ''}" data-odt="${esc(v)}">${esc(t)}</button>`).join('')}</span>
       <button class="btn primario" onclick="window.print()">Imprimir ODT</button>
-      <span style="color:var(--gris-3)">${area ? 'Una sola lista por fecha de entrega: la cola más lo que se está haciendo. Toca la pieza cuando el maestro la empiece (queda marcada y no sale de la lista); tócala de nuevo al terminar y pasa a barniz, pintura o embalado.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
+      <span style="color:var(--gris-3)">${area ? 'Una sola lista, ordenada por la fecha comprometida para el maestro (si una pieza no la tiene, por la entrega al cliente): la cola más lo que se está haciendo. Toca la pieza cuando el maestro la empiece (queda marcada y no sale de la lista); tócala de nuevo al terminar y pasa a barniz, pintura o embalado.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
     <div class="contenido listado-print"><div class="titulo-print">ORDEN DE TRABAJO · ${esc(titulo.toUpperCase())} · ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()} · ${ahora.length} pieza${ahora.length === 1 ? '' : 's'}</div>
     <h3>${area ? `Orden de trabajo por fecha de entrega (${ahora.length} piezas, ${fabricando} fabricándose ahora)` : `En ${esc(etapa.toLowerCase())} ahora (${ahora.length})`}</h3>${tabla(ahora, true)}
     ${acabado ? `<h3 class="no-imprimir">Vienen a ${esc(etapa.toLowerCase())} (todavía en fabricación, armado o soldadura: ${vienen.length})</h3><div class="no-imprimir">${tabla(vienen, true)}</div>` : ''}</div>`;
   $$('[data-odt]').forEach(b => b.onclick = () => { cache.odt = b.dataset.odt; vOdt(); });
+  $$('[data-ftaller]').forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => {
+    const id = Number(inp.dataset.ftaller), pz = cache.pedidos.flatMap(q => q.piezas || []).find(y => y.id === id), antes = pz && pz.fecha_taller;
+    try { const r = await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: inp.value || null } }); actualizarPiezas(r); aviso('Fecha para el maestro: ' + (inp.value ? fecha(inp.value, true) : 'sin fecha'));
+      anotarCambio(`fecha para el maestro (volver a ${antes ? fecha(antes) : 'sin fecha'})`, async () => { actualizarPiezas(await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: antes || null } })); });
+      vOdt(); } catch (e) { aviso(errorDe(e), true); } }; });
   activarEtapas(app, () => vOdt());
+  activarPiezasEdicion(app, () => vOdt());
 }
 
 /* ---------- Ruta ---------- */
@@ -931,11 +985,13 @@ async function vRuta() {
   const ordenar = l => l.slice().sort((a, b) => { const ia = ORDEN_COMUNAS.indexOf(a.comuna), ib = ORDEN_COMUNAS.indexOf(b.comuna); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a.comuna || '').localeCompare(b.comuna || ''); });
   let ruta = cache.ordenRuta.length ? cache.ordenRuta.map(id => programados.find(p => p.id === id)).filter(Boolean).concat(programados.filter(p => !cache.ordenRuta.includes(p.id))) : ordenar(programados.filter(p => p.tipo_entrega !== 'Despacho regiones'));
   const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones');
-  const movsDia = (cache.movs || []).filter(m => m.fecha === f);
+  const movsDia = (cache.movs || []).filter(m => m.confirmado && m.fecha === f);
+  const movsPorProgramar = (cache.movs || []).filter(m => !m.confirmado && cache.pedidos.some(x => x.id === m.pedido_id)).sort((a, b) => a.fecha.localeCompare(b.fecha));
   app.innerHTML = barra('#/ruta') + `<div class="sub no-imprimir"><label>Fecha <input type="date" id="f-ruta" value="${f}"></label><div class="pasos"><span class="activo">1. Alexis propone</span><span>2. Harold envía mensajes</span><span>3. Cliente confirma</span><span>4. Entra a la ruta</span></div></div>
   <div class="contenido" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
     <section class="seccion no-imprimir"><h2>Propuesta para el ${fecha(f, true)}</h2><div style="font-size:13px;color:var(--gris-2)">Marca lo que se puede despachar ese día. Solo lo confirmado por el cliente entra a la ruta.</div>
       ${candidatos.map(p => { const listo = p.estado === 'LISTO EN TALLER'; const prop = p.despacho_propuesto === f; return `<div class="prop"><input type="checkbox" data-prop="${p.id}" ${prop ? 'checked' : ''} ${listo ? '' : 'disabled'}><span style="flex:1"><strong>${esc(p.numero)}</strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones: va por guía' : ''}</span></span><span>${listo ? (prop ? '<span class="chip prop">PROPUESTO · esperando</span>' : '<span class="chip ok">LISTO</span>') : `<span class="chip">EN FABRICACIÓN · ${p.piezas_listas}/${p.piezas_total}</span>`}</span></div>`; }).join('') || '<div style="color:var(--gris-3)">Nada listo en taller</div>'}
+      ${movsPorProgramar.length ? `<h3 style="margin:14px 0 6px">Movimientos por programar (retiros, visitas, instalaciones)</h3>${movsPorProgramar.map(m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; const prop = m.fecha_propuesta === f; return `<div class="prop"><input type="checkbox" data-movprop="${m.id}" ${prop ? 'checked' : ''}><span style="flex:1"><strong>${esc(m.tipo)}</strong> · ${esc(pm.numero || '')} ${esc(pm.cliente || '')} · ${esc(pm.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(m.nota || '')}${m.nota ? ' · ' : ''}${esc(m.direccion || pm.direccion || 'dirección pendiente')} · tentativo ${fecha(m.fecha, true)}${m.fecha_propuesta && !prop ? ' · propuesto ' + fecha(m.fecha_propuesta, true) : ''}</span></span><span>${prop ? '<span class="chip prop">PROPUESTO · esperando</span>' : '<span class="chip">TENTATIVO</span>'}${prop && yo.rol !== 'operacion' ? ` <button class="btn chico borde" data-mov-conf="${m.id}">Confirmar</button>` : ''}</span></div>`; }).join('')}` : ''}
       <div style="font-size:12px;color:var(--gris-2)">Harold envía los WhatsApp y marca "confirmado" cuando el cliente responde; el pedido pasa solo a DESPACHO PROGRAMADO.</div></section>
     <section class="seccion"><div class="cab"><h2>Ruta del ${fecha(f, true)} · confirmados</h2><span class="no-imprimir" style="font-size:12px;color:var(--gris-2)">orden propuesto por comuna, ▲▼ para cambiar</span></div>
       ${ruta.map((p, i) => `<div class="parada"><div class="n">${i + 1}</div><div><div class="num">${esc(p.numero)} ${esc(p.cliente)}</div><div class="gris">${esc(p.comuna || '')} · ${esc(p.direccion || '')}${p.nota_entrega ? ' · ' + esc(p.nota_entrega) : ''}</div></div><div><div>${esc(p.resumen || '')}</div><div class="gris">${esc(p.cliente_telefono || '')}</div></div><div>${saldoDe(p) > 0 ? `<span class="chip saldo">COBRAR ${pesos(saldoDe(p))}</span>` : '<span class="chip ok">PAGADO</span>'} ${p.instalacion ? '<span class="chip inst">INSTALACIÓN</span>' : ''}</div><div class="no-imprimir" style="display:flex;gap:4px"><button class="btn chico" data-sube="${i}" aria-label="Subir">▲</button><button class="btn chico" data-baja="${i}" aria-label="Bajar">▼</button><button class="btn chico primario" data-entregar="${p.id}">Entregado</button></div></div>`).join('') || '<div style="color:var(--gris-3)">Sin despachos confirmados para esta fecha</div>'}
@@ -945,6 +1001,7 @@ async function vRuta() {
       <div class="no-imprimir" style="font-size:12px;color:var(--gris-2)">Al volver, cada parada se marca ENTREGADO con foto opcional.</div></section></div>`;
   $('#f-ruta').onchange = e => { cache.rutaFecha = e.target.value; cache.ordenRuta = []; vRuta(); };
   $$('[data-prop]').forEach(c => c.onchange = async () => { try { await rpc('proponer_despacho', { p_pedido_id: Number(c.dataset.prop), p_fecha: c.checked ? f : null }); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
+  $$('[data-movprop]').forEach(c => c.onchange = async () => { const id = Number(c.dataset.movprop); const { error } = await sb.from('movimiento').update({ fecha_propuesta: c.checked ? f : null }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); await cargarMovimientos(); vRuta(); });
   $$('[data-sube],[data-baja]').forEach(b => b.onclick = () => { const ids = ruta.map(p => p.id); const i = Number(b.dataset.sube ?? b.dataset.baja); const j = b.dataset.sube != null ? i - 1 : i + 1; if (j < 0 || j >= ids.length) return;[ids[i], ids[j]] = [ids[j], ids[i]]; cache.ordenRuta = ids; vRuta(); });
   $$('[data-entregar]').forEach(b => b.onclick = () => formEntregar(cache.pedidos.find(p => p.id === Number(b.dataset.entregar)), () => vRuta()));
   const be = $('#b-etiq'); if (be) be.onclick = () => imprimirEtiquetas(ruta);

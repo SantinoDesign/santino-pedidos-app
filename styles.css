@@ -271,7 +271,7 @@ table.lista.compacta td.piezas-col{min-width:130px}
 .etapa-chip.falta-acabado{border-color:var(--rojo-txt)}
 .etapa-chip.falta-acabado small{color:var(--rojo-txt)}
 table.odt td{vertical-align:middle}
-.caja-ok{width:28px}
+.caja-ok{width:84px}
 @media print{.caja-ok{border:1.5px solid #333!important}}
 @media print{th.solo-impresion,td.solo-impresion{display:table-cell!important}span.solo-impresion{display:inline!important}}
 .solo-impresion{display:none}
@@ -294,3 +294,10 @@ table.lista tr.mov-fila td:first-child{box-shadow:inset 3px 0 0 var(--azul)}
 table.lista tr.mov-fila.atrasado td:first-child{box-shadow:inset 3px 0 0 var(--rojo)}
 table.impresion tr.mov td{background:#EEF6F9;font-style:italic}
 @media print{table.impresion tr.mov td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+
+/* ODT con el formato de Harold (tanda 25): fecha para el maestro, medidas con ejes, indicaciones */
+.falta-dato{color:var(--rojo-txt);font-weight:700}
+table.odt .l2{color:var(--gris-2);font-size:11px;font-weight:400}
+table.odt td.indic{min-width:170px;white-space:normal}
+table.odt input.f-taller{min-height:28px;padding:2px 4px;font-size:12px;width:128px}
+@media print{table.odt .l2{color:#333}table.odt td{font-size:11px}}
