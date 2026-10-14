@@ -417,3 +417,7 @@ table.lista tr.fila-caso{cursor:pointer}table.lista tr.fila-caso:hover td{backgr
 .caso-nota .l2{color:var(--gris-3);font-size:11px}
 .pct-abono{font-size:11px;font-weight:400;color:var(--gris-3);white-space:nowrap}
 .cifra .pct-abono{display:block;margin-top:2px}
+
+/* Entrega con cobro (tanda 29) y deslizar fila en la tablet */
+.entrega-cobro{display:flex;flex-direction:column;gap:6px;font-size:14px}.entrega-cobro label{display:flex;gap:8px;align-items:center}
+table.lista tr.fila{transition:transform .08s linear}

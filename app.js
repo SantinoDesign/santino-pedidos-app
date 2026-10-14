@@ -358,7 +358,7 @@ async function vLista() {
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
   const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : g === 'etapa' ? cache.etapas : g === 'mios' ? cache.mios : cache.bases;
   const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${setDe(grupo).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
-  const leyenda = `Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} = ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} = ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado. Los filtros se suman; sin marcar = todos.`;
+  const leyenda = `Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} = ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} = ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado. Los filtros se suman; sin marcar = todos. En la tablet: deslizar una fila hacia la derecha = entregar ese pedido (confirma el saldo).`;
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir filtros-v2">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="entregados" ${cache.filtro === 'entregados' ? 'selected' : ''}>Entregados (últimos)</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
@@ -408,15 +408,16 @@ function pintarLista() {
     ['cub', celdas ? 'Cubierta / pieza' : 'Cubierta', celdas ? 'Material y espesor; debajo el tono. La celda es el botón de etapa: toca para avanzar, mantener apretado para volver' : 'Material y espesor; debajo el tono'],
     ['base', 'Base', celdas ? 'Material; debajo el color. Toca para avanzar la etapa' : 'Material; debajo el color'],
     ['sillas', 'Sillas', 'Cantidad × modelo; debajo tapiz y pata' + (celdas ? '. Toca para avanzar la compra' : '')], ['ent', 'Entrega cliente', 'Fecha de entrega; "aprox." = estimada, no comprometida. Clic para cambiarla'],
-    ['com', 'Comuna', 'Debajo: RM, regiones o retiro, y si lleva instalación'], ...(celdas ? [] : [['pz', 'Piezas', 'Toca para avanzar; mantener para volver']]), ...(esOp ? [] : [['saldo', 'Saldo', '']])];
+    ['com', 'Comuna', 'Debajo: RM, regiones o retiro, y si lleva instalación'], ...(celdas ? [] : [['pz', 'Piezas', 'Toca para avanzar; mantener para volver']]), ['saldo', 'Saldo', esOp ? 'Saldo por cobrar al entregar' : '']];
   const nCols = cab.length; const hoy = hoyISO();
   const dos = (a, b) => `<div class="l1">${esc(a || '-')}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
+  const sal = p => esOp ? p.saldo_por_cobrar : p.saldo;   // Alexis ve el saldo por cobrar como Harold (Harold 14-oct: "él entrega")
   const filaMov = (m, p) => `<tr class="fila mov-fila ${m.fecha < hoy ? 'atrasado' : ''}" data-mov="${m.id}" data-id="${p.id}">
       <td class="c-est"><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2"><span class="chip inst">${esc(m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase())}</span></div></td>
       <td colspan="4"><div class="l1">${esc(m.nota || m.tipo)}</div><div class="l2">${esc(m.direccion || p.direccion || 'dirección pendiente')}</div></td>
       <td class="c-ent fecha-mov" data-mov-id="${m.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(m)}</td><td class="c-com">${dos(p.comuna || '', '')}</td>
-      ${celdas ? '' : '<td class="c-pz"></td>'}<td class="${esOp ? 'c-com' : 'c-saldo'}"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td></tr>`;
+      ${celdas ? '' : '<td class="c-pz"></td>'}<td class="c-saldo"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td></tr>`;
   const feP = p => p.fecha_comprometida || p.fecha_estimada || '9999';
   const ids = new Set(lista.map(p => p.id));
   const entradas = lista.map(p => ({ k: feP(p), p }));
@@ -448,14 +449,14 @@ function pintarLista() {
     const celdaSil = r.sillasL1 ? (celdas ? celdaPieza(r.sil, p, r.sillasL1, r.sillasL2) : dos(r.sillasL1, r.sillasL2)) : '<span class="gris">-</span>';
     return sep + `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
       <td class="c-est">${estadoHtml(p.estado, true)}</td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a></td>
-      <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2">${tipoHtml(p.tipo_pedido)} ${alertasPedido(p)}${esOp && p.saldo_por_cobrar > 0 ? ' ' + chip('COBRAR ' + pesos(p.saldo_por_cobrar)) : ''}</div></td>
+      <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2">${tipoHtml(p.tipo_pedido)} ${alertasPedido(p)}</div></td>
       <td class="c-mod" title="${esc(r.descripcion || '')}"><div class="l1">${esc(r.modelo)}</div>${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
       <td class="c-cub">${celdaCub}</td><td class="c-base">${celdaBase}</td>
       <td class="c-sillas">${celdaSil}</td>
       ${mp ? `<td class="c-ent fecha-mov" data-mov-id="${mp.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="${esOp ? 'Clic para proponer una fecha de entrega (Harold la acepta)' : 'Clic para cambiar la fecha de entrega'}">${ent}</td>`}
       <td class="c-com">${dos(p.comuna || (p.tipo_entrega === 'Retiro en taller' ? 'Taller' : ''), envio).replace('<div class="l1">-</div>', '<div class="l1 falta-dato">¿comuna?</div>')}</td>
-      ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}${esOp ? '' : `<td class="c-saldo mono ${p.saldo > 0 ? 'rojo' : ''}">${p.saldo > 0 ? pesos(p.saldo) : '<span class="gris">pagado</span>'}</td>`}</tr>`;
+      ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}<td class="c-saldo mono ${sal(p) > 0 ? 'rojo' : ''}">${sal(p) > 0 ? pesos(sal(p)) : '<span class="gris">pagado</span>'}</td></tr>`;
   }).join('');
   $('#tabla').innerHTML = `<table class="lista v2 ${celdas ? 'b' : ''}"><colgroup>${cab.map(([c]) => `<col class="c-${c}">`).join('')}</colgroup><thead><tr>${cab.map(([c, t, tt]) => `<th class="c-${c}" title="${esc(tt)}">${t}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody></table>`;
   $$('#tabla a.ficha-num').forEach(a => a.onclick = ev => ev.stopPropagation());
@@ -488,6 +489,7 @@ function pintarLista() {
     editorFecha(td, m.fecha_propuesta || m.fecha, async v => { if (!v) return; const antes = m.fecha, antesProp = m.fecha_propuesta; const { error } = await sb.from('movimiento').update({ fecha: v, fecha_propuesta: null }).eq('id', m.id); if (error) return aviso(errorDe(error), true); aviso('Movimiento: ' + fecha(v, true)); anotarCambio(`fecha del movimiento (volver a ${fecha(antes)})`, async () => { await sb.from('movimiento').update({ fecha: antes, fecha_propuesta: antesProp }).eq('id', m.id); await cargarMovimientos(); }); await cargarMovimientos(); pintarLista(); });
   });
   $$('#tabla tr.fila').forEach(tr => tr.onclick = () => abrirDetalleFila(tr));
+  activarDeslizarEntrega();
 }
 /* Tabla de piezas compartida (despliegue de la Lista y ficha): mismas columnas que la ODT (Harold 13-oct: una sola forma de ver las piezas) */
 function tablaPiezasHtml(p, esOp) {
@@ -552,11 +554,11 @@ function abrirDetalleFila(tr) {
       <div class="d-fila"><span>Comuna</span><b>${esc(p.comuna_entrega || p.comuna || '-')}</b> <small class="gris">${esc((p.tipo_entrega || 'Despacho RM') + (p.instalacion ? ' · con instalación' : ''))}</small></div>
       ${p.nota_entrega ? `<div class="d-fila"><span>Nota</span><b>${esc(p.nota_entrega)}</b></div>` : ''}
     </section>
-    ${esOp ? `<section class="d-bloque d-dinero"><h4>Pago</h4>${saldo > 0 ? `<div><span class="chip saldo">COBRAR ${pesos(saldo)} AL ENTREGAR</span></div>` : '<div><span class="chip ok">PAGADO</span></div>'}</section>` : `<section class="d-bloque d-dinero"><h4>Pago</h4>
+    ${`<section class="d-bloque d-dinero"><h4>Pago</h4>
       <div class="d-fila"><span>Total</span><b class="mono">${pesos(p.total)}</b></div>
       <div class="d-fila"><span>Abonado</span><b class="mono">${pesos(p.abonado)}</b> ${pctAbono(p)}</div>
-      <div class="d-fila"><span>Saldo</span><b class="mono ${saldo > 0 ? 'rojo' : ''}">${pesos(saldo)}</b>${saldo > 0 && tel ? ` <a href="#/pedido/${p.id}" title="El mensaje de saldo se arma en la ficha">mensaje de saldo</a>` : ''}</div>
-      <div class="d-fila"><span>Documento</span><b>${esc(p.documento_tributario || '-')}${p.documento_numero ? ' ' + esc(p.documento_numero) : ''}</b></div>
+      <div class="d-fila"><span>Saldo</span><b class="mono ${saldo > 0 ? 'rojo' : ''}">${saldo > 0 ? pesos(saldo) : 'pagado'}</b>${saldo > 0 ? ' <span class="chip saldo">COBRAR AL ENTREGAR</span>' : ''}${saldo > 0 && tel && !esOp ? ` <a href="#/pedido/${p.id}" title="El mensaje de saldo se arma en la ficha">mensaje de saldo</a>` : ''}</div>
+      ${esOp ? '' : `<div class="d-fila"><span>Documento</span><b>${esc(p.documento_tributario || '-')}${p.documento_numero ? ' ' + esc(p.documento_numero) : ''}</b></div>`}
     </section>`}
     <section class="d-bloque d-piezas"><h4>Piezas (${piezas.length}) <small class="gris">toca el chip para avanzar · mantener para volver · toca el nombre para editar</small></h4>
       ${tablaPiezasHtml(p, esOp)}
@@ -713,7 +715,7 @@ async function vFicha(id) {
   const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }, { data: movs }, { data: casos }, { data: garantia }] = await Promise.all([
     sb.from('documento').select('*').eq('pedido_id', id).order('subido_en', { ascending: false }),
     esOp ? Promise.resolve({ data: [] }) : sb.from('historial').select('*').eq('pedido_id', id).order('cuando', { ascending: false }).limit(60),
-    esOp ? Promise.resolve({ data: [] }) : sb.from('abono').select('*').eq('pedido_id', id).order('fecha'),
+    sb.from('abono').select('*').eq('pedido_id', id).order('fecha'),
     sb.from('guia_despacho').select('*').eq('pedido_id', id).order('numero', { ascending: false }),
     sb.from('movimiento').select('*').eq('pedido_id', id).order('fecha'),
     sb.from('v_caso').select('*').eq('pedido_id', id).order('abierto_en', { ascending: false }),
@@ -744,10 +746,10 @@ async function vFicha(id) {
         </div>
       </section>
       ${movimientosHtml(p, esOp)}
-      ${esOp ? '' : `<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px"><button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button><button class="btn chico borde" id="b-abono">+ Registrar abono</button></span></div>
-        <div class="cifras"><div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div><div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)} ${pctAbono(p)}</div></div><div class="cifra"><div>Saldo (calculado)</div><div style="color:${p.saldo > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo)}</div></div></div>
+      ${`<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px">${esOp ? '' : '<button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button>'}<button class="btn chico borde" id="b-abono">+ Registrar ${esOp ? 'cobro' : 'abono'}</button></span></div>
+        <div class="cifras">${esOp ? `<div class="cifra"><div>Total</div><div>${pesos(p.total)}</div></div>` : `<div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div>`}<div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)} ${pctAbono(p)}</div></div><div class="cifra"><div>Saldo${esOp ? ' por cobrar' : ' (calculado)'}</div><div style="color:${(p.saldo ?? p.saldo_por_cobrar) > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo ?? p.saldo_por_cobrar)}</div></div></div>
         ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Cuenta</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(cuentaNombre(a.cuenta))}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>
+        ${esOp ? '' : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>`}
       </section>
       ${esOp && !(casos || []).length ? '' : casosFichaHtml(casos || [], esOp)}
       <section class="seccion"><div class="cab"><h2>Guías de despacho</h2><button class="btn chico borde" id="b-guia">+ Nueva guía de despacho</button></div>
@@ -787,6 +789,7 @@ async function vFicha(id) {
   activarProgramar(app, p, recargar);
   activarMovimientos(app, p, recargar);
   activarCompras(app, p, recargar);
+  on('#b-abono', () => formAbono(p, recargar));
   $$('.caso-fila').forEach(d => d.onclick = () => modalCaso(Number(d.dataset.caso)));
   { const bc = $('#b-caso'); if (bc) bc.onclick = () => formCaso({ pedido_id: p.id, cliente_id: p.cliente_id, numero: p.numero, cliente: p.cliente }); }
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
@@ -816,7 +819,7 @@ async function vFicha(id) {
 async function formAbono(p, despues) {
   await cargarModelos();
   modal(`<h2>Registrar abono · ${esc(p.numero)}</h2><form id="f"><div class="campos">
-    <label class="campo">Monto (negativo = devolución) <input name="monto" type="number" required value="${p.saldo > 0 ? p.saldo : ''}"></label>
+    <label class="campo">Monto (negativo = devolución) <input name="monto" type="number" required value="${(p.saldo ?? p.saldo_por_cobrar) > 0 ? (p.saldo ?? p.saldo_por_cobrar) : ''}"></label>
     <label class="campo">Medio <select name="medio"><option>Transferencia</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option><option>Efectivo</option><option>Shopify</option></select></label>
     <label class="campo">Cuenta a la que pagó <select name="cuenta"><option value="">(sin anotar)</option>${cuentasOpciones()}</select></label>
     <label class="campo">Fecha <input name="fecha" type="date" value="${hoyISO()}"></label>
@@ -851,19 +854,41 @@ function formSubir(p, despues) {
     } catch (e) { aviso(errorDe(e), true); }
   };
 }
-function formEntregar(p, despues) {
+/* Entrega con confirmación del saldo (Harold 14-oct, desde la tablet): si hay saldo, se confirma ahí mismo si se cobró o no;
+   un solo paso: cobro (abono con medio y cuenta) más ENTREGADO, con foto opcional. Lo usan el deslizar de la Lista, el despliegue y la ficha. */
+async function formEntregar(p, despues) {
+  await cargarModelos();
+  const saldo = Number(p.saldo_por_cobrar ?? p.saldo ?? 0);
   modal(`<h2>Entregar · ${esc(p.numero)} · ${esc(p.cliente)}</h2><form id="f">
-    ${(p.saldo_por_cobrar ?? p.saldo) > 0 ? `<div style="padding:10px;border-radius:8px;background:var(--ambar);color:var(--ambar-txt);font-weight:700">Cobrar ${pesos(p.saldo_por_cobrar ?? p.saldo)} antes de entregar</div>` : ''}
+    ${saldo > 0 ? `<div style="padding:10px;border-radius:8px;background:var(--ambar);color:var(--ambar-txt);font-weight:700">Saldo pendiente ${pesos(saldo)}. ¿Se cobró en la entrega?</div>
+    <div class="entrega-cobro"><label><input type="radio" name="cobro" value="si" checked> Sí, se cobró ${pesos(saldo)}</label><label><input type="radio" name="cobro" value="no"> No, entregar con el saldo pendiente</label></div>
+    <div class="campos" id="e-cobro"><label class="campo">Medio <select name="medio"><option>Transferencia</option><option>Efectivo</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option></select></label><label class="campo">Cuenta a la que pagó <select name="cuenta"><option value="">(sin anotar)</option>${cuentasOpciones()}</select></label></div>` : '<div><span class="chip ok">PAGADO</span> <span class="gris" style="font-size:12px">sin saldo pendiente</span></div>'}
     <label class="campo">Foto de entrega (opcional) <input name="foto" type="file" accept="image/*" capture="environment"></label>
-    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Marcar ENTREGADO</button></div></form>`);
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">${saldo > 0 ? 'Aceptar y marcar ENTREGADO' : 'Marcar ENTREGADO'}</button></div></form>`);
+  $$('input[name=cobro]').forEach(r => r.onchange = () => { const c = $('#e-cobro'); if (c) c.style.display = $('input[name=cobro]:checked').value === 'si' ? '' : 'none'; });
   $('#f').onsubmit = async ev => {
-    ev.preventDefault(); const foto = new FormData(ev.target).get('foto'); let url = null;
+    ev.preventDefault(); const f = new FormData(ev.target); const foto = f.get('foto'); let url = null;
+    const cobra = saldo > 0 && f.get('cobro') === 'si';
     try {
       if (foto && foto.size) { const path = `entregas/${p.id}_${Date.now()}.jpg`; const { error } = await sb.storage.from('documentos').upload(path, foto, { contentType: foto.type || 'image/jpeg' }); if (error) throw error; url = path; }
-      await rpc('marcar_entregado', { p_pedido_id: p.id, p_foto_url: url });
-      aviso('Entregado ✓'); cerrarModal(); despues();
+      const r = await rpc('entregar_pedido', { p_pedido_id: p.id, p_cobro: cobra ? saldo : 0, p_medio: cobra ? f.get('medio') : 'Transferencia', p_cuenta: cobra ? (f.get('cuenta') || null) : null, p_foto_url: url });
+      aviso(`${p.numero} entregado ✓${cobra ? ' · cobrado ' + pesos(saldo) : r.saldo > 0 ? ' · queda saldo ' + pesos(r.saldo) : ''}`); cerrarModal(); despues();
     } catch (e) { aviso(errorDe(e), true); }
   };
+}
+/* Deslizar una fila hacia la derecha en la tablet = entregar ese pedido (Harold 14-oct: "para marcar un pedido como entregado de forma
+   rápida se me ocurre deslizar hacia la derecha"). Solo filas de pedido (no movimientos); abre la ventana de entrega con el saldo. */
+function activarDeslizarEntrega() {
+  $$('#tabla tr.fila:not(.mov-fila)').forEach(tr => {
+    let x0 = null, y0 = null, dx = 0, activo = false;
+    tr.addEventListener('touchstart', ev => { const t0 = ev.touches[0]; x0 = t0.clientX; y0 = t0.clientY; dx = 0; activo = !ev.target.closest('button, a, input, select'); }, { passive: true });
+    tr.addEventListener('touchmove', ev => { if (!activo || x0 == null) return; const t0 = ev.touches[0]; dx = t0.clientX - x0; if (Math.abs(t0.clientY - y0) > 30) { activo = false; tr.style.transform = ''; return; } if (dx > 10) tr.style.transform = `translateX(${Math.min(dx, 140)}px)`; }, { passive: true });
+    const fin = () => { tr.style.transform = ''; const ok = activo && dx > 110; x0 = null; activo = false; if (!ok) return;
+      const p = cache.pedidos.find(x => x.id == tr.dataset.id); if (!p) return;
+      if (['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado)) return aviso(`${p.numero} ya está ${p.estado.toLowerCase()}`);
+      formEntregar(p, () => vLista()); };
+    tr.addEventListener('touchend', fin); tr.addEventListener('touchcancel', fin);
+  });
 }
 function camposLinea(prefijo = '') {
   return `<div class="campos">
