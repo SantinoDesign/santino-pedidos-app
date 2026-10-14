@@ -359,7 +359,7 @@ async function vLista() {
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
   const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : g === 'etapa' ? cache.etapas : g === 'mios' ? cache.mios : cache.bases;
   const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${setDe(grupo).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
-  const leyenda = `Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} = ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} = ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado. Los filtros se suman; sin marcar = todos. En la tablet: deslizar una fila hacia la derecha = entregar ese pedido (confirma el saldo).`;
+  const leyenda = `Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} = ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} = ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado. Los filtros se suman; sin marcar = todos. Entregar rápido: en la tablet deslizar la fila hacia la derecha; en el Mac clic derecho y arrastrar la fila hacia la derecha (si hay saldo, confirma el cobro).`;
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir filtros-v2">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
@@ -933,6 +933,15 @@ function activarDeslizarEntrega() {
       if (Number(p.saldo_por_cobrar ?? p.saldo ?? 0) > 0) return formEntregar(p, () => vLista());
       (async () => { try { await rpc('entregar_pedido', { p_pedido_id: p.id, p_cobro: 0 }); aviso(`${p.numero} entregado ✓ (pagado)`); anotarCambio(`${p.numero} entregado (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } })(); };
     tr.addEventListener('touchend', fin); tr.addEventListener('touchcancel', fin);
+    // Mac (Harold 14-oct): clic DERECHO y arrastrar hacia la derecha = entregar (el clic izquierdo sigue moviendo la tabla y abriendo el despliegue)
+    tr.addEventListener('contextmenu', ev => { if (!ev.target.closest('button, a, input, select')) ev.preventDefault(); });
+    tr.addEventListener('mousedown', ev => {
+      if (ev.button !== 2 || ev.target.closest('button, a, input, select')) return;
+      ev.preventDefault(); x0 = ev.clientX; y0 = ev.clientY; dx = 0; activo = true;
+      const mover = e => { if (!activo) return; dx = e.clientX - x0; if (Math.abs(e.clientY - y0) > 40) { activo = false; tr.style.transform = ''; return; } if (dx > 10) tr.style.transform = `translateX(${Math.min(dx, 140)}px)`; };
+      const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); fin(); };
+      window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar);
+    });
   });
 }
 function camposLinea(prefijo = '') {
