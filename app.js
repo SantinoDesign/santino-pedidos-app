@@ -395,6 +395,7 @@ function alertasPedido(p) {
   if (p.pago_pendiente && (p.total || 0) > 0) a.push(['PAGO PEND', 'pago']);
   if ((p.piezas || []).some(x => x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado)) a.push(['¿ACABADO?', 'atrasado']);
   if ((p.piezas || []).some(x => x.etapa === 'Devuelta al proveedor')) a.push(['DEVUELTA', 'atrasado']);
+  if (p.grupo && p.grupo.n > 1) a.push([`UNIDO +${p.grupo.n - 1}`, 'inst']);   // pedidos unidos con pago compartido (tanda 30)
   if ((p.piezas || []).some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.medida_texto && !/\.(MOS|LIN)\./.test(x.color || ''))) a.push(['SIN MEDIDAS', 'atrasado']);
   return a.map(([t, c]) => `<span class="chip ${c}">${t}</span>`).join(' ');
 }
@@ -558,6 +559,7 @@ function abrirDetalleFila(tr) {
       <div class="d-fila"><span>Total</span><b class="mono">${pesos(p.total)}</b></div>
       <div class="d-fila"><span>Abonado</span><b class="mono">${pesos(p.abonado)}</b> ${pctAbono(p)}</div>
       <div class="d-fila"><span>Saldo</span><b class="mono ${saldo > 0 ? 'rojo' : ''}">${saldo > 0 ? pesos(saldo) : 'pagado'}</b>${saldo > 0 ? ' <span class="chip saldo">COBRAR AL ENTREGAR</span>' : ''}${saldo > 0 && tel && !esOp ? ` <a href="#/pedido/${p.id}" title="El mensaje de saldo se arma en la ficha">mensaje de saldo</a>` : ''}</div>
+      ${p.grupo && p.grupo.n > 1 ? `<div class="d-fila"><span>Unidos</span><b>${p.grupo.numeros.map(esc).join(' · ')}</b></div><div class="d-fila"><span>Saldo grupo</span><b class="mono ${p.grupo.saldo > 0 ? 'rojo' : ''}">${p.grupo.saldo > 0 ? pesos(p.grupo.saldo) : p.grupo.saldo < 0 ? pesos(-p.grupo.saldo) + ' a favor' : 'pagado'}</b></div>` : ''}
       ${esOp ? '' : `<div class="d-fila"><span>Documento</span><b>${esc(p.documento_tributario || '-')}${p.documento_numero ? ' ' + esc(p.documento_numero) : ''}</b></div>`}
     </section>`}
     <section class="d-bloque d-piezas"><h4>Piezas (${piezas.length}) <small class="gris">toca el chip para avanzar · mantener para volver · toca el nombre para editar</small></h4>
@@ -748,6 +750,7 @@ async function vFicha(id) {
       ${movimientosHtml(p, esOp)}
       ${`<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px">${esOp ? '' : '<button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button>'}<button class="btn chico borde" id="b-abono">+ Registrar ${esOp ? 'cobro' : 'abono'}</button></span></div>
         <div class="cifras">${esOp ? `<div class="cifra"><div>Total</div><div>${pesos(p.total)}</div></div>` : `<div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div>`}<div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)} ${pctAbono(p)}</div></div><div class="cifra"><div>Saldo${esOp ? ' por cobrar' : ' (calculado)'}</div><div style="color:${(p.saldo ?? p.saldo_por_cobrar) > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo ?? p.saldo_por_cobrar)}</div></div></div>
+        ${grupoHtml(p, esOp)}
         ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Cuenta</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(cuentaNombre(a.cuenta))}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
         ${esOp ? '' : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>`}
       </section>
@@ -790,6 +793,8 @@ async function vFicha(id) {
   activarMovimientos(app, p, recargar);
   activarCompras(app, p, recargar);
   on('#b-abono', () => formAbono(p, recargar));
+  on('#b-unir', () => formUnir(p, recargar));
+  on('#b-separar', async () => { if (!confirm(`¿Separar ${p.numero} de los pedidos unidos? Sus abonos se quedan donde están.`)) return; try { await rpc('separar_pedido', { p_id: p.id }); aviso('Separado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   $$('.caso-fila').forEach(d => d.onclick = () => modalCaso(Number(d.dataset.caso)));
   { const bc = $('#b-caso'); if (bc) bc.onclick = () => formCaso({ pedido_id: p.id, cliente_id: p.cliente_id, numero: p.numero, cliente: p.cliente }); }
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
@@ -816,23 +821,58 @@ async function vFicha(id) {
     on('#b-guia', () => formGuia(p));
   }
 }
+/* Pedidos unidos (tanda 30, Harold 14-oct, Belén Ureta Studio): cada pedido sigue siendo una fila con sus piezas, entrega y guía;
+   comparten el pago. Un abono del grupo completa primero el saldo del pedido que se entrega antes y el resto pasa al siguiente. */
+function grupoHtml(p, esOp) {
+  const g = p.grupo;
+  const botones = esOp ? '' : `<span style="display:flex;gap:6px">${g && g.n > 1 ? `<button class="btn chico" id="b-unir">Unir otro pedido</button><button class="btn chico" id="b-separar">Separar este</button>` : `<button class="btn chico" id="b-unir" title="Unir este pedido con otro del mismo cliente para que compartan el pago">Unir con otro pedido</button>`}</span>`;
+  if (!g || g.n < 2) return esOp ? '' : `<div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--gris-3)"><span>Pedido sin unir.</span>${botones}</div>`;
+  return `<div class="grupo-caja"><div class="cab"><h3 style="margin:0;font-size:13px">Pedidos unidos (${g.n})${g.nombre ? ` · ${esc(g.nombre)}` : ''} <small class="gris">pago compartido: un abono completa primero el que se entrega antes</small></h3>${botones}</div>
+    <table class="lista"><thead><tr><th>Pedido</th><th>Estado</th><th>Entrega</th><th>Total</th><th>Abonado</th><th>Saldo</th></tr></thead><tbody>
+    ${g.pedidos.map(x => `<tr class="${x.id === p.id ? 'fila-actual' : ''}"><td class="nw">${x.id === p.id ? `<b>${esc(x.numero)}</b>` : `<a href="#/pedido/${x.id}">${esc(x.numero)}</a>`}</td><td>${estadoHtml(x.estado, COD_ESTADO[x.estado])}</td><td class="nw">${fecha(x.fecha)}</td><td class="mono">${pesos(x.total)}</td><td class="mono">${pesos(x.abonado)}</td><td class="mono ${x.saldo > 0 ? 'rojo' : ''}">${x.saldo > 0 ? pesos(x.saldo) : x.saldo < 0 ? pesos(-x.saldo) + ' a favor' : 'pagado'}</td></tr>`).join('')}
+    <tr class="total-row"><td colspan="3"><b>Grupo</b></td><td class="mono"><b>${pesos(g.total)}</b></td><td class="mono"><b>${pesos(g.abonado)}</b></td><td class="mono ${g.saldo > 0 ? 'rojo' : ''}"><b>${g.saldo > 0 ? pesos(g.saldo) : g.saldo < 0 ? pesos(-g.saldo) + ' a favor' : 'pagado'}</b></td></tr></tbody></table></div>`;
+}
+function formUnir(p, despues) {
+  modal(`<h2>Unir ${esc(p.numero)} con otro pedido</h2><div class="gris" style="font-size:12px">Los pedidos unidos siguen siendo filas separadas (cada uno con sus piezas, su entrega y su guía) y comparten el pago. Deben ser del mismo cliente (${esc(p.cliente)}).</div><form id="f-unir"><div class="campos">
+    <label class="campo">Número del otro pedido (W3129, #2079; varios separados por coma) <input name="numeros" required placeholder="W3129, W3130"></label>
+    <label class="campo">Nombre del grupo (opcional) <input name="nombre" placeholder="ej. sofás oficina"></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Unir</button></div></form>`);
+  $('#f-unir').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
+    const nums = String(f.get('numeros') || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+    const { data, error } = await sb.from('pedido').select('id, numero').in('numero', nums); if (error) throw error;
+    const falta = nums.filter(n => !(data || []).some(d => d.numero === n)); if (falta.length) throw new Error('No existe: ' + falta.join(', '));
+    const g = await rpc('unir_pedidos', { p_ids: [p.id, ...data.map(d => d.id)], p_nombre: f.get('nombre') || null });
+    cerrarModal(); aviso(`Unidos: ${g.numeros.join(', ')}`); despues();
+  } catch (e) { aviso(errorDe(e), true); } };
+}
 async function formAbono(p, despues) {
   await cargarModelos();
-  modal(`<h2>Registrar abono · ${esc(p.numero)}</h2><form id="f"><div class="campos">
-    <label class="campo">Monto (negativo = devolución) <input name="monto" type="number" required value="${(p.saldo ?? p.saldo_por_cobrar) > 0 ? (p.saldo ?? p.saldo_por_cobrar) : ''}"></label>
+  const g = p.grupo && p.grupo.n > 1 ? p.grupo : null; const saldoP = (p.saldo ?? p.saldo_por_cobrar) || 0;
+  modal(`<h2>Registrar ${yo.rol === 'operacion' ? 'cobro' : 'abono'} · ${esc(p.numero)}</h2><form id="f">
+    ${g ? `<div class="entrega-cobro" style="margin-bottom:8px"><label><input type="radio" name="alcance" value="grupo" checked> Repartir entre los pedidos unidos (${esc(g.numeros.join(', '))}): completa primero el que se entrega antes · saldo del grupo ${pesos(g.saldo)}</label><label><input type="radio" name="alcance" value="pedido"> Solo este pedido (${esc(p.numero)}, saldo ${pesos(saldoP)})</label></div>` : ''}
+    <div class="campos">
+    <label class="campo">Monto (negativo = devolución) <input name="monto" type="number" required value="${g ? (g.saldo > 0 ? g.saldo : '') : (saldoP > 0 ? saldoP : '')}"></label>
     <label class="campo">Medio <select name="medio"><option>Transferencia</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option><option>Efectivo</option><option>Shopify</option></select></label>
     <label class="campo">Cuenta a la que pagó <select name="cuenta"><option value="">(sin anotar)</option>${cuentasOpciones()}</select></label>
     <label class="campo">Fecha <input name="fecha" type="date" value="${hoyISO()}"></label>
     <label class="campo">Referencia <input name="ref" placeholder="N° de operación, NC, nota"></label>
     <label class="campo">Comprobante (imagen o PDF) <input name="archivo" type="file" accept="image/*,.pdf"></label></div>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $$('input[name=alcance]').forEach(r => r.onchange = () => { const m = $('input[name=monto]'); const v = $('input[name=alcance]:checked').value; m.value = v === 'grupo' ? (g.saldo > 0 ? g.saldo : '') : (saldoP > 0 ? saldoP : ''); });
   $('#f').onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target); let url = null;
     try {
       const a = f.get('archivo');
       if (a && a.size) { const path = `${p.id}/comprobante_${Date.now()}_${a.name.replace(/[^\w.\-]/g, '_')}`; const { error } = await sb.storage.from('documentos').upload(path, a); if (error) throw error; await sb.from('documento').insert({ pedido_id: p.id, tipo: 'Comprobante', nombre: a.name, storage_path: path, subido_por: yo.nombre }); url = path; }
-      const r = await rpc('registrar_abono', { p_pedido_id: p.id, p_monto: Number(f.get('monto')), p_medio: f.get('medio'), p_fecha: f.get('fecha'), p_referencia: f.get('ref') || null, p_comprobante_url: url, p_cuenta: f.get('cuenta') || null });
-      aviso(`Abono registrado · saldo ${pesos(r.saldo)}`); cerrarModal(); despues();
+      const monto = Number(f.get('monto'));
+      if (g && f.get('alcance') === 'grupo' && monto > 0) {
+        const r = await rpc('registrar_abono_grupo', { p_grupo_id: g.id, p_monto: monto, p_medio: f.get('medio'), p_fecha: f.get('fecha'), p_referencia: f.get('ref') || null, p_cuenta: f.get('cuenta') || null, p_comprobante_url: url });
+        aviso(`Abono repartido: ${r.reparto.map(x => x.numero + ' ' + pesos(x.monto) + (x.excedente ? ' (excedente)' : '')).join(' · ')} · saldo del grupo ${pesos(r.grupo.saldo)}`);
+      } else {
+        const r = await rpc('registrar_abono', { p_pedido_id: p.id, p_monto: monto, p_medio: f.get('medio'), p_fecha: f.get('fecha'), p_referencia: f.get('ref') || null, p_comprobante_url: url, p_cuenta: f.get('cuenta') || null });
+        aviso(`Abono registrado · saldo ${pesos(r.saldo)}`);
+      }
+      cerrarModal(); despues();
     } catch (e) { aviso(errorDe(e), true); }
   };
 }
@@ -861,8 +901,9 @@ async function formEntregar(p, despues) {
   const saldo = Number(p.saldo_por_cobrar ?? p.saldo ?? 0);
   modal(`<h2>Entregar · ${esc(p.numero)} · ${esc(p.cliente)}</h2><form id="f">
     ${saldo > 0 ? `<div style="padding:10px;border-radius:8px;background:var(--ambar);color:var(--ambar-txt);font-weight:700">Saldo pendiente ${pesos(saldo)}. ¿Se cobró en la entrega?</div>
-    <div class="entrega-cobro"><label><input type="radio" name="cobro" value="si" checked> Sí, se cobró ${pesos(saldo)}</label><label><input type="radio" name="cobro" value="no"> No, entregar con el saldo pendiente</label></div>
-    <div class="campos" id="e-cobro"><label class="campo">Medio <select name="medio"><option>Transferencia</option><option>Efectivo</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option></select></label><label class="campo">Cuenta a la que pagó <select name="cuenta"><option value="">(sin anotar)</option>${cuentasOpciones()}</select></label></div>` : '<div><span class="chip ok">PAGADO</span> <span class="gris" style="font-size:12px">sin saldo pendiente</span></div>'}
+    <div class="entrega-cobro"><label><input type="radio" name="cobro" value="si" checked> Sí, se cobró</label><label><input type="radio" name="cobro" value="no"> No, entregar con el saldo pendiente</label></div>
+    ${p.grupo && p.grupo.n > 1 ? `<div class="gris" style="font-size:12px">Pedidos unidos (${esc(p.grupo.numeros.join(', '))}): saldo del grupo ${pesos(p.grupo.saldo)}. Lo que se cobre de más de ${pesos(saldo)} se aplica al siguiente pedido unido.</div>` : ''}
+    <div class="campos" id="e-cobro"><label class="campo">Monto cobrado <input name="monto" type="number" min="0" value="${saldo}"></label><label class="campo">Medio <select name="medio"><option>Transferencia</option><option>Efectivo</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option></select></label><label class="campo">Cuenta a la que pagó <select name="cuenta"><option value="">(sin anotar)</option>${cuentasOpciones()}</select></label></div>` : '<div><span class="chip ok">PAGADO</span> <span class="gris" style="font-size:12px">sin saldo pendiente</span></div>'}
     <label class="campo">Foto de entrega (opcional) <input name="foto" type="file" accept="image/*" capture="environment"></label>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">${saldo > 0 ? 'Aceptar y marcar ENTREGADO' : 'Marcar ENTREGADO'}</button></div></form>`);
   $$('input[name=cobro]').forEach(r => r.onchange = () => { const c = $('#e-cobro'); if (c) c.style.display = $('input[name=cobro]:checked').value === 'si' ? '' : 'none'; });
@@ -871,8 +912,9 @@ async function formEntregar(p, despues) {
     const cobra = saldo > 0 && f.get('cobro') === 'si';
     try {
       if (foto && foto.size) { const path = `entregas/${p.id}_${Date.now()}.jpg`; const { error } = await sb.storage.from('documentos').upload(path, foto, { contentType: foto.type || 'image/jpeg' }); if (error) throw error; url = path; }
-      const r = await rpc('entregar_pedido', { p_pedido_id: p.id, p_cobro: cobra ? saldo : 0, p_medio: cobra ? f.get('medio') : 'Transferencia', p_cuenta: cobra ? (f.get('cuenta') || null) : null, p_foto_url: url });
-      aviso(`${p.numero} entregado ✓${cobra ? ' · cobrado ' + pesos(saldo) : r.saldo > 0 ? ' · queda saldo ' + pesos(r.saldo) : ''}`); cerrarModal(); despues();
+      const cobrado = cobra ? Number(f.get('monto') || saldo) : 0;
+      const r = await rpc('entregar_pedido', { p_pedido_id: p.id, p_cobro: cobrado, p_medio: cobra ? f.get('medio') : 'Transferencia', p_cuenta: cobra ? (f.get('cuenta') || null) : null, p_foto_url: url });
+      aviso(`${p.numero} entregado ✓${cobra ? ' · cobrado ' + pesos(cobrado) : ''}${r.saldo > 0 ? ' · queda saldo ' + pesos(r.saldo) : ''}${r.reparto && r.reparto.length ? ' · ' + r.reparto.map(x => x.numero + ' ' + pesos(x.monto)).join(', ') : ''}`); cerrarModal(); despues();
     } catch (e) { aviso(errorDe(e), true); }
   };
 }

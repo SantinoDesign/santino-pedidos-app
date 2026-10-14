@@ -421,3 +421,7 @@ table.lista tr.fila-caso{cursor:pointer}table.lista tr.fila-caso:hover td{backgr
 /* Entrega con cobro (tanda 29) y deslizar fila en la tablet */
 .entrega-cobro{display:flex;flex-direction:column;gap:6px;font-size:14px}.entrega-cobro label{display:flex;gap:8px;align-items:center}
 table.lista tr.fila{transition:transform .08s linear}
+
+/* Pedidos unidos (tanda 30) */
+.grupo-caja{border:1px solid var(--azul-claro);border-radius:8px;padding:8px 10px;background:#F7FBFC;display:flex;flex-direction:column;gap:6px}
+.grupo-caja table.lista{font-size:12px}.grupo-caja tr.fila-actual td{background:var(--azul-suave)}.grupo-caja tr.total-row td{border-top:2px solid var(--azul-claro)}
