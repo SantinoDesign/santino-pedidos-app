@@ -792,13 +792,13 @@ async function vFicha(id) {
   activarProgramar(app, p, recargar);
   activarMovimientos(app, p, recargar);
   activarCompras(app, p, recargar);
-  on('#b-abono', () => formAbono(p, recargar));
-  on('#b-unir', () => formUnir(p, recargar));
-  on('#b-separar', async () => { if (!confirm(`¿Separar ${p.numero} de los pedidos unidos? Sus abonos se quedan donde están.`)) return; try { await rpc('separar_pedido', { p_id: p.id }); aviso('Separado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   $$('.caso-fila').forEach(d => d.onclick = () => modalCaso(Number(d.dataset.caso)));
   { const bc = $('#b-caso'); if (bc) bc.onclick = () => formCaso({ pedido_id: p.id, cliente_id: p.cliente_id, numero: p.numero, cliente: p.cliente }); }
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+  on('#b-abono', () => formAbono(p, recargar));
+  on('#b-unir', () => formUnir(p, recargar));
+  on('#b-separar', async () => { if (!confirm(`¿Separar ${p.numero} de los pedidos unidos? Sus abonos se quedan donde están.`)) return; try { await rpc('separar_pedido', { p_id: p.id }); aviso('Separado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-prop', async () => { const f = $('#f-prop').value; if (!f) return aviso('Elige una fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: Number(id), p_fecha: f }); aviso('Propuesta guardada; Harold envía el mensaje'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-conf', async () => { try { await rpc('confirmar_despacho', { p_pedido_id: Number(id), p_fecha: $('#f-prop').value || null }); aviso('Despacho programado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
