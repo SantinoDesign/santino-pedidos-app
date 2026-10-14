@@ -353,6 +353,7 @@ const PENDIENTES_MIOS = {
 /* ---------- Harold · Lista densa ---------- */
 async function vLista() {
   const esOp = yo.rol === 'operacion';
+  { const q = location.hash.split('?')[1]; const mq = q && q.match(/q=([^&]+)/); if (mq) { cache.busqueda = decodeURIComponent(mq[1]); cache.filtro = 'todos'; history.replaceState(null, '', esOp ? '#/taller' : '#/lista'); } }
   await cargarPedidos();
   if (!['pendientes', 'entregados', 'todos'].includes(cache.filtro)) cache.filtro = 'pendientes';
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
@@ -419,7 +420,7 @@ function pintarLista() {
       <td colspan="4"><div class="l1">${esc(m.nota || m.tipo)}</div><div class="l2">${esc(m.direccion || p.direccion || 'dirección pendiente')}</div></td>
       <td class="c-ent fecha-mov" data-mov-id="${m.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(m)}</td><td class="c-com">${dos(p.comuna || '', '')}</td>
       ${celdas ? '' : '<td class="c-pz"></td>'}<td class="c-saldo"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td></tr>`;
-  const feP = p => p.fecha_comprometida || p.fecha_estimada || '9999';
+  const feP = p => cache.filtro === 'entregados' && p.entregado_en ? String(p.entregado_en).slice(0, 10) : (p.fecha_comprometida || p.fecha_estimada || '9999');   // entregados: por fecha de entrega real
   const ids = new Set(lista.map(p => p.id));
   const entradas = lista.map(p => ({ k: feP(p), p }));
   // Un pedido SIN piezas de taller (postventa: visita técnica, retiro) se muestra como una sola fila con su movimiento adentro, en la fecha del movimiento (Harold 13-oct, W3142)
@@ -428,17 +429,17 @@ function pintarLista() {
   entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha; } });
   if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => ids.has(m.pedido_id) && !sinPiezas(lista.find(p => p.id === m.pedido_id))).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
   else lista.forEach(p => movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })));
-  entradas.sort((a, b) => String(a.k).localeCompare(String(b.k)));
+  entradas.sort((a, b) => cache.filtro === 'entregados' ? String(b.k).localeCompare(String(a.k)) : String(a.k).localeCompare(String(b.k)));   // entregados: el último entregado arriba (Harold 14-oct)
   let semAct = null;
   const cuerpo = entradas.map(({ p, m, k, mp }) => {
     let sep = '';
-    if (cache.filtro === 'pendientes' && k !== '9999') { const sw = semanaDe(k); if (sw !== semAct) { semAct = sw; sep = `<tr class="semana"><td colspan="${nCols}">${sw}</td></tr>`; } }
+    if ((cache.filtro === 'pendientes' || cache.filtro === 'entregados') && k !== '9999') { const sw = semanaDe(k); if (sw !== semAct) { semAct = sw; sep = `<tr class="semana"><td colspan="${nCols}">${sw}</td></tr>`; } }
     else if (cache.filtro === 'pendientes' && k === '9999' && semAct !== 'sin') { semAct = 'sin'; sep = `<tr class="semana"><td colspan="${nCols}">Sin fecha de entrega</td></tr>`; }
     if (m) return sep + filaMov(m, p);
     const r = rasgos(p);
     const envio = (p.tipo_entrega === 'Despacho regiones' ? 'Regiones' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro en taller' : 'RM') + (p.instalacion ? ' + instalación' : '');
     const fe = feP(p); const atraso = p.atrasado ? Math.max(1, Math.round((new Date(hoy) - new Date(fe)) / 864e5)) : 0;
-    const ent = fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.despacho_propuesto && p.estado !== 'DESPACHO PROGRAMADO' ? `<div class="l2 propone">Alexis propone ${fecha(p.despacho_propuesto)}</div>` : p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.fecha_comprometida ? '<div class="l2">comprometida</div>' : '<div class="l2">aprox. (+21 d)</div>'}`;
+    const ent = cache.filtro === 'entregados' ? (p.entregado_en ? `<div class="l1">${fecha(fe)}</div><div class="l2">entregado</div>` : '<span class="sin-fecha">sin fecha de entrega</span>') : fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.despacho_propuesto && p.estado !== 'DESPACHO PROGRAMADO' ? `<div class="l2 propone">Alexis propone ${fecha(p.despacho_propuesto)}</div>` : p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.fecha_comprometida ? '<div class="l2">comprometida</div>' : '<div class="l2">aprox. (+21 d)</div>'}`;
     const cubL1 = r.parcial === 'solo bases' ? '-' : [r.cub.material_cubierta ? codMaterial(r.cub.material_cubierta) : '', r.cub.espesor_mm ? num(r.cub.espesor_mm) + ' mm' : ''].filter(Boolean).join(' · ') || (celdas && r.cub.area ? (r.cub.tipo === 'Servicio' ? 'Instalación' : r.cub.tipo) : '-');
     const cubL2 = r.cubierta2.slice(1).filter(Boolean).join(' · ');
     const conBase = r.base.tipo || ['Cubierta', 'Mesa'].includes(r.cub.tipo);  // un mueble, banca o servicio no tiene base: la celda queda vacía
@@ -1138,11 +1139,17 @@ async function vPanel() {
 
 /* ---------- Harold · Clientes y Bandeja ---------- */
 async function vClientes() {
-  const [{ data }, { data: casosCli }] = await Promise.all([sb.from('v_cliente').select('*').order('ultima_compra', { ascending: false, nullsFirst: false }).limit(300), sb.from('v_caso').select('cliente_id, estado')]);
+  // Harold 14-oct: "antes teníamos la hoja de entregados; Clientes debe ir quedando por orden de entrega, el último entregado arriba, y desde ahí abrir su ficha"
+  const [{ data }, { data: casosCli }] = await Promise.all([sb.from('v_cliente').select('*').order('ultima_entrega', { ascending: false, nullsFirst: false }).order('ultima_compra', { ascending: false, nullsFirst: false }).limit(400), sb.from('v_caso').select('cliente_id, estado')]);
   const casosDe = {}; (casosCli || []).forEach(c => { const k = casosDe[c.cliente_id] = casosDe[c.cliente_id] || { n: 0, ab: 0 }; k.n++; if (c.estado !== 'Cerrado') k.ab++; });
-  app.innerHTML = barra('#/clientes') + `<div class="sub"><label>Buscar <input type="search" id="b" style="width:240px"></label><span style="color:var(--gris-3)">${data.length} clientes</span></div><div class="contenido"><div class="tabla-env"><table class="lista"><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th>Correo</th><th>Comuna</th><th>Pedidos</th><th>Total comprado</th><th>Última compra</th><th>Casos</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
-  const pintar = () => { const t = $('#b').value.toLowerCase(); $('#tb').innerHTML = data.filter(c => !t || [c.nombre, c.telefono, c.email, c.empresa].join(' ').toLowerCase().includes(t)).map(c => `<tr><td class="nw"><strong>${esc(c.nombre)}</strong>${c.empresa && c.empresa !== c.nombre ? ' · ' + esc(c.empresa) : ''}</td><td>${esc(c.tipo_cliente)}</td><td class="nw">${esc(c.telefono || '')}</td><td>${esc(c.email || '')}</td><td>${esc(c.comuna || '')}</td><td>${c.pedidos}</td><td class="mono">${pesos(c.total_comprado)}</td><td class="nw">${fecha(c.ultima_compra)}</td><td class="nw">${casosDe[c.id] ? `<a href="#/casos?cliente=${c.id}">${casosDe[c.id].n}${casosDe[c.id].ab ? ` <span class="chip caso-Abierto">${casosDe[c.id].ab} abierto${casosDe[c.id].ab > 1 ? 's' : ''}</span>` : ''}</a>` : ''}</td></tr>`).join(''); };
-  $('#b').oninput = pintar; pintar();
+  cache.clientesOrden = cache.clientesOrden || 'entrega';
+  app.innerHTML = barra('#/clientes') + `<div class="sub"><label>Buscar <input type="search" id="b" style="width:240px" placeholder="nombre, teléfono, correo, empresa"></label>
+    <label>Orden <select id="o"><option value="entrega" ${cache.clientesOrden === 'entrega' ? 'selected' : ''}>Última entrega (reciente arriba)</option><option value="compra" ${cache.clientesOrden === 'compra' ? 'selected' : ''}>Última compra</option><option value="nombre" ${cache.clientesOrden === 'nombre' ? 'selected' : ''}>Nombre</option></select></label>
+    <span style="color:var(--gris-3)">${data.length} clientes · la fecha de entrega abre la ficha del último pedido entregado</span></div><div class="contenido"><div class="tabla-env"><table class="lista"><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th>Comuna</th><th>Pedidos</th><th>Pendientes</th><th>Total comprado</th><th>Última compra</th><th>Última entrega</th><th>Casos</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
+  const pintar = () => { const t = $('#b').value.toLowerCase(); const o = cache.clientesOrden;
+    const lista = data.filter(c => !t || [c.nombre, c.telefono, c.email, c.empresa].join(' ').toLowerCase().includes(t)).sort((a, b) => o === 'nombre' ? String(a.nombre).localeCompare(String(b.nombre)) : o === 'compra' ? String(b.ultima_compra || '').localeCompare(String(a.ultima_compra || '')) : String(b.ultima_entrega || '').localeCompare(String(a.ultima_entrega || '')) || String(b.ultima_compra || '').localeCompare(String(a.ultima_compra || '')));
+    $('#tb').innerHTML = lista.map(c => `<tr><td class="nw"><strong>${esc(c.nombre)}</strong>${c.empresa && c.empresa !== c.nombre ? ' · ' + esc(c.empresa) : ''}<div class="l2"><a href="#/lista?q=${encodeURIComponent(c.nombre)}" title="Ver todos sus pedidos en la Lista">ver pedidos</a>${c.email ? ' · ' + esc(c.email) : ''}</div></td><td>${esc(c.tipo_cliente)}</td><td class="nw">${esc(c.telefono || '')}</td><td>${esc(c.comuna || '')}</td><td>${c.pedidos}</td><td>${c.pendientes ? `<span class="chip inst">${c.pendientes}</span>` : ''}</td><td class="mono">${pesos(c.total_comprado)}</td><td class="nw">${fecha(c.ultima_compra)}</td><td class="nw">${c.ultima_entrega ? `<a href="#/pedido/${c.ultimo_entregado_id}" title="Abrir la ficha del último pedido entregado">${fecha(c.ultima_entrega)}</a>` : '<span class="gris">-</span>'}</td><td class="nw">${casosDe[c.id] ? `<a href="#/casos?cliente=${c.id}">${casosDe[c.id].n}${casosDe[c.id].ab ? ` <span class="chip caso-Abierto">${casosDe[c.id].ab} abierto${casosDe[c.id].ab > 1 ? 's' : ''}</span>` : ''}</a>` : ''}</td></tr>`).join(''); };
+  $('#b').oninput = pintar; $('#o').onchange = ev => { cache.clientesOrden = ev.target.value; pintar(); }; pintar();
 }
 async function vBandeja() {
   const { data } = await sb.from('v_bandeja').select('*').order('creado_en', { ascending: false });
