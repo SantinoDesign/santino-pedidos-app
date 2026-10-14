@@ -886,7 +886,9 @@ function activarDeslizarEntrega() {
     const fin = () => { tr.style.transform = ''; const ok = activo && dx > 110; x0 = null; activo = false; if (!ok) return;
       const p = cache.pedidos.find(x => x.id == tr.dataset.id); if (!p) return;
       if (['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado)) return aviso(`${p.numero} ya está ${p.estado.toLowerCase()}`);
-      formEntregar(p, () => vLista()); };
+      // Harold 14-oct: la ventana solo cuando hay saldo pendiente; sin saldo, el deslizar entrega directo (con Deshacer)
+      if (Number(p.saldo_por_cobrar ?? p.saldo ?? 0) > 0) return formEntregar(p, () => vLista());
+      (async () => { try { await rpc('entregar_pedido', { p_pedido_id: p.id, p_cobro: 0 }); aviso(`${p.numero} entregado ✓ (pagado)`); anotarCambio(`${p.numero} entregado (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } })(); };
     tr.addEventListener('touchend', fin); tr.addEventListener('touchcancel', fin);
   });
 }
