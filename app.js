@@ -57,7 +57,7 @@ const TONOS_VIDRIO = ['INCOLORO', 'HUMO', 'BRONCE', 'ESPEJADO'];   // solo en pr
 async function cargarModelos() {
   if (cache.modelos) return;
   const { data: cods } = await sb.from('codigo').select('*');
-  cache.codigos = { material: {}, color: {} }; (cods || []).forEach(c => { cache.codigos[c.tipo][c.codigo] = c; });
+  cache.codigos = { material: {}, color: {}, cuenta: {} }; (cods || []).forEach(c => { (cache.codigos[c.tipo] = cache.codigos[c.tipo] || {})[c.codigo] = c; });  // 'cuenta' = a qué cuenta abona el cliente (0033)
   const { data } = await sb.from('modelo').select('codigo,nombre,area_base,bultos,base_negro,material_base');
   cache.modelos = Object.fromEntries((data || []).map(m => [m.codigo, m.area_base]));
   cache.modelosBultos = Object.fromEntries((data || []).map(m => [m.codigo, m.bultos]));
@@ -278,7 +278,7 @@ window.addEventListener('hashchange', () => { if (yo) render(); });
 function barra(activa) {
   const links = yo.rol === 'operacion'
     ? [['#/taller', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ...(yo.ve_compras ? [['#/compras', 'Compras']] : [])]
-    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/bandeja', 'Bandeja']];
+    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
   return `<div class="barra"><a class="marca" href="${links[0][0]}" title="Santino Design · Pedidos"><img src="logo.png" alt="Santino Design" class="logo-barra"></a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
 }
 async function render() {
@@ -291,6 +291,7 @@ async function render() {
     else if (h === '#/tablero' && !esOp) await vTablero();
     else if (h === '#/panel' && !esOp) await vPanel();
     else if (h === '#/clientes' && !esOp) await vClientes();
+    else if (h.startsWith('#/casos')) await vCasos();
     else if (h === '#/bandeja' && !esOp) await vBandeja();
     else if (h === '#/ruta') await vRuta();
     else if (h === '#/compras' && (!esOp || yo.ve_compras)) await vCompras();
@@ -553,7 +554,7 @@ function abrirDetalleFila(tr) {
     </section>
     ${esOp ? `<section class="d-bloque d-dinero"><h4>Pago</h4>${saldo > 0 ? `<div><span class="chip saldo">COBRAR ${pesos(saldo)} AL ENTREGAR</span></div>` : '<div><span class="chip ok">PAGADO</span></div>'}</section>` : `<section class="d-bloque d-dinero"><h4>Pago</h4>
       <div class="d-fila"><span>Total</span><b class="mono">${pesos(p.total)}</b></div>
-      <div class="d-fila"><span>Abonado</span><b class="mono">${pesos(p.abonado)}</b></div>
+      <div class="d-fila"><span>Abonado</span><b class="mono">${pesos(p.abonado)}</b> ${pctAbono(p)}</div>
       <div class="d-fila"><span>Saldo</span><b class="mono ${saldo > 0 ? 'rojo' : ''}">${pesos(saldo)}</b>${saldo > 0 && tel ? ` <a href="#/pedido/${p.id}" title="El mensaje de saldo se arma en la ficha">mensaje de saldo</a>` : ''}</div>
       <div class="d-fila"><span>Documento</span><b>${esc(p.documento_tributario || '-')}${p.documento_numero ? ' ' + esc(p.documento_numero) : ''}</b></div>
     </section>`}
@@ -707,13 +708,16 @@ async function vFicha(id) {
   const esOp = yo.rol === 'operacion';
   const vista = esOp ? 'v_pedido_operacion' : 'v_pedido';
   const { data: p, error } = await sb.from(vista).select('*').eq('id', id).maybeSingle(); if (error) throw error;
+  await cargarModelos();
   if (!p) { app.innerHTML = barra('') + `<div class="contenido"><div class="seccion">Este pedido no está disponible en tu vista.</div></div>`; return; }
-  const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }, { data: movs }] = await Promise.all([
+  const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }, { data: movs }, { data: casos }, { data: garantia }] = await Promise.all([
     sb.from('documento').select('*').eq('pedido_id', id).order('subido_en', { ascending: false }),
     esOp ? Promise.resolve({ data: [] }) : sb.from('historial').select('*').eq('pedido_id', id).order('cuando', { ascending: false }).limit(60),
     esOp ? Promise.resolve({ data: [] }) : sb.from('abono').select('*').eq('pedido_id', id).order('fecha'),
     sb.from('guia_despacho').select('*').eq('pedido_id', id).order('numero', { ascending: false }),
     sb.from('movimiento').select('*').eq('pedido_id', id).order('fecha'),
+    sb.from('v_caso').select('*').eq('pedido_id', id).order('abierto_en', { ascending: false }),
+    p.estado === 'ENTREGADO' ? sb.rpc('garantia_de', { p_id: Number(id) }) : Promise.resolve({ data: null }),
   ]);
   p.movimientos = movs || [];
   const r = rasgos(p); const aMedida = A_MEDIDA.includes(p.tipo_pedido);
@@ -741,10 +745,11 @@ async function vFicha(id) {
       </section>
       ${movimientosHtml(p, esOp)}
       ${esOp ? '' : `<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px"><button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button><button class="btn chico borde" id="b-abono">+ Registrar abono</button></span></div>
-        <div class="cifras"><div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div><div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)}</div></div><div class="cifra"><div>Saldo (calculado)</div><div style="color:${p.saldo > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo)}</div></div></div>
-        ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
+        <div class="cifras"><div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div><div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)} ${pctAbono(p)}</div></div><div class="cifra"><div>Saldo (calculado)</div><div style="color:${p.saldo > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo)}</div></div></div>
+        ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Cuenta</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(cuentaNombre(a.cuenta))}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>
       </section>
+      ${esOp && !(casos || []).length ? '' : casosFichaHtml(casos || [], esOp)}
       <section class="seccion"><div class="cab"><h2>Guías de despacho</h2><button class="btn chico borde" id="b-guia">+ Nueva guía de despacho</button></div>
         ${(guias || []).length ? `<div class="docs">${guias.map(g => `<div class="doc"><span>Guía N° ${g.numero}${g.anulada ? ' (anulada)' : ''}<div class="tipo">${fecha(g.fecha)} · ${g.bultos} bulto${g.bultos > 1 ? 's' : ''} · ${esc(g.modalidad)} · ${esc(g.estado_pago)} · ${esc(g.emitida_por)}</div></span><a class="btn chico" href="#/guia/${g.id}">Ver / imprimir</a></div>`).join('')}</div>` : '<div style="color:var(--gris-3);font-size:13px">Sin guías emitidas. El correlativo sigue en la base (siguiente: el que muestre el formulario).</div>'}
       </section>
@@ -764,6 +769,7 @@ async function vFicha(id) {
         ${p.direccion_entrega || p.comuna_entrega ? `<div class="fila-dato"><span>Dirección de entrega</span><span>${esc([p.direccion_entrega, p.comuna_entrega].filter(Boolean).join(', '))}</span></div>` : ''}
         <div class="fila-dato"><span>Nota de entrega</span><span>${esc(p.nota_entrega || '-')}</span></div>
         ${p.cotizacion_numero ? `<div class="fila-dato"><span>Cotización</span><span>${esc(p.cotizacion_numero)}</span></div>` : ''}
+        ${garantia ? garantiaHtml(garantia) : ''}
         ${p.estado === 'POR FABRICAR' ? `<div class="fila-dato"><span>Prioridad</span><span>${p.prioridad || '-'} en cola</span></div>` : ''}
         ${esOp && p.saldo_por_cobrar > 0 ? `<div style="padding:10px;border-radius:8px;background:var(--ambar);color:var(--ambar-txt);font-weight:700">Cobrar ${pesos(p.saldo_por_cobrar)} al entregar</div>` : ''}
       </section>
@@ -781,6 +787,8 @@ async function vFicha(id) {
   activarProgramar(app, p, recargar);
   activarMovimientos(app, p, recargar);
   activarCompras(app, p, recargar);
+  $$('.caso-fila').forEach(d => d.onclick = () => modalCaso(Number(d.dataset.caso)));
+  { const bc = $('#b-caso'); if (bc) bc.onclick = () => formCaso({ pedido_id: p.id, cliente_id: p.cliente_id, numero: p.numero, cliente: p.cliente }); }
   $$('[data-ver]').forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
   on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
@@ -805,10 +813,12 @@ async function vFicha(id) {
     on('#b-guia', () => formGuia(p));
   }
 }
-function formAbono(p, despues) {
+async function formAbono(p, despues) {
+  await cargarModelos();
   modal(`<h2>Registrar abono · ${esc(p.numero)}</h2><form id="f"><div class="campos">
     <label class="campo">Monto (negativo = devolución) <input name="monto" type="number" required value="${p.saldo > 0 ? p.saldo : ''}"></label>
     <label class="campo">Medio <select name="medio"><option>Transferencia</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option><option>Efectivo</option><option>Shopify</option></select></label>
+    <label class="campo">Cuenta a la que pagó <select name="cuenta"><option value="">(sin anotar)</option>${cuentasOpciones()}</select></label>
     <label class="campo">Fecha <input name="fecha" type="date" value="${hoyISO()}"></label>
     <label class="campo">Referencia <input name="ref" placeholder="N° de operación, NC, nota"></label>
     <label class="campo">Comprobante (imagen o PDF) <input name="archivo" type="file" accept="image/*,.pdf"></label></div>
@@ -818,7 +828,7 @@ function formAbono(p, despues) {
     try {
       const a = f.get('archivo');
       if (a && a.size) { const path = `${p.id}/comprobante_${Date.now()}_${a.name.replace(/[^\w.\-]/g, '_')}`; const { error } = await sb.storage.from('documentos').upload(path, a); if (error) throw error; await sb.from('documento').insert({ pedido_id: p.id, tipo: 'Comprobante', nombre: a.name, storage_path: path, subido_por: yo.nombre }); url = path; }
-      const r = await rpc('registrar_abono', { p_pedido_id: p.id, p_monto: Number(f.get('monto')), p_medio: f.get('medio'), p_fecha: f.get('fecha'), p_referencia: f.get('ref') || null, p_comprobante_url: url });
+      const r = await rpc('registrar_abono', { p_pedido_id: p.id, p_monto: Number(f.get('monto')), p_medio: f.get('medio'), p_fecha: f.get('fecha'), p_referencia: f.get('ref') || null, p_comprobante_url: url, p_cuenta: f.get('cuenta') || null });
       aviso(`Abono registrado · saldo ${pesos(r.saldo)}`); cerrarModal(); despues();
     } catch (e) { aviso(errorDe(e), true); }
   };
@@ -945,11 +955,12 @@ async function formEditarEntrega(p, despues) {
     <label class="campo">Dirección de entrega (vacía = la del cliente) <input name="direccion_entrega" value="${esc(p.direccion_entrega || '')}" placeholder="${esc(p.direccion || '')}"></label>
     <label class="campo">Comuna de entrega (vacía = la del cliente) <select name="comuna_entrega">${op}</select></label>
     <label class="campo">Nota de entrega <input name="nota_entrega" value="${esc(p.nota_entrega || '')}"></label>
+    <label class="campo">Fecha de entrega real (garantía; vacía = sin entregar) <input name="entregado_en" type="date" value="${p.entregado_en ? String(p.entregado_en).slice(0, 10) : ''}"></label>
     <label class="campo">Cotización N° <input name="cotizacion_numero" value="${esc(p.cotizacion_numero || '')}" placeholder="Cot 3370"></label>
     <label class="campo">Origen <select name="origen">${['WhatsApp', 'Instagram', 'Shopify', 'Fábrica', 'Tienda', 'Cliente directo', 'Correo', 'Colaborador', 'Interno'].map(t => `<option ${t === p.origen ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f-ent').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const v = k => (f.get(k) || '').trim() || null;
-    const cambios = { fecha_compra: v('fecha_compra'), fecha_comprometida: v('fecha_comprometida'), tipo_entrega: v('tipo_entrega'), instalacion: f.get('instalacion') === 'on', direccion_entrega: v('direccion_entrega'), comuna_entrega: v('comuna_entrega'), nota_entrega: v('nota_entrega'), cotizacion_numero: v('cotizacion_numero'), origen: v('origen') };
+    const cambios = { fecha_compra: v('fecha_compra'), fecha_comprometida: v('fecha_comprometida'), tipo_entrega: v('tipo_entrega'), instalacion: f.get('instalacion') === 'on', direccion_entrega: v('direccion_entrega'), comuna_entrega: v('comuna_entrega'), nota_entrega: v('nota_entrega'), cotizacion_numero: v('cotizacion_numero'), origen: v('origen'), entregado_en: v('entregado_en') ? v('entregado_en') + 'T12:00:00' : null };
     const { error } = await sb.from('pedido').update(cambios).eq('id', p.id); if (error) return aviso(errorDe(error), true);
     cerrarModal(); aviso('Entrega guardada'); despues(); };
 }
@@ -1028,10 +1039,11 @@ async function formPedido() {
 
 /* ---------- Harold · Panel ---------- */
 async function vPanel() {
-  const [{ data: meses }, { data: atrasados }, { data: delMes }] = await Promise.all([
+  const [{ data: meses }, { data: atrasados }, { data: delMes }, { data: casosAb }] = await Promise.all([
     sb.from('v_panel_mes').select('*').order('mes'),
     sb.from('v_pedido').select('id,numero,cliente,dias_atraso,saldo,estado,tipo_entrega').eq('atrasado', true).order('dias_atraso', { ascending: false }),
     sb.from('v_pedido').select('origen,tipo_cliente,total,tipo_pedido,pago_pendiente,estado').gte('fecha_compra', hoyISO().slice(0, 8) + '01'),
+    sb.from('v_caso').select('id,tipo,sin_movimiento').neq('estado', 'Cerrado'),
   ]);
   const h = new Date(); const y = h.getFullYear(), m = h.getMonth();
   const porMes = {}; (meses || []).forEach(r => porMes[r.mes.slice(0, 7)] = r);
@@ -1046,6 +1058,7 @@ async function vPanel() {
       <div class="cifra grande seccion"><div>Pedidos del mes · meta ${META}</div><div>${act.pedidos}</div><div class="progreso"><div style="width:${Math.min(100, act.pedidos / META * 100)}%"></div></div><div style="font-size:12px;color:var(--gris-2)">${Math.round(act.pedidos / META * 100)}% de la meta · ritmo para cerrar en ${ritmo}</div>${ant ? `<div style="font-size:12px;color:var(--gris-2)">${MESES_L[m]} ${y - 1}: cerró en ${ant.pedidos}</div>` : ''}</div>
       <div class="cifra grande seccion"><div>Ventas del mes (con IVA)</div><div>${pesos(act.ventas)}</div><div style="font-size:12px;color:var(--gris-2)">Catálogo ${pesos(act.ventas - (act.ventas_a_medida || 0))} · a medida ${pesos(act.ventas_a_medida || 0)}</div>${ant ? `<div style="font-size:12px;color:var(--gris-2)">${MESES_L[m]} ${y - 1}: ${pesos(ant.ventas)}</div>` : ''}</div>
       <div class="cifra grande seccion"><div>Pedidos atrasados</div><div style="color:${atrasados.length ? 'var(--rojo-txt)' : 'var(--azul)'}">${atrasados.length}</div><div style="font-size:12px;color:var(--gris-2)">${atrasados.slice(0, 4).map(p => `<a href="#/pedido/${p.id}">${esc(p.numero)}</a> ${esc(p.cliente)} (${p.dias_atraso} días)`).join(' · ')}</div></div>
+      <div class="cifra grande seccion"><div>Casos de servicio abiertos</div><div style="color:${(casosAb || []).length ? 'var(--ambar-txt)' : 'var(--azul)'}">${(casosAb || []).length}</div><div style="font-size:12px;color:var(--gris-2)">${CASO_TIPOS.map(tp => `${tp} ${(casosAb || []).filter(c => c.tipo === tp).length}`).join(' · ')}${(casosAb || []).some(c => c.sin_movimiento) ? ` · <span class="rojo">${(casosAb || []).filter(c => c.sin_movimiento).length} sin movimiento hace 7 días</span>` : ''} · <a href="#/casos">ver casos</a></div></div>
     </div>
     <section class="seccion"><h2>Pedidos por mes · ${y} contra ${y - 1}</h2><div class="barras">${MESES.map((mm, i) => { const a = porMes[`${y}-${String(i + 1).padStart(2, '0')}`], b = porMes[`${y - 1}-${String(i + 1).padStart(2, '0')}`]; return `<div class="barra-mes"><div class="par"><div class="b" style="height:${(b ? b.pedidos : 0) / maxP * 100}%" title="${y - 1}: ${b ? b.pedidos : 0}"></div><div class="b actual" style="height:${(a ? a.pedidos : 0) / maxP * 100}%" title="${y}: ${a ? a.pedidos : 0}"></div></div><span>${mm}</span><span style="font-size:10px">${a ? a.pedidos : '·'} / ${b ? b.pedidos : '·'}</span></div>`; }).join('')}</div><div style="font-size:12px;color:var(--gris-2)">Barra gris ${y - 1}, barra azul ${y}. Datos de prueba en el prototipo.</div></section>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
@@ -1056,9 +1069,10 @@ async function vPanel() {
 
 /* ---------- Harold · Clientes y Bandeja ---------- */
 async function vClientes() {
-  const { data } = await sb.from('v_cliente').select('*').order('ultima_compra', { ascending: false, nullsFirst: false }).limit(300);
-  app.innerHTML = barra('#/clientes') + `<div class="sub"><label>Buscar <input type="search" id="b" style="width:240px"></label><span style="color:var(--gris-3)">${data.length} clientes</span></div><div class="contenido"><div class="tabla-env"><table class="lista"><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th>Correo</th><th>Comuna</th><th>Pedidos</th><th>Total comprado</th><th>Última compra</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
-  const pintar = () => { const t = $('#b').value.toLowerCase(); $('#tb').innerHTML = data.filter(c => !t || [c.nombre, c.telefono, c.email, c.empresa].join(' ').toLowerCase().includes(t)).map(c => `<tr><td class="nw"><strong>${esc(c.nombre)}</strong>${c.empresa && c.empresa !== c.nombre ? ' · ' + esc(c.empresa) : ''}</td><td>${esc(c.tipo_cliente)}</td><td class="nw">${esc(c.telefono || '')}</td><td>${esc(c.email || '')}</td><td>${esc(c.comuna || '')}</td><td>${c.pedidos}</td><td class="mono">${pesos(c.total_comprado)}</td><td class="nw">${fecha(c.ultima_compra)}</td></tr>`).join(''); };
+  const [{ data }, { data: casosCli }] = await Promise.all([sb.from('v_cliente').select('*').order('ultima_compra', { ascending: false, nullsFirst: false }).limit(300), sb.from('v_caso').select('cliente_id, estado')]);
+  const casosDe = {}; (casosCli || []).forEach(c => { const k = casosDe[c.cliente_id] = casosDe[c.cliente_id] || { n: 0, ab: 0 }; k.n++; if (c.estado !== 'Cerrado') k.ab++; });
+  app.innerHTML = barra('#/clientes') + `<div class="sub"><label>Buscar <input type="search" id="b" style="width:240px"></label><span style="color:var(--gris-3)">${data.length} clientes</span></div><div class="contenido"><div class="tabla-env"><table class="lista"><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th>Correo</th><th>Comuna</th><th>Pedidos</th><th>Total comprado</th><th>Última compra</th><th>Casos</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
+  const pintar = () => { const t = $('#b').value.toLowerCase(); $('#tb').innerHTML = data.filter(c => !t || [c.nombre, c.telefono, c.email, c.empresa].join(' ').toLowerCase().includes(t)).map(c => `<tr><td class="nw"><strong>${esc(c.nombre)}</strong>${c.empresa && c.empresa !== c.nombre ? ' · ' + esc(c.empresa) : ''}</td><td>${esc(c.tipo_cliente)}</td><td class="nw">${esc(c.telefono || '')}</td><td>${esc(c.email || '')}</td><td>${esc(c.comuna || '')}</td><td>${c.pedidos}</td><td class="mono">${pesos(c.total_comprado)}</td><td class="nw">${fecha(c.ultima_compra)}</td><td class="nw">${casosDe[c.id] ? `<a href="#/casos?cliente=${c.id}">${casosDe[c.id].n}${casosDe[c.id].ab ? ` <span class="chip caso-Abierto">${casosDe[c.id].ab} abierto${casosDe[c.id].ab > 1 ? 's' : ''}</span>` : ''}</a>` : ''}</td></tr>`).join(''); };
   $('#b').oninput = pintar; pintar();
 }
 async function vBandeja() {
@@ -1615,6 +1629,147 @@ async function pdfOC(oc, prov) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   return 'PDF descargado: ' + nombre;
 }
+
+/* ---------- Casos de servicio al cliente (tanda 28, 14-oct-2026, IDEAS I-16; Harold: "ok a las 5, constrúyelo") ----------
+   Reclamos, consultas y garantías ligados al cliente y al pedido, con estado, resultado, historial de contactos (notas) y garantía
+   (legal 6 meses, Santino 12 meses desde la entrega; estimada en rojo si la fecha de entrega se rellenó por defecto). La Postventa se
+   crea desde el caso SOLO con "Defecto confirmado" o "Acuerdo" (migración 0033, crear_postventa_de_caso). Harold abre y cierra;
+   Alexis ve un caso solo mientras tenga una Postventa pendiente ligada. Caso que lo motivó: María Jesús Canales W3116. */
+const CASO_TIPOS = ['Reclamo', 'Consulta', 'Garantía'], CASO_ESTADOS = ['Abierto', 'Esperando cliente', 'Esperando revisión', 'Cerrado'];
+const CASO_RESULTADOS = ['', 'Sin defecto', 'Defecto confirmado', 'Acuerdo', 'Sin respuesta'], CASO_CANALES = ['WhatsApp', 'Correo', 'Teléfono', 'Instagram', 'Presencial'];
+const casoChip = e => `<span class="chip caso-${(e || '').replace(/ /g, '_')}">${esc(e || '')}</span>`;
+const garantiaHtml = (g, corto) => {
+  if (!g) return '';
+  if (g.sin_fecha) return '<span class="falta-dato">sin fecha de entrega: no se puede calcular la garantía</span>';
+  const est = g.estimada ? ' <span class="falta-dato" title="La fecha de entrega se rellenó por defecto (migración); corrígela en Editar entrega">(estimada)</span>' : '';
+  const leg = `legal hasta ${fecha(g.legal_hasta)} ${g.legal_vigente ? '<span class="chip ok">VIGENTE</span>' : '<span class="chip">vencida</span>'}`;
+  const san = `Santino hasta ${fecha(g.santino_hasta)} ${g.santino_vigente ? '<span class="chip ok">VIGENTE</span>' : '<span class="chip">vencida</span>'}`;
+  return corto ? `entregado ${fecha(g.entregado_en)}${est} · ${leg} · ${san}` : `<div class="fila-dato"><span>Entregado</span><span>${fecha(g.entregado_en, true)}${est}</span></div><div class="fila-dato"><span>Garantía</span><span>${leg}<br>${san}</span></div>`;
+};
+async function vCasos() {
+  const { data, error } = await sb.from('v_caso').select('*').order('estado', { ascending: true }).order('abierto_en', { ascending: false }); if (error) throw error;
+  cache.casos = data || [];
+  const q = location.hash.split('?')[1] || ''; const mCli = q.match(/cliente=(\d+)/); const mNuevo = q.match(/nuevo=1/);
+  cache.casoFiltro = cache.casoFiltro || { estado: 'abiertos', tipo: '', texto: '', cliente: mCli ? Number(mCli[1]) : null };
+  if (mCli) cache.casoFiltro.cliente = Number(mCli[1]);
+  const f = cache.casoFiltro;
+  const abiertos = cache.casos.filter(c => c.estado !== 'Cerrado');
+  const porTipo = CASO_TIPOS.map(t => `${t}: ${abiertos.filter(c => c.tipo === t).length}`).join(' · ');
+  const cuenta = campo => { const g = {}; cache.casos.filter(c => c.tipo === 'Reclamo' || c.tipo === 'Garantía').forEach(c => { const k = c[campo] ? (campo === 'modelo' ? nombreModelo(c[campo]) : codMaterial(c[campo])) : '(sin dato)'; g[k] = g[k] || { n: 0, def: 0 }; g[k].n++; if (c.resultado === 'Defecto confirmado') g[k].def++; }); return Object.entries(g).sort((a, b) => b[1].n - a[1].n).slice(0, 8); };
+  const pintar = () => {
+    const t = (f.texto || '').toLowerCase();
+    const lista = cache.casos.filter(c => (f.estado === 'todos' || (f.estado === 'abiertos' ? c.estado !== 'Cerrado' : c.estado === f.estado)) && (!f.tipo || c.tipo === f.tipo) && (!f.cliente || c.cliente_id === f.cliente)
+      && (!t || [c.codigo, c.cliente, c.pedido_numero, c.modelo, c.material, c.resumen, c.resultado, c.postventa_numero].join(' ').toLowerCase().includes(t)));
+    $('#tb-casos').innerHTML = lista.map(c => `<tr class="fila-caso ${c.sin_movimiento ? 'atrasado' : ''}" data-caso="${c.id}" title="Abrir el caso">
+      <td class="num"><b>${esc(c.codigo)}</b>${c.sin_movimiento ? '<div class="l2 rojo">7 días sin movimiento</div>' : ''}</td><td class="nw">${fecha(c.abierto_en)}</td><td><b>${esc(c.cliente)}</b>${c.tipo_cliente && c.tipo_cliente !== 'Persona' ? `<div class="l2">${esc(c.tipo_cliente)}</div>` : ''}</td>
+      <td class="nw">${c.pedido_id ? `<a href="#/pedido/${c.pedido_id}">${esc(c.pedido_numero)}</a>` : '<span class="gris">sin pedido</span>'}${c.modelo || c.material ? `<div class="l2">${esc([nombreModelo(c.modelo), codMaterial(c.material)].filter(Boolean).join(' · '))}</div>` : ''}</td>
+      <td>${esc(c.tipo)}</td><td>${casoChip(c.estado)}</td><td>${esc(c.resultado || '')}</td><td>${esc(c.resumen.length > 90 ? c.resumen.slice(0, 90) + '…' : c.resumen)}</td>
+      <td class="nw">${c.notas} ${c.ultima_nota ? `<div class="l2">${fecha(c.ultima_nota)}</div>` : ''}</td><td class="nw">${c.pedido_postventa_id ? `<a href="#/pedido/${c.pedido_postventa_id}">${esc(c.postventa_numero)}</a><div class="l2">${esc(c.postventa_estado || '')}</div>` : ''}</td></tr>`).join('') || `<tr><td colspan="10" class="gris">Sin casos con ese filtro.</td></tr>`;
+    $('#n-casos').textContent = `${lista.length} caso${lista.length === 1 ? '' : 's'}`;
+    $$('tr.fila-caso').forEach(tr => tr.onclick = () => modalCaso(Number(tr.dataset.caso)));
+  };
+  const cliFiltro = f.cliente ? cache.casos.find(c => c.cliente_id === f.cliente) : null;
+  app.innerHTML = barra('#/casos') + `<div class="sub filtros-v2">
+      <label>Ver <select id="fc-estado"><option value="abiertos" ${f.estado === 'abiertos' ? 'selected' : ''}>Abiertos (${abiertos.length})</option>${CASO_ESTADOS.map(e => `<option value="${e}" ${f.estado === e ? 'selected' : ''}>${e}</option>`).join('')}<option value="todos" ${f.estado === 'todos' ? 'selected' : ''}>Todos (${cache.casos.length})</option></select></label>
+      <label>Tipo <select id="fc-tipo"><option value="">todos</option>${CASO_TIPOS.map(t => `<option ${f.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Buscar <input type="search" id="fc-texto" value="${esc(f.texto || '')}" placeholder="cliente, pedido, modelo, madera, texto" style="width:230px"></label>
+      ${cliFiltro ? `<span class="chip inst">Cliente: ${esc(cliFiltro.cliente)} <a href="#" id="fc-quitar-cli" title="Quitar el filtro">×</a></span>` : ''}
+      <span id="n-casos" style="color:var(--gris-3)"></span><span style="color:var(--gris-3)">· abiertos: ${porTipo}</span>
+      <span class="acciones-lista" style="margin-left:auto"><button class="btn" id="b-caso-nuevo">+ Caso</button></span>
+    </div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
+    <div class="tabla-env"><table class="lista"><thead><tr><th>Caso</th><th>Abierto</th><th>Cliente</th><th>Pedido</th><th>Tipo</th><th>Estado</th><th>Resultado</th><th>Resumen</th><th>Notas</th><th>Postventa</th></tr></thead><tbody id="tb-casos"></tbody></table></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+      <section class="seccion"><h2>Reclamos y garantías por modelo <small class="gris">(todos los tiempos; "con defecto" = resultado Defecto confirmado)</small></h2><table class="lista"><thead><tr><th>Modelo</th><th>Casos</th><th>Con defecto</th></tr></thead><tbody>${cuenta('modelo').map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.def}</td></tr>`).join('') || '<tr><td colspan="3" class="gris">Sin reclamos todavía</td></tr>'}</tbody></table></section>
+      <section class="seccion"><h2>Reclamos y garantías por madera o material</h2><table class="lista"><thead><tr><th>Material</th><th>Casos</th><th>Con defecto</th></tr></thead><tbody>${cuenta('material').map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.def}</td></tr>`).join('') || '<tr><td colspan="3" class="gris">Sin reclamos todavía</td></tr>'}</tbody></table></section>
+    </div></div>`;
+  $('#fc-estado').onchange = e => { f.estado = e.target.value; pintar(); };
+  $('#fc-tipo').onchange = e => { f.tipo = e.target.value; pintar(); };
+  $('#fc-texto').oninput = e => { f.texto = e.target.value; pintar(); };
+  const q1 = $('#fc-quitar-cli'); if (q1) q1.onclick = ev => { ev.preventDefault(); f.cliente = null; history.replaceState(null, '', '#/casos'); vCasos(); };
+  $('#b-caso-nuevo').onclick = () => formCaso({});
+  pintar();
+  if (mNuevo) { history.replaceState(null, '', '#/casos'); formCaso({}); }
+}
+/* Abrir un caso: desde la ficha del pedido (viene con pedido y cliente), desde Clientes o desde la pestaña Casos (se busca el pedido por número) */
+async function formCaso(ctx) {
+  modal(`<h2>Nuevo caso de servicio${ctx.numero ? ' · ' + esc(ctx.numero) + ' ' + esc(ctx.cliente || '') : ''}</h2><form id="f-caso"><div class="campos">
+    ${ctx.pedido_id ? '' : `<label class="campo">Pedido (número, ej. W3116 o #2079) <input name="pedido_numero" value="${esc(ctx.pedido_numero || '')}" placeholder="vacío = caso sin pedido"></label>`}
+    ${ctx.pedido_id || ctx.cliente_id ? '' : `<label class="campo">Cliente (si no hay pedido) <input name="cliente_nombre" placeholder="nombre tal como está en Clientes"></label>`}
+    <label class="campo">Tipo <select name="tipo">${CASO_TIPOS.map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Canal <select name="canal">${CASO_CANALES.map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Fecha de apertura <input name="abierto_en" type="date" value="${hoyISO()}" required></label></div>
+    <label class="campo" style="display:block;margin-top:8px">Qué pasa (resumen) <textarea name="resumen" rows="3" style="width:100%" required placeholder="Ej. línea de color que cruza la cubierta de lenga; la clienta cree que es el barniz"></textarea></label>
+    <label class="campo" style="display:block;margin-top:8px">Primer contacto (opcional) <textarea name="nota" rows="2" style="width:100%" placeholder="Ej. se le explicó la variación natural de la lenga; se le pidió video con luz natural"></textarea></label>
+    <p class="gris" style="font-size:12px;margin:6px 0">La Postventa (visita, retiro, reparación) se crea después, desde el caso, solo cuando el resultado sea "Defecto confirmado" o "Acuerdo": así no aparece en la Lista de Alexis antes de tiempo.</p>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Abrir caso</button></div></form>`);
+  $('#f-caso').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
+    let pedido_id = ctx.pedido_id || null, cliente_id = ctx.cliente_id || null;
+    const pn = (f.get('pedido_numero') || '').trim();
+    if (!pedido_id && pn) { const { data } = await sb.from('pedido').select('id, cliente_id').eq('numero', pn).maybeSingle(); if (!data) throw new Error(`No existe el pedido ${pn}`); pedido_id = data.id; cliente_id = data.cliente_id; }
+    const cn = (f.get('cliente_nombre') || '').trim();
+    if (!pedido_id && !cliente_id && cn) { const { data } = await sb.from('cliente').select('id, nombre').ilike('nombre', `%${cn}%`).limit(2); if (!data || !data.length) throw new Error(`No encuentro al cliente "${cn}" en Clientes`); if (data.length > 1) throw new Error(`Hay más de un cliente con "${cn}": escribe el nombre completo`); cliente_id = data[0].id; }
+    if (!pedido_id && !cliente_id) throw new Error('Indica el pedido o el cliente');
+    const c = await rpc('crear_caso', { p: { pedido_id, cliente_id, tipo: f.get('tipo'), canal: f.get('canal'), abierto_en: f.get('abierto_en'), resumen: f.get('resumen'), nota: f.get('nota') || '' } });
+    cerrarModal(); aviso(`${c.codigo} abierto`); if (location.hash.startsWith('#/casos')) await vCasos(); else if (location.hash.startsWith('#/pedido/')) await render(); modalCaso(c.id);
+  } catch (e) { aviso(errorDe(e), true); } };
+}
+/* La ventana del caso: datos editables (Guardar queda "Guardado ✓" si no cambió nada), garantía, notas y la Postventa */
+async function modalCaso(id) {
+  const [{ data: c, error }, { data: notas }] = await Promise.all([sb.from('v_caso').select('*').eq('id', id).maybeSingle(), sb.from('caso_nota').select('*').eq('caso_id', id).order('fecha')]);
+  if (error) return aviso(errorDe(error), true); if (!c) return aviso('El caso no está disponible en tu vista', true);
+  const esOp = yo.rol === 'operacion'; const ro = esOp ? 'disabled' : '';
+  const puedePV = !esOp && !c.pedido_postventa_id && ['Defecto confirmado', 'Acuerdo'].includes(c.resultado || '');
+  const notaHtml = n => `<div class="caso-nota"><div class="l2">${fechaHora(n.fecha)} · ${esc(n.quien)} · ${esc(n.tipo)}</div><div>${esc(n.texto)}</div></div>`;
+  modal(`<div class="cab"><h2>${esc(c.codigo)} · ${esc(c.cliente)} ${casoChip(c.estado)}${c.sin_movimiento ? ' <span class="chip atrasado">7 DÍAS SIN MOVIMIENTO</span>' : ''}</h2><button type="button" class="btn chico" id="cs-x">Cerrar ventana</button></div>
+    <div class="gris" style="font-size:12px">${c.pedido_id ? `Pedido <a href="#/pedido/${c.pedido_id}" onclick="cerrarModal()">${esc(c.pedido_numero)}</a> · ${esc([c.tipo_pedido, nombreModelo(c.modelo), codMaterial(c.material), c.pieza].filter(Boolean).join(' · '))}` : 'Sin pedido ligado'}${c.cliente_telefono ? ` · <a target="_blank" href="https://wa.me/${String(c.cliente_telefono).replace(/\D/g, '')}">WhatsApp ${esc(c.cliente_telefono)}</a>` : ''} · abierto por ${esc(c.creado_por)}</div>
+    ${c.pedido_id ? `<div style="font-size:13px"><b>Garantía:</b> ${garantiaHtml(c.garantia, true)}</div>` : ''}
+    <div class="campos" style="align-items:end">
+      <label class="campo">Tipo <select id="cs-tipo" ${ro}>${CASO_TIPOS.map(t => `<option ${t === c.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="campo">Estado <select id="cs-estado" ${ro}>${CASO_ESTADOS.map(t => `<option ${t === c.estado ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="campo">Resultado <select id="cs-resultado" ${ro}>${CASO_RESULTADOS.map(t => `<option value="${t}" ${(c.resultado || '') === t ? 'selected' : ''}>${t || '(sin resultado)'}</option>`).join('')}</select></label>
+      <label class="campo">Canal <select id="cs-canal" ${ro}><option value="">-</option>${CASO_CANALES.map(t => `<option ${t === c.canal ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="campo">Abierto el <input type="date" id="cs-abierto" value="${c.abierto_en || ''}" ${ro}></label>
+      ${c.cerrado_en ? `<div class="campo"><span>Cerrado el</span><b>${fecha(c.cerrado_en)}</b></div>` : ''}
+    </div>
+    <label class="campo">Resumen <textarea id="cs-resumen" rows="2" ${ro}>${esc(c.resumen)}</textarea></label>
+    ${esOp ? '' : `<div class="acciones" style="justify-content:flex-start"><button type="button" class="btn" id="cs-guardar">Guardar</button></div>`}
+    <div><h2 style="font-size:14px;margin:0 0 6px">Historial de contactos (${notas.length})</h2><div class="caso-notas">${notas.map(notaHtml).join('') || '<div class="gris" style="font-size:12px">Sin notas todavía.</div>'}</div>
+      ${esOp ? '' : `<form id="f-nota" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px"><label class="campo">Tipo <select name="tipo"><option>Contacto con el cliente</option><option>Revisión interna</option><option>Decisión</option></select></label><label class="campo" style="flex:1 1 260px">Nota <input name="texto" placeholder="qué se habló, qué se revisó, qué se decidió" required></label><button class="btn chico primario">Agregar nota</button></form>`}</div>
+    <div class="acciones">
+      ${c.pedido_postventa_id ? `<a class="btn" href="#/pedido/${c.pedido_postventa_id}" onclick="cerrarModal()">Postventa ${esc(c.postventa_numero)} · ${esc(c.postventa_estado || '')}</a>` : puedePV ? `<button type="button" class="btn primario" id="cs-pv">Crear Postventa (visita, retiro, reparación)</button>` : esOp ? '' : `<span class="gris" style="font-size:12px">La Postventa se habilita con resultado "Defecto confirmado" o "Acuerdo".</span>`}
+    </div>`, 'ancha');
+  const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+  on('#cs-x', cerrarModal);
+  const leer = () => ({ tipo: $('#cs-tipo').value, estado: $('#cs-estado').value, resultado: $('#cs-resultado').value, canal: $('#cs-canal').value, abierto_en: $('#cs-abierto').value, resumen: $('#cs-resumen').value.trim() });
+  const estadoGuardar = () => { const b = $('#cs-guardar'); if (!b) return; const v = leer(); const igual = v.tipo === c.tipo && v.estado === c.estado && v.resultado === (c.resultado || '') && v.canal === (c.canal || '') && v.abierto_en === (c.abierto_en || '') && v.resumen === c.resumen; b.disabled = igual; b.textContent = igual ? 'Guardado ✓' : 'Guardar'; b.classList.toggle('primario', !igual); };
+  estadoGuardar(); ['#cs-tipo', '#cs-estado', '#cs-resultado', '#cs-canal', '#cs-abierto', '#cs-resumen'].forEach(s => { const el = $(s); if (el) el.oninput = el.onchange = estadoGuardar; });
+  const refrescar = async () => { if (location.hash.startsWith('#/casos')) await vCasos(); else if (location.hash.startsWith('#/pedido/')) await render(); modalCaso(id); };
+  on('#cs-guardar', async () => { try { const v = leer(); if (v.estado === 'Cerrado' && !v.resultado && !confirm('¿Cerrar el caso sin resultado? Mejor elige uno (sin defecto, defecto confirmado, acuerdo, sin respuesta).')) return; await rpc('actualizar_caso', { p_id: id, p_cambios: v }); aviso('Caso guardado'); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+  const fn = $('#f-nota'); if (fn) fn.onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try { await rpc('agregar_nota_caso', { p_id: id, p_tipo: f.get('tipo'), p_texto: f.get('texto') }); aviso('Nota agregada'); refrescar(); } catch (e) { aviso(errorDe(e), true); } };
+  on('#cs-pv', () => formPostventaDeCaso(c, refrescar));
+}
+function formPostventaDeCaso(c, despues) {
+  modal(`<h2>Postventa desde ${esc(c.codigo)} · ${esc(c.cliente)}</h2><div class="gris" style="font-size:12px">Resultado: ${esc(c.resultado)}. Se crea un pedido POSTVENTA ligado a ${esc(c.pedido_numero || 'este caso')} con el movimiento en la fecha indicada; desde ahí Alexis lo ve en su Lista. Si lleva una pieza de taller (cubierta nueva, repuesto), se agrega después en su ficha.</div><form id="f-pv"><div class="campos">
+    <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO(1)}"></label>
+    <label class="campo">Dirección (vacía = la del pedido) <input name="direccion"></label>
+    <label class="campo">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label></div>
+    <label class="campo" style="display:block;margin-top:8px">Qué se hace o se revisa <textarea name="nota" rows="2" style="width:100%" required>${esc(c.resumen)}</textarea></label>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Crear postventa</button></div></form>`);
+  $('#f-pv').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
+    const r = await rpc('crear_postventa_de_caso', { p_caso_id: c.id, p_tipo_mov: f.get('tipo'), p_fecha: f.get('fecha'), p_direccion: f.get('direccion') || null, p_nota: f.get('nota'), p_valor: Number(f.get('valor') || 0) });
+    cerrarModal(); aviso(`Postventa ${r.numero} creada y ligada al caso`); despues();
+  } catch (e) { aviso(errorDe(e), true); } };
+}
+/* Bloque de casos en la ficha del pedido */
+function casosFichaHtml(casos, esOp) {
+  const fila = c => `<div class="doc caso-fila" data-caso="${c.id}" style="cursor:pointer"><span><b>${esc(c.codigo)}</b> · ${esc(c.tipo)} ${casoChip(c.estado)}${c.resultado ? ' · ' + esc(c.resultado) : ''}<div class="tipo">abierto ${fecha(c.abierto_en)} · ${esc(c.resumen.length > 110 ? c.resumen.slice(0, 110) + '…' : c.resumen)}${c.postventa_numero ? ' · postventa ' + esc(c.postventa_numero) : ''}</div></span><span class="btn chico">Abrir</span></div>`;
+  return `<section class="seccion"><div class="cab"><h2>Casos de servicio${casos.length ? ` (${casos.length})` : ''}</h2>${esOp ? '' : '<button class="btn chico borde" id="b-caso">+ Caso</button>'}</div><div class="docs">${casos.map(fila).join('') || '<div class="gris" style="font-size:13px">Sin reclamos ni consultas registradas.</div>'}</div></section>`;
+}
+/* Porcentaje abonado, sutil (Harold 14-oct: "quiero que me diga el %, algo sutil para no manchar la ficha") */
+const cuentasOpciones = () => Object.values((cache.codigos || {}).cuenta || {}).sort((a, b) => (a.orden || 0) - (b.orden || 0)).map(c => `<option value="${esc(c.codigo)}">${esc(c.nombre)}</option>`).join('');
+const cuentaNombre = c => c ? ((codigoDe('cuenta', c) || {}).abreviatura || c) : '-';
+const pctAbono = p => { const t = Number(p.total || 0), a = Number(p.abonado || 0); if (!t) return ''; const pc = Math.round(a / t * 100); return `<small class="pct-abono" title="Porcentaje del total abonado">${pc}% del total</small>`; };
 
 /* ---------- Títulos de columna que siguen al bajar (Harold 12-oct, tanda 20) ----------
    Solo los títulos de columna, pegados bajo la barra; los filtros y leyendas se van con el scroll.

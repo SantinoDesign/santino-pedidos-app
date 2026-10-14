@@ -405,3 +405,15 @@ table.lista.oc-tabla td{vertical-align:top}
 .recibir-opc label{display:flex;gap:6px;align-items:center}
 .recibir-opc input[type=text],.recibir-opc input:not([type]){min-height:30px;padding:3px 6px;font-size:12px}
 @media (max-width:640px){.recibir-fila{grid-template-columns:1fr}}
+
+/* Casos de servicio (tanda 28, 14-oct-2026) y % abonado sutil */
+.chip.caso-Abierto{background:var(--ambar);color:var(--ambar-txt)}
+.chip.caso-Esperando_cliente{background:var(--azul-suave);color:var(--azul-osc)}
+.chip.caso-Esperando_revisión{background:var(--azul-claro);color:var(--azul-osc)}
+.chip.caso-Cerrado{background:var(--panel);color:var(--gris-3)}
+table.lista tr.fila-caso{cursor:pointer}table.lista tr.fila-caso:hover td{background:var(--azul-suave)}
+.caso-notas{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.caso-nota{padding:6px 10px;border-left:3px solid var(--azul-claro);background:var(--fondo);border-radius:0 6px 6px 0;font-size:13px}
+.caso-nota .l2{color:var(--gris-3);font-size:11px}
+.pct-abono{font-size:11px;font-weight:400;color:var(--gris-3);white-space:nowrap}
+.cifra .pct-abono{display:block;margin-top:2px}
