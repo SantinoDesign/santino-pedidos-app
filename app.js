@@ -359,7 +359,7 @@ async function vLista() {
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
   const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : g === 'etapa' ? cache.etapas : g === 'mios' ? cache.mios : cache.bases;
   const toggle = (grupo, valor, texto, titulo) => `<button class="ftog ${setDe(grupo).has(valor) ? 'on' : ''}" data-grupo="${grupo}" data-valor="${esc(valor)}" title="${esc(titulo)}">${esc(texto)}</button>`;
-  const leyenda = `Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} = ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} = ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado. Los filtros se suman; sin marcar = todos. Entregar rápido: en la tablet deslizar la fila hacia la derecha; en el Mac clic derecho y arrastrar la fila hacia la derecha (si hay saldo, confirma el cobro).`;
+  const leyenda = `Estados: ${estadosVisibles.map(e => `${COD_ESTADO[e]} = ${e.toLowerCase()}`).join(' · ')}. Tipos: ${Object.keys(COD_TIPO).map(t => `${COD_TIPO[t]} = ${t.toLowerCase()}`).join(' · ')}. Base: METAL estructura metálica · MADERA madera maciza · ENCHAPADO MDF enchapado. Los filtros se suman; sin marcar = todos. Entregar rápido: arrastrar la fila hacia la derecha (con el dedo en la tablet, con el mouse en el Mac); si hay saldo, confirma el cobro.`;
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir filtros-v2">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
@@ -769,7 +769,8 @@ async function vFicha(id) {
         <div class="fila-dato"><span>Comuna</span><span>${p.comuna ? esc(p.comuna) : '<span class="falta-dato">sin comuna</span>'}</span></div>
       </section>
       <section class="seccion"><div class="cab"><h2>Fechas y entrega</h2>${esOp ? '' : '<button class="btn chico borde" id="b-entrega">Editar entrega</button>'}</div>
-        <div class="fila-dato"><span>Compra</span><span>${fecha(p.fecha_compra)}</span></div>
+        <div class="fila-dato"><span>Compra</span><span>${fecha(p.fecha_compra)}${p.fecha_compra_estimada ? ' <span class="falta-dato">(estimada)</span>' : ''}</span></div>
+        <div class="fila-dato"><span>Origen</span><span>${esc(origenTxt(p)) || '-'}${!esOp && ['WhatsApp', 'Instagram', 'Shopify'].includes(p.origen) && !p.origen_codigo && !p.origen_red ? ' <small class="gris">(sin código ni red: Editar entrega)</small>' : ''}</span></div>
         <div class="fila-dato"><span>Entrega cliente</span>${esOp ? `<span>${fecha(p.fecha_comprometida || p.fecha_estimada, true)}${p.fecha_comprometida ? '' : ' <small class="gris">aprox.</small>'}</span>` : `<span><input type="date" id="i-comp" value="${p.fecha_comprometida || ''}" style="min-height:32px;padding:4px 8px" title="Fecha comprometida con el cliente; vacía = aproximada">${p.fecha_comprometida ? '' : ` <small class="gris">aprox. ${fecha(p.fecha_estimada)} (+21 d)</small>`}</span>`}</div>
         <div class="fila-dato"><span>Entrega</span><span>${esc(p.tipo_entrega)}${p.instalacion ? ' + instalación' : ''}</span></div>
         ${p.direccion_entrega || p.comuna_entrega ? `<div class="fila-dato"><span>Dirección de entrega</span><span>${esc([p.direccion_entrega, p.comuna_entrega].filter(Boolean).join(', '))}</span></div>` : ''}
@@ -933,15 +934,16 @@ function activarDeslizarEntrega() {
       if (Number(p.saldo_por_cobrar ?? p.saldo ?? 0) > 0) return formEntregar(p, () => vLista());
       (async () => { try { await rpc('entregar_pedido', { p_pedido_id: p.id, p_cobro: 0 }); aviso(`${p.numero} entregado ✓ (pagado)`); anotarCambio(`${p.numero} entregado (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } })(); };
     tr.addEventListener('touchend', fin); tr.addEventListener('touchcancel', fin);
-    // Mac (Harold 14-oct): clic DERECHO y arrastrar hacia la derecha = entregar (el clic izquierdo sigue moviendo la tabla y abriendo el despliegue)
-    tr.addEventListener('contextmenu', ev => { if (!ev.target.closest('button, a, input, select')) ev.preventDefault(); });
+    // Mac (Harold 14-oct, "es clic izquierdo"): clic izquierdo y arrastrar la fila hacia la derecha = entregar. El arrastre de una fila
+    // de pedido ya no mueve la tabla (para eso quedan las flechas ← → y la barra); un arrastre no abre el despliegue.
     tr.addEventListener('mousedown', ev => {
-      if (ev.button !== 2 || ev.target.closest('button, a, input, select')) return;
-      ev.preventDefault(); x0 = ev.clientX; y0 = ev.clientY; dx = 0; activo = true;
-      const mover = e => { if (!activo) return; dx = e.clientX - x0; if (Math.abs(e.clientY - y0) > 40) { activo = false; tr.style.transform = ''; return; } if (dx > 10) tr.style.transform = `translateX(${Math.min(dx, 140)}px)`; };
-      const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); fin(); };
+      if (ev.button !== 0 || ev.target.closest('button, a, input, select')) return;
+      ev.stopPropagation(); x0 = ev.clientX; y0 = ev.clientY; dx = 0; activo = true;
+      const mover = e => { if (!activo) return; dx = e.clientX - x0; if (Math.abs(e.clientY - y0) > 40) { activo = false; tr.style.transform = ''; return; } if (dx > 10) { tr.style.transform = `translateX(${Math.min(dx, 140)}px)`; tr.dataset.arrastrado = '1'; e.preventDefault(); } };
+      const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); const hubo = dx > 10; fin(); if (hubo) setTimeout(() => { delete tr.dataset.arrastrado; }, 50); };
       window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar);
     });
+    tr.addEventListener('click', ev => { if (tr.dataset.arrastrado) { ev.stopPropagation(); ev.preventDefault(); } }, true);
   });
 }
 function camposLinea(prefijo = '') {
@@ -1036,10 +1038,11 @@ async function formEditarEntrega(p, despues) {
     <label class="campo">Nota de entrega <input name="nota_entrega" value="${esc(p.nota_entrega || '')}"></label>
     <label class="campo">Fecha de entrega real (garantía; vacía = sin entregar) <input name="entregado_en" type="date" value="${p.entregado_en ? String(p.entregado_en).slice(0, 10) : ''}"></label>
     <label class="campo">Cotización N° <input name="cotizacion_numero" value="${esc(p.cotizacion_numero || '')}" placeholder="Cot 3370"></label>
-    <label class="campo">Origen <select name="origen">${['WhatsApp', 'Instagram', 'Shopify', 'Fábrica', 'Tienda', 'Cliente directo', 'Correo', 'Colaborador', 'Interno'].map(t => `<option ${t === p.origen ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
+    <label class="campo">Origen <select name="origen">${['WhatsApp', 'Instagram', 'Shopify', 'Fábrica', 'Tienda', 'Cliente directo', 'Correo', 'Colaborador', 'Interno'].map(t => `<option ${t === p.origen ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    ${camposOrigenHtml(p)}</div>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f-ent').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const v = k => (f.get(k) || '').trim() || null;
-    const cambios = { fecha_compra: v('fecha_compra'), fecha_comprometida: v('fecha_comprometida'), tipo_entrega: v('tipo_entrega'), instalacion: f.get('instalacion') === 'on', direccion_entrega: v('direccion_entrega'), comuna_entrega: v('comuna_entrega'), nota_entrega: v('nota_entrega'), cotizacion_numero: v('cotizacion_numero'), origen: v('origen'), entregado_en: v('entregado_en') ? v('entregado_en') + 'T12:00:00' : null };
+    const cambios = { fecha_compra: v('fecha_compra'), fecha_comprometida: v('fecha_comprometida'), tipo_entrega: v('tipo_entrega'), instalacion: f.get('instalacion') === 'on', direccion_entrega: v('direccion_entrega'), comuna_entrega: v('comuna_entrega'), nota_entrega: v('nota_entrega'), cotizacion_numero: v('cotizacion_numero'), origen: v('origen'), ...leerOrigen(f), entregado_en: v('entregado_en') ? v('entregado_en') + 'T12:00:00' : null };
     const { error } = await sb.from('pedido').update(cambios).eq('id', p.id); if (error) return aviso(errorDe(error), true);
     cerrarModal(); aviso('Entrega guardada'); despues(); };
 }
@@ -1076,6 +1079,7 @@ async function formPedido() {
       <label class="campo">Número (vacío = siguiente W) <input name="numero" placeholder="W3141 o #2090"></label>
       <label class="campo">Tipo de pedido <select name="tipo_pedido"><option>Venta catálogo</option><option>Mesa a medida</option><option>Mueble a medida</option><option>Proyecto</option><option>Postventa</option><option>Repuesto</option></select></label>
       <label class="campo">Origen <select name="origen"><option>WhatsApp</option><option>Instagram</option><option>Shopify</option><option>Fábrica</option><option>Tienda</option><option>Cliente directo</option><option>Correo</option><option>Colaborador</option><option>Interno</option></select></label>
+      ${camposOrigenHtml({})}
       <label class="campo">Fecha de compra <input name="fecha_compra" type="date" value="${hoyISO()}" required></label>
       <label class="campo">Precio de venta <input name="precio_venta" type="number" required></label>
       <label class="campo">Despacho <input name="precio_despacho" type="number" value="19980"></label>
@@ -1105,7 +1109,7 @@ async function formPedido() {
         if (error) throw error; cliente_id = data.id;
       }
       const numero = f.get('numero') || await rpc('siguiente_numero_w', {});
-      const ped = { numero, cliente_id, tipo_pedido: f.get('tipo_pedido'), origen: f.get('origen'), fecha_compra: f.get('fecha_compra'), precio_venta: Number(f.get('precio_venta')), precio_despacho: Number(f.get('precio_despacho') || 0), precio_instalacion: Number(f.get('precio_instalacion') || 0), tipo_entrega: f.get('tipo_entrega'), instalacion: !!f.get('instalacion'), cotizacion_numero: f.get('cotizacion_numero') || null, fecha_comprometida: f.get('fecha_comprometida') || null, nota_entrega: f.get('nota_entrega') || null, observacion: f.get('observacion') || null, creado_por: yo.nombre };
+      const ped = { numero, cliente_id, tipo_pedido: f.get('tipo_pedido'), origen: f.get('origen'), ...leerOrigen(f), fecha_compra: f.get('fecha_compra'), precio_venta: Number(f.get('precio_venta')), precio_despacho: Number(f.get('precio_despacho') || 0), precio_instalacion: Number(f.get('precio_instalacion') || 0), tipo_entrega: f.get('tipo_entrega'), instalacion: !!f.get('instalacion'), cotizacion_numero: f.get('cotizacion_numero') || null, fecha_comprometida: f.get('fecha_comprometida') || null, nota_entrega: f.get('nota_entrega') || null, observacion: f.get('observacion') || null, creado_por: yo.nombre };
       if (A_MEDIDA.includes(ped.tipo_pedido)) ped.estado = 'VISITA TÉCNICA';
       const { data: np, error } = await sb.from('pedido').insert(ped).select('id').single(); if (error) throw error;
       const ls = []; for (let i = 0; i < lineas; i++) { if (!f.get(`l${i}_descripcion`)) continue; const l = leerLinea(f, `l${i}_`); l.pedido_id = np.id; l.orden = i + 1; ls.push(l); }
@@ -1118,11 +1122,13 @@ async function formPedido() {
 
 /* ---------- Harold · Panel ---------- */
 async function vPanel() {
-  const [{ data: meses }, { data: atrasados }, { data: delMes }, { data: casosAb }] = await Promise.all([
+  const [{ data: meses }, { data: atrasados }, { data: delMes }, { data: casosAb }, { data: mkt }, { data: mktOrigen }] = await Promise.all([
     sb.from('v_panel_mes').select('*').order('mes'),
     sb.from('v_pedido').select('id,numero,cliente,dias_atraso,saldo,estado,tipo_entrega').eq('atrasado', true).order('dias_atraso', { ascending: false }),
     sb.from('v_pedido').select('origen,tipo_cliente,total,tipo_pedido,pago_pendiente,estado').gte('fecha_compra', hoyISO().slice(0, 8) + '01'),
     sb.from('v_caso').select('id,tipo,sin_movimiento').neq('estado', 'Cerrado'),
+    sb.from('v_panel_marketing_mes').select('*'),
+    sb.from('v_marketing_origen').select('*').gte('mes', hoyISO().slice(0, 8) + '01'),
   ]);
   const h = new Date(); const y = h.getFullYear(), m = h.getMonth();
   const porMes = {}; (meses || []).forEach(r => porMes[r.mes.slice(0, 7)] = r);
@@ -1139,6 +1145,14 @@ async function vPanel() {
       <div class="cifra grande seccion"><div>Pedidos atrasados</div><div style="color:${atrasados.length ? 'var(--rojo-txt)' : 'var(--azul)'}">${atrasados.length}</div><div style="font-size:12px;color:var(--gris-2)">${atrasados.slice(0, 4).map(p => `<a href="#/pedido/${p.id}">${esc(p.numero)}</a> ${esc(p.cliente)} (${p.dias_atraso} días)`).join(' · ')}</div></div>
       <div class="cifra grande seccion"><div>Casos de servicio abiertos</div><div style="color:${(casosAb || []).length ? 'var(--ambar-txt)' : 'var(--azul)'}">${(casosAb || []).length}</div><div style="font-size:12px;color:var(--gris-2)">${CASO_TIPOS.map(tp => `${tp} ${(casosAb || []).filter(c => c.tipo === tp).length}`).join(' · ')}${(casosAb || []).some(c => c.sin_movimiento) ? ` · <span class="rojo">${(casosAb || []).filter(c => c.sin_movimiento).length} sin movimiento hace 7 días</span>` : ''} · <a href="#/casos">ver casos</a></div></div>
     </div>
+    ${(() => { const pm = {}; (mkt || []).forEach(r => pm[r.mes.slice(0, 7)] = r); const a = pm[k] || { pedidos: 0, ventas: 0, shopify: 0, whatsapp: 0, ventas_shopify: 0, ventas_whatsapp: 0, a_medida: 0 }, b = pm[kAnt];
+      const fila = (r, tit) => `<tr><td>${tit}</td><td>${r.pedidos}</td><td class="mono">${pesos(r.ventas)}</td><td>${r.shopify} · ${pesos(r.ventas_shopify)}</td><td>${r.whatsapp} · ${pesos(r.ventas_whatsapp)}</td><td>${r.a_medida}</td></tr>`;
+      const porRed = {}; (mktOrigen || []).forEach(r => { const kk = r.origen_red || 'desconocido'; porRed[kk] = porRed[kk] || { n: 0, v: 0 }; porRed[kk].n += Number(r.pedidos); porRed[kk].v += Number(r.ventas); });
+      const conCodigo = (mktOrigen || []).filter(r => r.origen_codigo !== '(sin código)').sort((x, z) => z.pedidos - x.pedidos);
+      return `<section class="seccion"><h2>Marketing · ${MESES_L[m]} ${y} <small class="gris">solo Shopify y WhatsApp, tipo catálogo, mesa o mueble a medida, sin cancelados ni fechas estimadas (regla de Harold 14-oct)</small></h2>
+      <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>Pedidos</th><th>Ventas</th><th>Shopify</th><th>WhatsApp</th><th>A medida</th></tr></thead><tbody>${fila(a, `${MESES_L[m]} ${y}`)}${b ? fila(b, `${MESES_L[m]} ${y - 1}`) : ''}</tbody></table></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px"><div><h3 style="margin:6px 0;font-size:13px">Por red (${MESES_L[m]})</h3><table class="lista"><thead><tr><th>Red</th><th>Pedidos</th><th>Ventas</th></tr></thead><tbody>${Object.entries(porRed).sort((x, z) => z[1].n - x[1].n).map(([kk, v]) => `<tr><td>${esc(NOMBRE_RED[kk] || kk)}</td><td>${v.n}</td><td class="mono">${pesos(v.v)}</td></tr>`).join('') || '<tr><td colspan="3" class="gris">Sin pedidos de marketing este mes</td></tr>'}</tbody></table></div>
+      <div><h3 style="margin:6px 0;font-size:13px">Por código del mensaje (${MESES_L[m]})</h3><table class="lista"><thead><tr><th>Código</th><th>Red</th><th>Pedidos</th><th>Ventas</th></tr></thead><tbody>${conCodigo.map(r => `<tr><td>${esc(r.origen_codigo)}${r.origen_campana ? `<div class="l2">${esc(r.origen_campana)}</div>` : ''}</td><td>${esc(NOMBRE_RED[r.origen_red] || r.origen_red)}</td><td>${r.pedidos}</td><td class="mono">${pesos(r.ventas)}</td></tr>`).join('') || '<tr><td colspan="4" class="gris">Ningún pedido del mes trae código todavía (se llena al ingresar por WhatsApp o desde Shopify con el barrido)</td></tr>'}</tbody></table></div></div></section>`; })()}
     <section class="seccion"><h2>Pedidos por mes · ${y} contra ${y - 1}</h2><div class="barras">${MESES.map((mm, i) => { const a = porMes[`${y}-${String(i + 1).padStart(2, '0')}`], b = porMes[`${y - 1}-${String(i + 1).padStart(2, '0')}`]; return `<div class="barra-mes"><div class="par"><div class="b" style="height:${(b ? b.pedidos : 0) / maxP * 100}%" title="${y - 1}: ${b ? b.pedidos : 0}"></div><div class="b actual" style="height:${(a ? a.pedidos : 0) / maxP * 100}%" title="${y}: ${a ? a.pedidos : 0}"></div></div><span>${mm}</span><span style="font-size:10px">${a ? a.pedidos : '·'} / ${b ? b.pedidos : '·'}</span></div>`; }).join('')}</div><div style="font-size:12px;color:var(--gris-2)">Barra gris ${y - 1}, barra azul ${y}. Datos de prueba en el prototipo.</div></section>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
       <section class="seccion"><h2>Por origen · mes actual</h2><table class="lista"><thead><tr><th>Origen</th><th>Pedidos</th><th>Ventas</th></tr></thead><tbody>${agrupar('origen').map(([kk, v]) => `<tr><td>${esc(kk)}</td><td>${v.n}</td><td class="mono">${pesos(v.v)}</td></tr>`).join('')}</tbody></table></section>
@@ -1854,6 +1868,18 @@ function casosFichaHtml(casos, esOp) {
 /* Porcentaje abonado, sutil (Harold 14-oct: "quiero que me diga el %, algo sutil para no manchar la ficha") */
 const cuentasOpciones = () => Object.values((cache.codigos || {}).cuenta || {}).sort((a, b) => (a.orden || 0) - (b.orden || 0)).map(c => `<option value="${esc(c.codigo)}">${esc(c.nombre)}</option>`).join('');
 const cuentaNombre = c => c ? ((codigoDe('cuenta', c) || {}).abreviatura || c) : '-';
+/* Origen detallado (T-314, 14-oct): código del mensaje de WhatsApp, red y campaña; nunca inventado (vacío = no se sabe) */
+const ORIGEN_REDES = ['', 'ig', 'fb', 'meta', 'google', 'tiktok', 'organico', 'directo', 'desconocido'];
+const NOMBRE_RED = { ig: 'Instagram', fb: 'Facebook', meta: 'Meta (ig o fb)', google: 'Google', tiktok: 'TikTok', organico: 'Orgánico', directo: 'Directo', desconocido: 'Desconocido' };
+const camposOrigenHtml = (p = {}) => `<label class="campo">Código del mensaje (WhatsApp) <input name="origen_codigo" value="${esc(p.origen_codigo || '')}" placeholder="ej. [A-anuncio-medida] o pega el mensaje" title="Pega el mensaje del cliente: el código [X-...|red] se detecta solo"></label>
+    <label class="campo">Red de donde vino <select name="origen_red">${ORIGEN_REDES.map(r => `<option value="${r}" ${(p.origen_red || '') === r ? 'selected' : ''}>${r ? NOMBRE_RED[r] : '(no se sabe)'}</option>`).join('')}</select></label>
+    <label class="campo">Campaña (opcional) <input name="origen_campana" value="${esc(p.origen_campana || '')}" placeholder="ej. Böll muebles a medida A/B"></label>`;
+function activarDeteccionCodigo(form) {
+  const inp = form.querySelector('input[name=origen_codigo]'); if (!inp) return;
+  inp.onblur = inp.onchange = () => { const m = inp.value.match(/\[([A-Za-z]-[^\]|]+)(?:\|(ig|fb|meta|google|tiktok))?\]/); if (!m) return; inp.value = '[' + m[1] + ']'; const sel = form.querySelector('select[name=origen_red]'); if (m[2] && sel && !sel.value) sel.value = m[2].toLowerCase(); };
+}
+const leerOrigen = f => ({ origen_codigo: (f.get('origen_codigo') || '').trim() || null, origen_red: f.get('origen_red') || null, origen_campana: (f.get('origen_campana') || '').trim() || null });
+const origenTxt = p => [p.origen, p.origen_codigo, p.origen_red ? NOMBRE_RED[p.origen_red] || p.origen_red : '', p.origen_campana].filter(Boolean).join(' · ');
 const pctAbono = p => { const t = Number(p.total || 0), a = Number(p.abonado || 0); if (!t) return ''; const pc = Math.round(a / t * 100); return `<small class="pct-abono" title="Porcentaje del total abonado">${pc}% del total</small>`; };
 
 /* ---------- Títulos de columna que siguen al bajar (Harold 12-oct, tanda 20) ----------
