@@ -452,3 +452,4 @@ details.plegable .prop{margin-top:6px}
 @media print{.contenido.ruta{max-width:none}.parada{break-inside:avoid;padding:6px 8px}.parada .cuerpo{font-size:12px}}
 .parada .menu-lista,.prop .menu-lista{min-width:280px;left:0;right:auto}
 @media (max-width:900px){.parada .menu-lista{left:auto;right:0}}
+.menu-lista.mover{padding:8px 0}.menu-lista.mover label{display:flex;flex-direction:column;gap:4px;padding:4px 12px 8px;font-size:12px;color:var(--gris-2)}.menu-lista.mover input{min-height:36px}
