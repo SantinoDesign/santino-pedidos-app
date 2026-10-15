@@ -85,7 +85,7 @@ table.lista{border-collapse:collapse;width:100%;font-size:12px}
 table.lista th{position:sticky;top:0;background:var(--panel);text-align:left;padding:9px 8px;font-weight:700;white-space:nowrap;z-index:1}
 table.lista td{padding:7px 8px;border-top:1px solid #EEF1F3;vertical-align:top}
 table.lista tr.fila{cursor:pointer}
-table.lista tr.fila:hover{background:#FAFBFC}
+@media (hover:hover){table.lista tr.fila:hover{background:#FAFBFC}}
 table.lista tr.atrasado td:first-child{box-shadow:inset 3px 0 0 var(--rojo)}
 table.lista tr.semana td{background:var(--azul-suave);color:var(--azul-osc);font-weight:700;font-size:13px;padding:8px}
 table.lista tr.detalle td{background:#F8FAFB;padding:12px 14px}
@@ -231,7 +231,7 @@ table.impresion tr.atrasado td{color:var(--rojo-txt);font-weight:600}
 @media print{.guia{border:none;margin:0;padding:0;max-width:none}.guia .total-row td,.guia thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 .sin-fecha{color:var(--gris-3);font-style:italic}
 table.lista td.fecha-ent{cursor:pointer}
-table.lista td.fecha-ent:hover{background:var(--azul-suave)}
+@media (hover:hover){table.lista td.fecha-ent:hover{background:var(--azul-suave)}}
 /* Barra horizontal siempre visible y arrastre de la tabla */
 .tabla-env{overflow-x:scroll;cursor:grab}
 .tabla-env.arrastrando{cursor:grabbing;user-select:none}
@@ -380,7 +380,7 @@ table.lista.v2 .celda-pieza.lista .l2,.celda-pieza.lista .l2,.celda-pieza.lista 
 .celda-pieza.mov{border-style:dashed;border-color:var(--azul)}.celda-pieza.mov .etapa-tag{color:var(--azul-osc)}
 .d-mov{grid-column:1/-1;padding:0;border:none;background:none}.d-mov .seccion{padding:10px 12px}.d-mov .seccion h2{font-size:12px;color:var(--azul-osc);text-transform:uppercase;letter-spacing:.4px}
 table.lista.v2 .l2.propone{color:var(--azul-osc);font-weight:700}
-table.lista td.fecha-mov{cursor:pointer}table.lista td.fecha-mov:hover{background:var(--azul-suave)}
+table.lista td.fecha-mov{cursor:pointer}@media (hover:hover){table.lista td.fecha-mov:hover{background:var(--azul-suave)}}
 .prog-desp{display:inline-flex;gap:6px;align-items:center}.prog-desp input{min-height:30px;padding:2px 6px;font-size:12px}
 
 /* Orden de compra (tanda 26, 13-oct-2026): estados de la OC, pieza devuelta al proveedor, ventana ancha, recepción */
@@ -398,7 +398,7 @@ table.lista td.fecha-mov{cursor:pointer}table.lista td.fecha-mov:hover{backgroun
 .oc-dinero{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;align-items:center}
 .oc-dinero>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 table.lista tr.fila-oc{cursor:pointer}
-table.lista tr.fila-oc:hover td{background:var(--azul-suave)}
+@media (hover:hover){table.lista tr.fila-oc:hover td{background:var(--azul-suave)}}
 table.lista.oc-tabla td{vertical-align:top}
 .recibir-fila{display:grid;grid-template-columns:1fr minmax(240px,320px);gap:6px 14px;align-items:start;padding:8px 0;border-bottom:1px solid var(--linea);font-size:13px}
 .recibir-opc{display:flex;flex-direction:column;gap:4px;font-size:12px}
@@ -411,7 +411,7 @@ table.lista.oc-tabla td{vertical-align:top}
 .chip.caso-Esperando_cliente{background:var(--azul-suave);color:var(--azul-osc)}
 .chip.caso-Esperando_revisión{background:var(--azul-claro);color:var(--azul-osc)}
 .chip.caso-Cerrado{background:var(--panel);color:var(--gris-3)}
-table.lista tr.fila-caso{cursor:pointer}table.lista tr.fila-caso:hover td{background:var(--azul-suave)}
+table.lista tr.fila-caso{cursor:pointer}@media (hover:hover){table.lista tr.fila-caso:hover td{background:var(--azul-suave)}}
 .caso-notas{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
 .caso-nota{padding:6px 10px;border-left:3px solid var(--azul-claro);background:var(--fondo);border-radius:0 6px 6px 0;font-size:13px}
 .caso-nota .l2{color:var(--gris-3);font-size:11px}
@@ -425,3 +425,28 @@ table.lista tr.fila{transition:transform .08s linear}
 /* Pedidos unidos (tanda 30) */
 .grupo-caja{border:1px solid var(--azul-claro);border-radius:8px;padding:8px 10px;background:#F7FBFC;display:flex;flex-direction:column;gap:6px}
 .grupo-caja table.lista{font-size:12px}.grupo-caja tr.fila-actual td{background:var(--azul-suave)}.grupo-caja tr.total-row td{border-top:2px solid var(--azul-claro)}
+
+/* Tablet (Harold 15-oct): al tocar una etiqueta de pieza se pintaba toda la fila de azul (resalte de toque de Android sobre la fila, que tiene
+   el gesto de deslizar, y el :hover que queda pegado tras un toque). Ahora solo reacciona la etiqueta; los :hover van solo con mouse. */
+table.lista tr.fila,table.lista td,.celda-pieza,.etapa-chip,.btn{-webkit-tap-highlight-color:transparent}
+.celda-pieza:active,.etapa-chip:active{filter:brightness(.9);transform:scale(.98)}
+/* Ruta (tanda 33): una columna, paradas con hora estimada, confirmación del cliente y acciones */
+.contenido.ruta{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.ruta-cab{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0 10px}
+.ruta-cab .espacio{flex:1}
+.ruta-lista{display:flex;flex-direction:column;gap:8px}
+.parada{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:4px 12px;align-items:start;padding:10px 12px;border:1px solid var(--linea);border-radius:8px;background:#fff}
+.parada .cuerpo{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:13.5px}
+.parada .cuerpo .num{font-weight:700;font-size:15px}
+.parada .cuerpo .num a{color:inherit;text-decoration:none}.parada .cuerpo .num a:hover{text-decoration:underline}
+.parada .acc{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-self:center;max-width:300px}
+.parada.tarde{border-color:var(--rojo)}
+.prop .acc{display:flex;gap:4px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.ambar-txt{color:var(--ambar-txt)}.rojo{color:var(--rojo-txt)}
+details.plegable>summary{cursor:pointer;font-weight:700;font-size:15px;list-style:none;display:flex;gap:8px;align-items:center}
+details.plegable>summary::before{content:'▸';color:var(--azul);font-size:13px}details.plegable[open]>summary::before{content:'▾'}
+details.plegable>summary::-webkit-details-marker{display:none}
+details.plegable .prop{margin-top:6px}
+.tablet .parada .acc .btn{min-height:42px}
+@media (max-width:900px){.parada{grid-template-columns:36px minmax(0,1fr)}.parada .acc{grid-column:2;justify-content:flex-start;max-width:none}}
+@media print{.contenido.ruta{max-width:none}.parada{break-inside:avoid;padding:6px 8px}.parada .cuerpo{font-size:12px}}

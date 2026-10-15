@@ -6,7 +6,7 @@
 const sb = window.supabase.createClient(window.SANTINO_CONFIG.url, window.SANTINO_CONFIG.anon);
 const app = document.getElementById('app');
 let yo = null;            // {id, nombre, rol}
-let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), etapas: new Set(), mios: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, ordenRuta: [] };
+let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), etapas: new Set(), mios: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, rutaSalida: null };
 const META = 62;          // pedidos al mes (objetivo de utilidad, DM_Financiero v7.15)
 const ESTADOS = ['POR FABRICAR','VISITA TÉCNICA','DIBUJO 3D','DISEÑO APROBADO','EN FABRICACIÓN','LISTO EN TALLER','DESPACHO PROGRAMADO','ENTREGADO','CANCELADO','DEVUELTO'];
 const ORDEN_COMUNAS = ['Vitacura','Lo Barnechea','Las Condes','La Reina','Providencia','Ñuñoa','Santiago','Macul','Peñalolén','La Florida','Huechuraba','Colina','San Miguel','Maipú','Puente Alto'];
@@ -21,7 +21,7 @@ const MESES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agost
 const DIAS = ['dom','lun','mar','mié','jue','vie','sáb'];
 function fecha(s, conDia) { if (!s) return '-'; const d = new Date(s.length > 10 ? s : s + 'T12:00:00'); return (conDia ? DIAS[d.getDay()] + ' ' : '') + String(d.getDate()).padStart(2, '0') + '-' + MESES[d.getMonth()]; }
 function fechaHora(s) { if (!s) return ''; const d = new Date(s); return fecha(s) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
-function hoyISO(dias = 0) { const d = new Date(); d.setDate(d.getDate() + dias); return d.toISOString().slice(0, 10); }
+function hoyISO(dias = 0) { const d = new Date(); d.setDate(d.getDate() + dias); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }  // hora local (toISOString es UTC: de noche decía mañana)
 function num(v) { return v == null ? '' : String(Number(v)).replace(/\.0$/, ''); }
 function aviso(msg, error) { const a = $('#aviso'); a.textContent = msg; a.className = 'aviso' + (error ? ' error' : ''); clearTimeout(a._t); a._t = setTimeout(() => a.classList.add('oculto'), error ? 6000 : 3000); }
 function errorDe(e) { return (e && (e.message || e.error_description || e.hint)) || String(e); }
@@ -278,7 +278,7 @@ window.addEventListener('hashchange', () => { if (yo) render(); });
 function barra(activa) {
   const links = yo.rol === 'operacion'
     ? [['#/taller', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ...(yo.ve_compras ? [['#/compras', 'Compras']] : [])]
-    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
+    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
   return `<div class="barra"><a class="marca" href="${links[0][0]}" title="Santino Design · Pedidos"><img src="logo.png" alt="Santino Design" class="logo-barra"></a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
 }
 async function render() {
@@ -439,7 +439,7 @@ function pintarLista() {
     const r = rasgos(p);
     const envio = (p.tipo_entrega === 'Despacho regiones' ? 'Regiones' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro en taller' : 'RM') + (p.instalacion ? ' + instalación' : '');
     const fe = feP(p); const atraso = p.atrasado ? Math.max(1, Math.round((new Date(hoy) - new Date(fe)) / 864e5)) : 0;
-    const ent = cache.filtro === 'entregados' ? (p.entregado_en ? `<div class="l1">${fecha(fe)}</div><div class="l2">entregado</div>` : '<span class="sin-fecha">sin fecha de entrega</span>') : fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.despacho_propuesto && p.estado !== 'DESPACHO PROGRAMADO' ? `<div class="l2 propone">Alexis propone ${fecha(p.despacho_propuesto)}</div>` : p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.fecha_comprometida ? '<div class="l2">comprometida</div>' : '<div class="l2">aprox. (+21 d)</div>'}`;
+    const ent = cache.filtro === 'entregados' ? (p.entregado_en ? `<div class="l1">${fecha(fe)}</div><div class="l2">entregado</div>` : '<span class="sin-fecha">sin fecha de entrega</span>') : fe === '9999' ? '<span class="sin-fecha">sin fecha</span>' : `<div class="l1 ${p.atrasado ? 'rojo' : ''}">${fecha(fe)}</div>${p.despacho_propuesto && p.estado !== 'DESPACHO PROGRAMADO' ? `<div class="l2 propone">Alexis propone ${fecha(p.despacho_propuesto)}</div>` : p.atrasado ? `<div class="l2 rojo">atrasado ${atraso} d</div>` : p.estado === 'DESPACHO PROGRAMADO' ? (p.despacho_confirmado_en ? '<div class="l2">cliente confirmó</div>' : '<div class="l2 propone">por confirmar</div>') : p.fecha_comprometida ? '<div class="l2">comprometida</div>' : '<div class="l2">aprox. (+21 d)</div>'}`;
     const cubL1 = r.parcial === 'solo bases' ? '-' : [r.cub.material_cubierta ? codMaterial(r.cub.material_cubierta) : '', r.cub.espesor_mm ? num(r.cub.espesor_mm) + ' mm' : ''].filter(Boolean).join(' · ') || (celdas && r.cub.area ? (r.cub.tipo === 'Servicio' ? 'Instalación' : r.cub.tipo) : '-');
     const cubL2 = r.cubierta2.slice(1).filter(Boolean).join(' · ');
     const conBase = r.base.tipo || ['Cubierta', 'Mesa'].includes(r.cub.tipo);  // un mueble, banca o servicio no tiene base: la celda queda vacía
@@ -544,6 +544,7 @@ function abrirDetalleFila(tr) {
         ${esOp && p.estado === 'LISTO EN TALLER' ? `<label style="font-size:12px">Proponer despacho <input type="date" data-fecha="${p.id}" value="${p.despacho_propuesto || ''}"></label><button class="btn chico borde" data-prop="${p.id}">Proponer</button>` : ''}
         ${esOp && p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn chico primario" data-entregar="${p.id}">Entregar</button>` : ''}
         ${p.despacho_propuesto && p.estado === 'LISTO EN TALLER' && !esOp ? `<span class="chip prop">Alexis propone ${fecha(p.despacho_propuesto, true)}</span><button class="btn chico borde" data-confirmar="${p.id}">Cliente confirmó: programar</button><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WSP despacho</a>` : ''}
+        ${!esOp && p.estado === 'DESPACHO PROGRAMADO' ? (p.despacho_confirmado_en ? '<span class="chip ok">CLIENTE CONFIRMÓ</span>' : `<span class="chip saldo">POR CONFIRMAR</span><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WSP despacho</a><button class="btn chico primario" data-confirmar="${p.id}">Cliente confirmó</button>`) : ''}
         ${p.estado !== 'DESPACHO PROGRAMADO' ? `<span class="prog-desp"><input type="date" data-prog-fecha="${p.id}" value="${p.despacho_propuesto || p.fecha_comprometida || ''}" title="Día de entrega acordado con el cliente"><button class="btn chico primario" data-programar="${p.id}" title="Deja el pedido en DESPACHO PROGRAMADO con esa fecha: entra a la Ruta de ese día">Programar despacho</button></span>` : ''}
         ${esOp ? '' : `<button class="btn chico borde" data-urgente="${p.id}">${p.urgente ? 'Quitar urgente' : 'Urgente'}</button>`}
         <a class="btn chico" href="#/pedido/${p.id}">Abrir ficha${p.planos ? ` · planos (${p.planos})` : ''}</a>
@@ -584,7 +585,7 @@ function abrirDetalleFila(tr) {
     catch (e) { se.value = antes; aviso(errorDe(e), true); }
   };
   $$('input, a, button, select', d).forEach(el => { if (!el.onclick) el.addEventListener('click', ev => ev.stopPropagation()); });
-  const bc = $('[data-confirmar]', d); if (bc) bc.onclick = async () => { try { await rpc('confirmar_despacho', { p_pedido_id: p.id }); aviso('Despacho programado'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
+  const bc = $('[data-confirmar]', d); if (bc) bc.onclick = async () => { try { await rpc('confirmar_despacho', { p_pedido_id: p.id }); aviso('Confirmado por el cliente ✓: entra a la Ruta'); anotarCambio('confirmación del cliente (volver a por confirmar)', () => rpc('confirmar_despacho', { p_pedido_id: p.id, p_quitar: true })); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const bl = $('[data-listo]', d); if (bl) bl.onclick = async () => { try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller ✓'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const bp = $('[data-prop]', d); if (bp) bp.onclick = async () => { const f = $('[data-fecha]', d).value; if (!f) return aviso('Elige la fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Propuesta enviada a Harold'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const be = $('[data-entregar]', d); if (be) be.onclick = () => formEntregar(p, () => vLista());
@@ -768,13 +769,15 @@ async function vFicha(id) {
         <div class="fila-dato"><span>Dirección</span><span>${p.direccion ? esc(p.direccion) : '<span class="falta-dato">sin dirección</span>'}</span></div>
         <div class="fila-dato"><span>Comuna</span><span>${p.comuna ? esc(p.comuna) : '<span class="falta-dato">sin comuna</span>'}</span></div>
       </section>
-      <section class="seccion"><div class="cab"><h2>Fechas y entrega</h2>${esOp ? '' : '<button class="btn chico borde" id="b-entrega">Editar entrega</button>'}</div>
+      <section class="seccion"><div class="cab"><h2>Fechas y entrega</h2>${esOp ? '' : '<span style="display:flex;gap:6px"><button class="btn chico borde" id="b-entrega">Editar entrega</button><button class="btn chico borde" id="b-repetir" title="Nuevo pedido para este cliente con las mismas piezas, precios y entrega; cambia lo que difiera">Repetir pedido</button></span>'}</div>
         <div class="fila-dato"><span>Compra</span><span>${fecha(p.fecha_compra)}${p.fecha_compra_estimada ? ' <span class="falta-dato">(estimada)</span>' : ''}</span></div>
         <div class="fila-dato"><span>Origen</span><span>${esc(origenTxt(p)) || '-'}${!esOp && ['WhatsApp', 'Instagram', 'Shopify'].includes(p.origen) && !p.origen_codigo && !p.origen_red ? ' <small class="gris">(sin código ni red: Editar entrega)</small>' : ''}</span></div>
         <div class="fila-dato"><span>Entrega cliente</span>${esOp ? `<span>${fecha(p.fecha_comprometida || p.fecha_estimada, true)}${p.fecha_comprometida ? '' : ' <small class="gris">aprox.</small>'}</span>` : `<span><input type="date" id="i-comp" value="${p.fecha_comprometida || ''}" style="min-height:32px;padding:4px 8px" title="Fecha comprometida con el cliente; vacía = aproximada">${p.fecha_comprometida ? '' : ` <small class="gris">aprox. ${fecha(p.fecha_estimada)} (+21 d)</small>`}</span>`}</div>
         <div class="fila-dato"><span>Entrega</span><span>${esc(p.tipo_entrega)}${p.instalacion ? ' + instalación' : ''}</span></div>
         ${p.direccion_entrega || p.comuna_entrega ? `<div class="fila-dato"><span>Dirección de entrega</span><span>${esc([p.direccion_entrega, p.comuna_entrega].filter(Boolean).join(', '))}</span></div>` : ''}
         <div class="fila-dato"><span>Nota de entrega</span><span>${esc(p.nota_entrega || '-')}</span></div>
+        <div class="fila-dato"><span>Recibe</span><span>${p.hora_desde || p.hora_hasta ? `${hhmm(p.hora_desde) || '…'} a ${hhmm(p.hora_hasta) || '…'}` : 'sin restricción de horario'}${esOp ? '' : ` <button class="btn chico borde" id="b-horario" style="margin-left:6px">Cambiar</button>`}</span></div>
+        ${p.estado === 'DESPACHO PROGRAMADO' ? `<div class="fila-dato"><span>Cliente confirmó</span><span>${p.despacho_confirmado_en ? '<span class="chip ok">SÍ · ' + fechaHora(p.despacho_confirmado_en) + '</span>' : '<span class="chip saldo">POR CONFIRMAR</span>' + (esOp ? ' <small class="gris">Harold confirma</small>' : ` <a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp</a> <button class="btn chico primario" id="b-conf2">Confirmó</button>`)}</span></div>` : ''}
         ${p.cotizacion_numero ? `<div class="fila-dato"><span>Cotización</span><span>${esc(p.cotizacion_numero)}</span></div>` : ''}
         ${garantia ? garantiaHtml(garantia) : ''}
         ${p.estado === 'POR FABRICAR' ? `<div class="fila-dato"><span>Prioridad</span><span>${p.prioridad || '-'} en cola</span></div>` : ''}
@@ -802,6 +805,8 @@ async function vFicha(id) {
   on('#b-unir', () => formUnir(p, recargar));
   on('#b-separar', async () => { if (!confirm(`¿Separar ${p.numero} de los pedidos unidos? Sus abonos se quedan donde están.`)) return; try { await rpc('separar_pedido', { p_id: p.id }); aviso('Separado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-listo', async () => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: 'LISTO EN TALLER' }); aviso('Listo en taller'); anotarCambio(`${p.numero} listo en taller (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
+  on('#b-horario', () => formHorarioEntrega(p, recargar));
+  on('#b-conf2', async () => { try { await rpc('confirmar_despacho', { p_pedido_id: Number(id) }); aviso('Confirmado por el cliente ✓'); anotarCambio('confirmación del cliente (volver a por confirmar)', () => rpc('confirmar_despacho', { p_pedido_id: Number(id), p_quitar: true })); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-prop', async () => { const f = $('#f-prop').value; if (!f) return aviso('Elige una fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: Number(id), p_fecha: f }); aviso('Propuesta guardada; Harold envía el mensaje'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-conf', async () => { try { await rpc('confirmar_despacho', { p_pedido_id: Number(id), p_fecha: $('#f-prop').value || null }); aviso('Despacho programado'); recargar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#b-entregar', () => formEntregar(p, recargar));
@@ -817,6 +822,7 @@ async function vFicha(id) {
     on('#b-cliente', () => formEditarCliente(p, recargar));
     on('#b-postventa', () => formPostventa(p));
     on('#b-entrega', () => formEditarEntrega(p, recargar));
+    on('#b-repetir', () => formPedido({ cliente: { id: p.cliente_id, nombre: p.cliente, telefono: p.cliente_telefono, comuna: p.comuna }, base: p }));
     on('#b-precios', () => formEditarPrecios(p, recargar));
     on('#b-subir', () => formSubir(p, recargar));
     on('#b-linea', () => formLinea(p, recargar));
@@ -1036,13 +1042,15 @@ async function formEditarEntrega(p, despues) {
     <label class="campo">Dirección de entrega (vacía = la del cliente) <input name="direccion_entrega" value="${esc(p.direccion_entrega || '')}" placeholder="${esc(p.direccion || '')}"></label>
     <label class="campo">Comuna de entrega (vacía = la del cliente) <select name="comuna_entrega">${op}</select></label>
     <label class="campo">Nota de entrega <input name="nota_entrega" value="${esc(p.nota_entrega || '')}"></label>
+    <label class="campo">Recibe desde (restricción del cliente; vacío = sin restricción) <input name="hora_desde" type="time" value="${hhmm(p.hora_desde)}"></label>
+    <label class="campo">Recibe hasta <input name="hora_hasta" type="time" value="${hhmm(p.hora_hasta)}"></label>
     <label class="campo">Fecha de entrega real (garantía; vacía = sin entregar) <input name="entregado_en" type="date" value="${p.entregado_en ? String(p.entregado_en).slice(0, 10) : ''}"></label>
     <label class="campo">Cotización N° <input name="cotizacion_numero" value="${esc(p.cotizacion_numero || '')}" placeholder="Cot 3370"></label>
     <label class="campo">Origen <select name="origen">${['WhatsApp', 'Instagram', 'Shopify', 'Fábrica', 'Tienda', 'Cliente directo', 'Correo', 'Colaborador', 'Interno'].map(t => `<option ${t === p.origen ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     ${camposOrigenHtml(p)}</div>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f-ent').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const v = k => (f.get(k) || '').trim() || null;
-    const cambios = { fecha_compra: v('fecha_compra'), fecha_comprometida: v('fecha_comprometida'), tipo_entrega: v('tipo_entrega'), instalacion: f.get('instalacion') === 'on', direccion_entrega: v('direccion_entrega'), comuna_entrega: v('comuna_entrega'), nota_entrega: v('nota_entrega'), cotizacion_numero: v('cotizacion_numero'), origen: v('origen'), ...leerOrigen(f), entregado_en: v('entregado_en') ? v('entregado_en') + 'T12:00:00' : null };
+    const cambios = { fecha_compra: v('fecha_compra'), fecha_comprometida: v('fecha_comprometida'), tipo_entrega: v('tipo_entrega'), instalacion: f.get('instalacion') === 'on', direccion_entrega: v('direccion_entrega'), comuna_entrega: v('comuna_entrega'), nota_entrega: v('nota_entrega'), hora_desde: v('hora_desde'), hora_hasta: v('hora_hasta'), cotizacion_numero: v('cotizacion_numero'), origen: v('origen'), ...leerOrigen(f), entregado_en: v('entregado_en') ? v('entregado_en') + 'T12:00:00' : null };
     const { error } = await sb.from('pedido').update(cambios).eq('id', p.id); if (error) return aviso(errorDe(error), true);
     cerrarModal(); aviso('Entrega guardada'); despues(); };
 }
@@ -1061,11 +1069,14 @@ function formEditarPrecios(p, despues) {
     anotarCambio(`precios de ${p.numero}`, () => sb.from('pedido').update(antes).eq('id', p.id).then(r => { if (r.error) throw r.error; }));
     cerrarModal(); aviso('Precios guardados'); despues(); };
 }
-async function formPedido() {
+/* Harold 15-oct: una clienta antigua pidió repetir un pedido. pre.cliente = cliente ya elegido (desde Clientes o la ficha); pre.base = pedido a repetir:
+   copia tipo, origen, precios, entrega y las piezas, y Harold cambia lo que difiera antes de crear. */
+async function formPedido(pre = {}) {
   const { data: comunas } = await sb.from('comuna').select('nombre').order('nombre');
   const opComunas = (comunas || []).map(c => `<option>${esc(c.nombre)}</option>`).join('');
-  let lineas = 1;
-  const m = modal(`<h2>Nuevo pedido</h2><form id="f">
+  const base = pre.base || null, piezasBase = base ? (base.piezas || []).slice().sort((a, b) => (a.orden || 0) - (b.orden || 0)) : [];
+  let lineas = Math.max(1, piezasBase.length);
+  const m = modal(`<h2>${base ? `Repetir ${esc(base.numero)} · ${esc(base.cliente)}` : pre.cliente ? `Nuevo pedido · ${esc(pre.cliente.nombre)}` : 'Nuevo pedido'}</h2>${base ? '<div class="gris" style="font-size:12px;margin:-6px 0 8px">Copiado del pedido original: cliente, tipo, precios, entrega y piezas. Cambia lo que difiera; el número y la fecha de compra son nuevos.</div>' : ''}<form id="f">
     <div class="campos">
       <label class="campo">Cliente existente (busca por nombre o teléfono) <input name="buscar_cliente" list="dl-cli" placeholder="escribe para buscar"><datalist id="dl-cli"></datalist><input type="hidden" name="cliente_id"></label>
       <label class="campo">o cliente nuevo: nombre <input name="c_nombre"></label>
@@ -1093,12 +1104,19 @@ async function formPedido() {
       <label class="campo">Medio del abono <select name="abono_medio"><option>Transferencia</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option><option>Efectivo</option></select></label>
     </div>
     <label class="campo">Observación <textarea name="observacion"></textarea></label>
-    <h2>Líneas (piezas)</h2><div id="lineas">${camposLinea('l0_')}</div><button type="button" class="btn chico" id="b-mas">+ otra línea</button>
+    <h2>Líneas (piezas)</h2><div id="lineas">${piezasBase.length ? piezasBase.map((x, i) => (i ? '<hr style="border:none;border-top:1px solid var(--linea)">' : '') + camposLinea(`l${i}_`)).join('') : camposLinea('l0_')}</div><button type="button" class="btn chico" id="b-mas">+ otra línea</button>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Crear pedido</button></div></form>`);
   $('#b-mas', m).onclick = () => { const d = document.createElement('div'); d.innerHTML = '<hr style="border:none;border-top:1px solid var(--linea)">' + camposLinea(`l${lineas++}_`); $('#lineas', m).appendChild(d); };
   const bc = $('[name=buscar_cliente]', m);
   bc.oninput = async () => { const t = bc.value.trim(); if (t.length < 2) return; const { data } = await sb.from('v_cliente').select('id,nombre,telefono,comuna').or(`nombre.ilike.%${t}%,telefono.ilike.%${t}%`).limit(8); $('#dl-cli', m).innerHTML = (data || []).map(c => `<option value="${esc(c.nombre)} · ${esc(c.telefono || '')} · ${esc(c.comuna || '')}" data-id="${c.id}"></option>`).join(''); const op = [...$('#dl-cli', m).options].find(o => o.value === bc.value); $('[name=cliente_id]', m).value = op ? op.dataset.id : ''; };
   bc.onchange = bc.oninput;
+  if (pre.cliente) { bc.value = `${pre.cliente.nombre} · ${pre.cliente.telefono || ''} · ${pre.cliente.comuna || ''}`; $('[name=cliente_id]', m).value = pre.cliente.id; $('#dl-cli', m).innerHTML = `<option value="${esc(bc.value)}" data-id="${pre.cliente.id}"></option>`; }
+  if (base) {   // mismos datos del pedido original; las piezas vuelven a empezar (sin etapa) y el abono queda en blanco
+    const pon = (k, v) => { const el = $(`[name="${k}"]`, m); if (!el || v == null || v === '') return; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; };
+    ['tipo_pedido', 'origen', 'precio_venta', 'precio_despacho', 'precio_instalacion', 'tipo_entrega', 'nota_entrega', 'observacion'].forEach(k => pon(k, base[k])); pon('instalacion', base.instalacion);
+    piezasBase.forEach((x, i) => { const pf = `l${i}_`; pon(pf + 'tipo_linea', x.tipo); pon(pf + 'area_taller', x.area); pon(pf + 'color_estructura', x.color);
+      ['descripcion', 'cantidad', 'modelo_cubierta', 'modelo_base', 'material_cubierta', 'material_base', 'espesor_mm', 'largo_cm', 'ancho_cm', 'alto_cm', 'largo_ext_cm', 'forma', 'personas', 'tono', 'nota_acabado', 'tipo_silla', 'tapiz', 'color_silla'].forEach(k => pon(pf + k, x[k])); });
+  }
   $('#f', m).onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target);
     try {
@@ -1171,8 +1189,9 @@ async function vClientes() {
     <span style="color:var(--gris-3)">${data.length} clientes · la fecha de Última entrega abre la ficha; con ~ es estimada (venía del Excel sin fecha)</span></div><div class="contenido"><div class="tabla-env"><table class="lista"><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th>Comuna</th><th>Pedidos</th><th>Pendientes</th><th>Total comprado</th><th>Última compra</th><th>Última entrega</th><th>Casos</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
   const pintar = () => { const t = $('#b').value.toLowerCase(); const o = cache.clientesOrden;
     const lista = data.filter(c => !t || [c.nombre, c.telefono, c.email, c.empresa].join(' ').toLowerCase().includes(t)).sort((a, b) => o === 'nombre' ? String(a.nombre).localeCompare(String(b.nombre)) : o === 'compra' ? String(b.ultima_compra || '').localeCompare(String(a.ultima_compra || '')) : String(b.ultima_entrega || '').localeCompare(String(a.ultima_entrega || '')) || String(b.ultima_compra || '').localeCompare(String(a.ultima_compra || '')));
-    $('#tb').innerHTML = lista.map(c => `<tr><td class="nw"><strong>${esc(c.nombre)}</strong>${c.empresa && c.empresa !== c.nombre ? ' · ' + esc(c.empresa) : ''}<div class="l2"><a href="#/lista?q=${encodeURIComponent(c.nombre)}" title="Ver todos sus pedidos en la Lista">ver pedidos</a>${c.email ? ' · ' + esc(c.email) : ''}</div></td><td>${esc(c.tipo_cliente)}</td><td class="nw">${esc(c.telefono || '')}</td><td>${esc(c.comuna || '')}</td><td>${c.pedidos}</td><td>${c.pendientes ? `<span class="chip inst">${c.pendientes}</span>` : ''}</td><td class="mono">${pesos(c.total_comprado)}</td><td class="nw">${fecha(c.ultima_compra)}</td><td class="nw">${c.ultima_entrega ? `<a href="#/pedido/${c.ultimo_entregado_id}" title="Abrir la ficha del último pedido entregado${c.ultima_entrega_estimada ? ' (fecha estimada: venía del Excel sin fecha de entrega; corrígela en Editar entrega)' : ''}">${c.ultima_entrega_estimada ? '~' : ''}${fecha(c.ultima_entrega)}</a>${c.ultima_entrega_estimada ? '<div class="l2 gris">estimada</div>' : ''}` : '<span class="gris">-</span>'}</td><td class="nw">${casosDe[c.id] ? `<a href="#/casos?cliente=${c.id}">${casosDe[c.id].n}${casosDe[c.id].ab ? ` <span class="chip caso-Abierto">${casosDe[c.id].ab} abierto${casosDe[c.id].ab > 1 ? 's' : ''}</span>` : ''}</a>` : ''}</td></tr>`).join(''); };
+    $('#tb').innerHTML = lista.map(c => `<tr><td class="nw"><strong>${esc(c.nombre)}</strong>${c.empresa && c.empresa !== c.nombre ? ' · ' + esc(c.empresa) : ''}<div class="l2"><a href="#/lista?q=${encodeURIComponent(c.nombre)}" title="Ver todos sus pedidos en la Lista">ver pedidos</a> · <a href="#" data-nuevo-cli="${c.id}" title="Nuevo pedido para este cliente con sus datos ya puestos">nuevo pedido</a>${c.email ? ' · ' + esc(c.email) : ''}</div></td><td>${esc(c.tipo_cliente)}</td><td class="nw">${esc(c.telefono || '')}</td><td>${esc(c.comuna || '')}</td><td>${c.pedidos}</td><td>${c.pendientes ? `<span class="chip inst">${c.pendientes}</span>` : ''}</td><td class="mono">${pesos(c.total_comprado)}</td><td class="nw">${fecha(c.ultima_compra)}</td><td class="nw">${c.ultima_entrega ? `<a href="#/pedido/${c.ultimo_entregado_id}" title="Abrir la ficha del último pedido entregado${c.ultima_entrega_estimada ? ' (fecha estimada: venía del Excel sin fecha de entrega; corrígela en Editar entrega)' : ''}">${c.ultima_entrega_estimada ? '~' : ''}${fecha(c.ultima_entrega)}</a>${c.ultima_entrega_estimada ? '<div class="l2 gris">estimada</div>' : ''}` : '<span class="gris">-</span>'}</td><td class="nw">${casosDe[c.id] ? `<a href="#/casos?cliente=${c.id}">${casosDe[c.id].n}${casosDe[c.id].ab ? ` <span class="chip caso-Abierto">${casosDe[c.id].ab} abierto${casosDe[c.id].ab > 1 ? 's' : ''}</span>` : ''}</a>` : ''}</td></tr>`).join(''); };
   $('#b').oninput = pintar; $('#o').onchange = ev => { cache.clientesOrden = ev.target.value; pintar(); }; pintar();
+  $('#tb').onclick = ev => { const a = ev.target.closest('[data-nuevo-cli]'); if (!a) return; ev.preventDefault(); const c = data.find(x => String(x.id) === a.dataset.nuevoCli); if (c) formPedido({ cliente: c }); };
 }
 async function vBandeja() {
   const { data } = await sb.from('v_bandeja').select('*').order('creado_en', { ascending: false });
@@ -1340,38 +1359,182 @@ async function vOdt() {
   activarPiezasEdicion(app, () => vOdt());
 }
 
-/* ---------- Ruta ---------- */
+/* ---------- Ruta (tanda 33, 15-oct-2026) ----------
+   Harold: "yo no la tengo visible y debería tenerla", "la encontré engorrosa", "necesito sistema de optimización de ruta y que si un cliente
+   tiene restricciones el sistema las considere". Una sola columna: la ruta del día arriba (paradas numeradas con hora estimada de llegada,
+   confirmación del cliente, WhatsApp y Confirmó para Harold, ▲▼ que se guardan para todos), debajo lo propuesto por Alexis y, plegado,
+   lo que se puede proponer. Orden: optimizado desde el taller (todas las permutaciones hasta 8 paradas; vecino más cercano más 2-opt
+   con más), respetando "Recibe desde / hasta" del pedido y la regla fija de no llegar antes de las 10:00; empate: lejos primero.
+   Ubicación: dirección real geolocalizada con OpenStreetMap (Nominatim, 1 consulta por dirección nueva, guardada en geocache); si no se
+   ubica, el centro de la comuna y se dice "ubicación aprox.". Nada se inventa: sin dirección = la parada queda al final marcada. */
+const TALLER = { nombre: 'Taller Santino', direccion: 'Lo Blanco 1919, La Pintana, Chile', lat: -33.5905, lng: -70.6330 };
+const SALIDA_DEFECTO = '09:30', HORA_MIN_CLIENTE = '10:00';
+const COMUNA_XY = { 'Vitacura': [-33.398, -70.577], 'Lo Barnechea': [-33.352, -70.516], 'Las Condes': [-33.408, -70.553], 'La Reina': [-33.445, -70.541], 'Providencia': [-33.431, -70.609], 'Ñuñoa': [-33.456, -70.598], 'Santiago': [-33.445, -70.653], 'Macul': [-33.487, -70.600], 'Peñalolén': [-33.488, -70.540], 'La Florida': [-33.523, -70.575], 'Huechuraba': [-33.370, -70.640], 'Colina': [-33.204, -70.675], 'Chicureo': [-33.280, -70.680], 'San Miguel': [-33.497, -70.652], 'Maipú': [-33.511, -70.758], 'Puente Alto': [-33.610, -70.575], 'Lampa': [-33.286, -70.876], 'Quilicura': [-33.360, -70.730], 'Padre Hurtado': [-33.572, -70.810], 'San Bernardo': [-33.592, -70.700], 'Buin': [-33.733, -70.742], 'Pudahuel': [-33.443, -70.758], 'Quinta Normal': [-33.428, -70.698], 'Cerrillos': [-33.497, -70.710], 'La Cisterna': [-33.533, -70.663], 'Recoleta': [-33.405, -70.640], 'Peñaflor': [-33.606, -70.876], 'Pedro Aguirre Cerda': [-33.490, -70.675], 'San Joaquín': [-33.493, -70.628], 'Independencia': [-33.417, -70.663], 'El Bosque': [-33.562, -70.675], 'Calera de Tango': [-33.629, -70.776], 'La Granja': [-33.539, -70.625], 'Conchalí': [-33.385, -70.675], 'Talagante': [-33.665, -70.928], 'Pirque': [-33.638, -70.550], 'Lo Prado': [-33.444, -70.725], 'Estación Central': [-33.460, -70.698], 'Lo Espejo': [-33.523, -70.690], 'El Monte': [-33.680, -70.985], 'Curacaví': [-33.401, -71.130], 'Melipilla': [-33.687, -71.214], 'Paine': [-33.808, -70.742], 'María Pinto': [-33.515, -71.120], 'Cerro Navia': [-33.422, -70.735], 'Renca': [-33.403, -70.712], 'San Ramón': [-33.540, -70.645], 'La Pintana': [-33.583, -70.634], 'Til Til': [-33.086, -70.928], 'Isla de Maipo': [-33.750, -70.900], 'San José de Maipo': [-33.640, -70.350] };
+const sinTildes = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const COMUNA_XY_N = Object.fromEntries(Object.entries(COMUNA_XY).map(([k, v]) => [sinTildes(k), v]));
+function xyComuna(c) { const v = COMUNA_XY_N[sinTildes(c)]; return v ? { lat: v[0], lng: v[1] } : null; }
+const distKm = (a, b) => Math.hypot((a.lng - b.lng) * 92.7, (a.lat - b.lat) * 111.2) * 1.3;   // km por calle ≈ 1,3 × línea recta
+const minViaje = km => Math.round(6 + km * 2.4);                                                 // 25 km/h en ciudad más 6 min de estacionar y subir
+const esDepto = d => /\b(depto|dpto|departamento|edificio|piso|apt|torre|of(icina)?)\b/i.test(d || '');
+function limpiarDireccion(d, comuna) { let s = (d || '').split(/[,;]/)[0]; s = s.replace(/\b(depto|dpto|departamento|casa|torre|piso|of(?:icina)?|cond(?:ominio)?|edificio|block|bloque|interior|parcela|local|km\.?)\b.*$/i, '').replace(/\s+/g, ' ').trim(); return s ? `${s}, ${comuna || 'Santiago'}, Chile` : ''; }
+const horaMin = h => { if (!h) return null; const [a, b] = String(h).split(':').map(Number); return a * 60 + b; };
+const minHora = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+const hhmm = h => h ? String(h).slice(0, 5) : '';
+/* Minutos en el lugar (tabla de la skill auto-pedidodespacho v3.1): sin instalación 35; instalación en depto 40, en casa 50; con vidrio 90 */
+function minParada(p) { if (!p || !p.instalacion) return 35; if ((p.piezas || []).some(x => /^V\./.test(x.material_cubierta || '') || /vidrio/i.test(x.descripcion || ''))) return 90; return esDepto(p.direccion) ? 40 : 50; }
+const minMov = m => m.tipo === 'Instalación' ? 50 : m.tipo === 'Retiro en cliente' ? 20 : 30;
+
+const geo = { cache: new Map(), fallo: new Set(), cargado: false };
+async function cargarGeocache() { if (geo.cargado) return; const { data } = await sb.from('geocache').select('direccion,lat,lng,precision'); (data || []).forEach(g => geo.cache.set(g.direccion, g)); geo.cargado = true; }
+/* Pone x.xy y x.precision ('calle' | 'comuna' | null) a cada parada; devuelve las direcciones que faltan geolocalizar (se hace después, sin bloquear) */
+async function ubicar(paradas) {
+  await cargarGeocache(); const nuevas = [];
+  for (const x of paradas) {
+    x.dirLimpia = limpiarDireccion(x.direccion, x.comuna); const g = x.dirLimpia && geo.cache.get(x.dirLimpia);
+    if (g) { x.xy = { lat: g.lat, lng: g.lng }; x.precision = g.precision; continue; }
+    const c = xyComuna(x.comuna); x.xy = c; x.precision = c ? 'comuna' : null;
+    if (x.dirLimpia && !geo.fallo.has(x.dirLimpia)) nuevas.push(x);
+  }
+  return nuevas;
+}
+async function geocodificar(x) {   // OpenStreetMap Nominatim: máximo 1 consulta por segundo; resultado fuera de la comuna (calle homónima) se descarta
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=cl&q=${encodeURIComponent(x.dirLimpia)}`, { headers: { Accept: 'application/json' } });
+    const h = ((await r.json()) || [])[0]; const c = xyComuna(x.comuna);
+    if (h && (!c || distKm(c, { lat: +h.lat, lng: +h.lon }) < 15)) {
+      const fila = { direccion: x.dirLimpia, lat: +h.lat, lng: +h.lon, precision: 'calle' }; geo.cache.set(x.dirLimpia, fila);
+      const { error } = await sb.from('geocache').insert(fila); if (error) console.warn('geocache', error.message);
+      x.xy = { lat: fila.lat, lng: fila.lng }; x.precision = 'calle'; return true;
+    }
+  } catch (e) { console.warn('nominatim', e.message); }
+  geo.fallo.add(x.dirLimpia); return false;
+}
+/* Hora estimada de cada parada en el orden dado (x.eta, x.espera, x.tarde); viaje sin ubicación = 20 min */
+function horario(lista, salida) {
+  let t = horaMin(salida) || horaMin(SALIDA_DEFECTO), prev = TALLER, tarde = 0, espera = 0;
+  for (const x of lista) {
+    t += x.xy && prev ? minViaje(distKm(prev, x.xy)) : 20;
+    const desde = Math.max(horaMin(HORA_MIN_CLIENTE), horaMin(x.hora_desde) || 0); x.espera = t < desde ? desde - t : 0; t = Math.max(t, desde);
+    const hasta = horaMin(x.hora_hasta); x.tarde = hasta && t > hasta ? t - hasta : 0; tarde += x.tarde; espera += x.espera;
+    x.eta = t; t += x.minutos; prev = x.xy || prev;
+  }
+  t += prev ? minViaje(distKm(prev, TALLER)) : 20;
+  return { fin: t, tarde, espera, costo: t - (horaMin(salida) || horaMin(SALIDA_DEFECTO)) + tarde * 10 };
+}
+/* Mejor orden: menor tiempo total con vuelta al taller, penalizando llegar después de la hora del cliente; hasta 8 paradas prueba todos los órdenes */
+function planificar(paradas, salida) {
+  const con = paradas.filter(x => x.xy), sin = paradas.filter(x => !x.xy); const n = con.length;
+  if (!n) { const e = horario(sin, salida); return { orden: sin, ...e }; }
+  let mejor = null;
+  const probar = seq => { const l = seq.map(k => con[k]); const e = horario(l, salida); const d0 = distKm(TALLER, l[0].xy), dm = mejor ? distKm(TALLER, mejor.l[0].xy) : 0;
+    if (!mejor || e.costo < mejor.e.costo - 0.5 || (Math.abs(e.costo - mejor.e.costo) <= 0.5 && d0 > dm)) mejor = { l, e }; return e.costo; };
+  const idx = con.map((_, i) => i);
+  if (n <= 8) { const perm = (rest, acc) => { if (!rest.length) return probar(acc); rest.forEach((k, i) => perm(rest.filter((_, j) => j !== i), acc.concat(k))); }; perm(idx, []); }
+  else {
+    let seq = [], prev = TALLER, libres = new Set(idx);
+    while (libres.size) { let m = null; libres.forEach(k => { if (m == null || distKm(prev, con[k].xy) < distKm(prev, con[m].xy)) m = k; }); seq.push(m); libres.delete(m); prev = con[m].xy; }
+    probar(seq); let mejora = true, vueltas = 0;
+    while (mejora && vueltas++ < 20) { mejora = false; for (let i = 0; i < n - 1; i++) for (let j = i + 1; j < n; j++) { const s = seq.slice(0, i).concat(seq.slice(i, j + 1).reverse(), seq.slice(j + 1)); const antes = mejor.e.costo; if (probar(s) < antes - 0.5) { seq = s; mejora = true; } } }
+  }
+  const orden = mejor.l.concat(sin); const e = horario(orden, salida); return { orden, ...e };
+}
+function paradaDePedido(p) { return { k: 'p' + p.id, tipo: 'pedido', id: p.id, p, numero: p.numero, cliente: p.cliente, telefono: p.cliente_telefono, comuna: p.comuna, direccion: p.direccion, nota: p.nota_entrega, resumen: p.resumen, instalacion: p.instalacion, saldo: Number(p.saldo_por_cobrar ?? p.saldo ?? 0), confirmado: !!p.despacho_confirmado_en, hora_desde: hhmm(p.hora_desde), hora_hasta: hhmm(p.hora_hasta), minutos: minParada(p), orden: p.orden_ruta }; }
+function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}; return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, numero: p.numero || '', cliente: p.cliente || '', telefono: p.cliente_telefono, comuna: p.comuna, direccion: m.direccion || p.direccion, nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, minutos: minMov(m), orden: m.orden_ruta }; }
+async function guardarOrdenRuta(orden, antes) {
+  const ped = orden.filter(x => x.tipo === 'pedido'), mov = orden.filter(x => x.tipo === 'mov');
+  await rpc('ordenar_ruta', { p_pedidos: ped.map(x => x.id), p_movimientos: mov.map(x => x.id), p_orden_pedidos: ped.map(x => orden.indexOf(x) + 1), p_orden_movimientos: mov.map(x => orden.indexOf(x) + 1) });
+  if (antes) anotarCambio('orden de la ruta', async () => { await rpc('ordenar_ruta', { p_pedidos: antes.filter(x => x.tipo === 'pedido').map(x => x.id), p_movimientos: antes.filter(x => x.tipo === 'mov').map(x => x.id), p_orden_pedidos: antes.filter(x => x.tipo === 'pedido').map(x => x.orden), p_orden_movimientos: antes.filter(x => x.tipo === 'mov').map(x => x.orden) }); });
+}
+function linkMaps(orden) { const w = orden.filter(x => x.dirLimpia).map(x => x.dirLimpia); if (!w.length) return ''; return `https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${encodeURIComponent(TALLER.direccion)}&destination=${encodeURIComponent(TALLER.direccion)}&waypoints=${w.slice(0, 9).map(encodeURIComponent).join('%7C')}`; }
 async function vRuta() {
-  await (yo.rol === 'operacion' ? cargarOperacion() : (cache.filtro = 'pendientes', cargarPedidos()));
-  const saldoDe = p => p.saldo_por_cobrar ?? p.saldo;
+  const esOp = yo.rol === 'operacion';
+  await (esOp ? cargarOperacion() : (cache.filtro = 'pendientes', cargarPedidos()));
   if (!cache.rutaFecha) cache.rutaFecha = hoyISO();
-  const f = cache.rutaFecha;
-  const candidatos = cache.pedidos.filter(p => ['LISTO EN TALLER', 'EN FABRICACIÓN'].includes(p.estado));
-  const programados = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && (p.fecha_comprometida === f || p.despacho_propuesto === f));
-  const ordenar = l => l.slice().sort((a, b) => { const ia = ORDEN_COMUNAS.indexOf(a.comuna), ib = ORDEN_COMUNAS.indexOf(b.comuna); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a.comuna || '').localeCompare(b.comuna || ''); });
-  let ruta = cache.ordenRuta.length ? cache.ordenRuta.map(id => programados.find(p => p.id === id)).filter(Boolean).concat(programados.filter(p => !cache.ordenRuta.includes(p.id))) : ordenar(programados.filter(p => p.tipo_entrega !== 'Despacho regiones'));
-  const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones');
-  const movsDia = (cache.movs || []).filter(m => m.fecha === f);
-  const movsPorProgramar = (cache.movs || []).filter(m => m.fecha !== f && cache.pedidos.some(x => x.id === m.pedido_id)).sort((a, b) => a.fecha.localeCompare(b.fecha));
-  app.innerHTML = barra('#/ruta') + `<div class="sub no-imprimir"><label>Fecha <input type="date" id="f-ruta" value="${f}"></label><div class="pasos"><span class="activo">1. Alexis propone</span><span>2. Harold envía mensajes</span><span>3. Cliente confirma</span><span>4. Entra a la ruta</span></div></div>
-  <div class="contenido" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
-    <section class="seccion no-imprimir"><h2>Propuesta para el ${fecha(f, true)}</h2><div style="font-size:13px;color:var(--gris-2)">Marca lo que se puede despachar ese día. Solo lo confirmado por el cliente entra a la ruta.</div>
-      ${candidatos.map(p => { const listo = p.estado === 'LISTO EN TALLER'; const prop = p.despacho_propuesto === f; return `<div class="prop"><input type="checkbox" data-prop="${p.id}" ${prop ? 'checked' : ''} ${listo ? '' : 'disabled'}><span style="flex:1"><strong>${esc(p.numero)}</strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones: va por guía' : ''}</span></span><span>${listo ? (prop ? '<span class="chip prop">PROPUESTO · esperando</span>' : '<span class="chip ok">LISTO</span>') : `<span class="chip">EN FABRICACIÓN · ${p.piezas_listas}/${p.piezas_total}</span>`}</span></div>`; }).join('') || '<div style="color:var(--gris-3)">Nada listo en taller</div>'}
-      ${movsPorProgramar.length ? `<h3 style="margin:14px 0 6px">Otros movimientos (retiros, visitas, instalaciones): marcar para proponer este día</h3>${movsPorProgramar.map(m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; const prop = m.fecha_propuesta === f; return `<div class="prop"><input type="checkbox" data-movprop="${m.id}" ${prop ? 'checked' : ''}><span style="flex:1"><strong>${esc(m.tipo)}</strong> · ${esc(pm.numero || '')} ${esc(pm.cliente || '')} · ${esc(pm.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(m.nota || '')}${m.nota ? ' · ' : ''}${esc(m.direccion || pm.direccion || 'dirección pendiente')} · fecha ${fecha(m.fecha, true)}${m.fecha_propuesta && !prop ? ' · Alexis propone ' + fecha(m.fecha_propuesta, true) : ''}</span></span><span>${prop ? '<span class="chip prop">PROPUESTO · esperando a Harold</span>' : ''}${prop && yo.rol !== 'operacion' ? ` <button class="btn chico borde" data-mov-conf="${m.id}">Aceptar</button>` : ''}</span></div>`; }).join('')}` : ''}
-      <div style="font-size:12px;color:var(--gris-2)">Harold envía los WhatsApp y marca "confirmado" cuando el cliente responde; el pedido pasa solo a DESPACHO PROGRAMADO.</div></section>
-    <section class="seccion"><div class="cab"><h2>Ruta del ${fecha(f, true)} · confirmados</h2><span class="no-imprimir" style="font-size:12px;color:var(--gris-2)">orden propuesto por comuna, ▲▼ para cambiar</span></div>
-      ${ruta.map((p, i) => `<div class="parada"><div class="n">${i + 1}</div><div><div class="num">${esc(p.numero)} ${esc(p.cliente)}</div><div class="gris">${esc(p.comuna || '')} · ${esc(p.direccion || '')}${p.nota_entrega ? ' · ' + esc(p.nota_entrega) : ''}</div></div><div><div>${esc(p.resumen || '')}</div><div class="gris">${esc(p.cliente_telefono || '')}</div></div><div>${saldoDe(p) > 0 ? `<span class="chip saldo">COBRAR ${pesos(saldoDe(p))}</span>` : '<span class="chip ok">PAGADO</span>'} ${p.instalacion ? '<span class="chip inst">INSTALACIÓN</span>' : ''}</div><div class="no-imprimir" style="display:flex;gap:4px"><button class="btn chico" data-sube="${i}" aria-label="Subir">▲</button><button class="btn chico" data-baja="${i}" aria-label="Bajar">▼</button><button class="btn chico primario" data-entregar="${p.id}">Entregado</button></div></div>`).join('') || '<div style="color:var(--gris-3)">Sin despachos confirmados para esta fecha</div>'}
-      ${movsDia.length ? `<h3 style="margin:14px 0 6px">Movimientos del día (${movsDia.length}): retiros, visitas, instalaciones</h3>${movsDia.map(m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; return `<div class="parada mov"><div class="n">${m.tipo === 'Retiro en cliente' ? 'R' : m.tipo[0]}</div><div><div class="num">${esc(m.tipo)} · ${esc(pm.numero || '')} ${esc(pm.cliente || '')}</div><div class="gris">${esc(m.direccion || pm.direccion || 'dirección pendiente')}${pm.comuna ? ' · ' + esc(pm.comuna) : ''}</div></div><div><div>${esc(m.nota || '')}</div><div class="gris">${esc(pm.cliente_telefono || '')}</div></div><div></div><div class="no-imprimir"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></div></div>`; }).join('')}` : ''}
-      ${regiones.length ? `<div style="font-size:13px"><strong>Regiones (guía y transporte, no van en ruta):</strong> ${regiones.map(p => `${esc(p.numero)} ${esc(p.cliente)} · ${esc(p.comuna || '')}`).join(' · ')}</div>` : ''}
-      <div class="acciones no-imprimir" style="justify-content:flex-start"><button class="btn borde" onclick="window.print()">Imprimir ruta</button><button class="btn borde" id="b-etiq" ${ruta.length ? '' : 'disabled'}>Imprimir etiquetas (${ruta.length})</button></div>
-      <div class="no-imprimir" style="font-size:12px;color:var(--gris-2)">Al volver, cada parada se marca ENTREGADO con foto opcional.</div></section></div>`;
-  $('#f-ruta').onchange = e => { cache.rutaFecha = e.target.value; cache.ordenRuta = []; vRuta(); };
-  $$('[data-prop]').forEach(c => c.onchange = async () => { try { await rpc('proponer_despacho', { p_pedido_id: Number(c.dataset.prop), p_fecha: c.checked ? f : null }); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
-  $$('[data-movprop]').forEach(c => c.onchange = async () => { const id = Number(c.dataset.movprop); const { error } = await sb.from('movimiento').update({ fecha_propuesta: c.checked ? f : null }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); await cargarMovimientos(); vRuta(); });
-  $$('[data-sube],[data-baja]').forEach(b => b.onclick = () => { const ids = ruta.map(p => p.id); const i = Number(b.dataset.sube ?? b.dataset.baja); const j = b.dataset.sube != null ? i - 1 : i + 1; if (j < 0 || j >= ids.length) return;[ids[i], ids[j]] = [ids[j], ids[i]]; cache.ordenRuta = ids; vRuta(); });
+  const f = cache.rutaFecha, salida = cache.rutaSalida || SALIDA_DEFECTO, hoy = hoyISO(), manana = hoyISO(1);
+  const saldoDe = p => Number(p.saldo_por_cobrar ?? p.saldo ?? 0);
+  const programados = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f);
+  const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones'), retiros = programados.filter(p => p.tipo_entrega === 'Retiro en taller');
+  const movsDia = (cache.movs || []).filter(m => m.fecha === f && cache.pedidos.some(x => x.id === m.pedido_id));
+  const propuestos = cache.pedidos.filter(p => p.estado !== 'DESPACHO PROGRAMADO' && p.despacho_propuesto === f);
+  const candidatos = cache.pedidos.filter(p => ['LISTO EN TALLER', 'EN FABRICACIÓN'].includes(p.estado) && p.despacho_propuesto !== f && p.tipo_entrega !== 'Retiro en taller');
+  const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && cache.pedidos.some(x => x.id === m.pedido_id)).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const paradas = programados.filter(p => !regiones.includes(p) && !retiros.includes(p)).map(paradaDePedido).concat(movsDia.map(paradaDeMov));
+  const nuevas = await ubicar(paradas);
+  const guardadas = paradas.filter(x => x.orden != null).sort((a, b) => a.orden - b.orden), libres = paradas.filter(x => x.orden == null);
+  let orden, plan;
+  if (guardadas.length) { orden = guardadas.concat(libres.length ? planificar(libres, salida).orden : []); plan = horario(orden, salida); }
+  else { plan = planificar(paradas, salida); orden = plan.orden; }
+  const porConfirmar = orden.filter(x => x.tipo === 'pedido' && !x.confirmado).length, cobrar = orden.reduce((s, x) => s + (x.saldo > 0 ? x.saldo : 0), 0);
+  const chipConf = x => x.tipo !== 'pedido' ? '' : x.confirmado ? '<span class="chip ok">CONFIRMADO</span>' : `<span class="chip saldo" title="${esOp ? 'Harold confirma con el cliente' : 'Manda el WhatsApp y marca Confirmó cuando el cliente responda'}">POR CONFIRMAR</span>`;
+  const tel = x => x.telefono ? `<a href="tel:${esc(x.telefono)}" style="white-space:nowrap">${esc(x.telefono)}</a>` : '<span class="falta-dato">sin teléfono</span>';
+  const tarjeta = (x, i) => `<div class="parada${x.tipo === 'mov' ? ' mov' : ''}${x.tarde ? ' tarde' : ''}" data-k="${x.k}">
+      <div class="n">${x.tipo === 'mov' ? (x.m.tipo === 'Retiro en cliente' ? 'R' : x.m.tipo[0]) : i + 1}</div>
+      <div class="cuerpo">
+        <div class="num"><a class="ficha-num" href="#/pedido/${x.p.id || ''}">${esc(x.numero)}</a> ${esc(x.cliente)} ${x.tipo === 'mov' ? `<span class="chip inst">${esc(x.m.tipo.toUpperCase())}</span>` : ''}${x.instalacion && x.tipo === 'pedido' ? ' <span class="chip inst">INSTALACIÓN</span>' : ''} ${x.tipo === 'pedido' ? (x.saldo > 0 ? `<span class="chip saldo">COBRAR ${pesos(x.saldo)}</span>` : '<span class="chip ok">PAGADO</span>') : ''} ${chipConf(x)}</div>
+        <div class="gris">${x.direccion ? esc(x.direccion) : '<span class="falta-dato">dirección pendiente</span>'}${x.comuna ? ' · ' + esc(x.comuna) : ' · <span class="falta-dato">sin comuna</span>'} · ${tel(x)}${x.precision === 'comuna' ? ' · <span title="No se pudo ubicar la calle: se usa el centro de la comuna">ubicación aprox.</span>' : x.precision == null ? ' · <span class="falta-dato">sin ubicación: va al final</span>' : ''}</div>
+        <div>${esc(x.resumen || '')}${x.nota ? ` · <em>${esc(x.nota)}</em>` : ''}</div>
+        <div class="gris">llega ~<strong>${minHora(x.eta)}</strong> · ${x.minutos} min${x.hora_desde || x.hora_hasta ? ` · recibe ${x.hora_desde || '…'} a ${x.hora_hasta || '…'}` : ''}${x.espera ? ` · <span class="ambar-txt">espera ${x.espera} min hasta las ${x.hora_desde || HORA_MIN_CLIENTE}</span>` : ''}${x.tarde ? ` · <span class="rojo">llega ${x.tarde} min después de las ${x.hora_hasta}</span>` : ''}</div>
+      </div>
+      <div class="acc no-imprimir">
+        ${!esOp && x.tipo === 'pedido' && !x.confirmado && x.telefono ? `<a class="btn chico" target="_blank" href="${waLink(x.p, 'despacho')}" title="Abre WhatsApp con el mensaje de confirmación del despacho">WhatsApp</a>` : ''}
+        ${!esOp && x.tipo === 'pedido' && !x.confirmado ? `<button class="btn chico primario" data-confirmar="${x.id}" title="El cliente respondió que recibe ese día">Confirmó</button>` : ''}
+        ${!esOp && x.tipo === 'pedido' ? `<button class="btn chico borde" data-horario="${x.id}" title="Restricción horaria del cliente (recibe desde / hasta)">Horario</button>` : ''}
+        <button class="btn chico" data-sube="${i}" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>▲</button><button class="btn chico" data-baja="${i}" aria-label="Bajar" ${i === orden.length - 1 ? 'disabled' : ''}>▼</button>
+        ${x.tipo === 'pedido' ? `<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-entregar="${x.id}">Entregado</button>` : `<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-mov-hecho="${x.id}">Hecho</button>`}
+      </div></div>`;
+  const propHtml = p => `<div class="prop"><span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.estado !== 'LISTO EN TALLER' ? ` · ${esc(p.estado)} ${p.piezas_listas}/${p.piezas_total}` : ''}</span></span>
+      <span class="acc">${esOp ? `<span class="chip prop">PROPUESTO · esperando a Harold</span><button class="btn chico borde" data-prop-quitar="${p.id}">Quitar</button>` : `<span class="chip prop">Alexis propone</span>${telWa(p) ? `<a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp</a>` : ''}<button class="btn chico primario" data-confirmar="${p.id}" title="Entra a la ruta de este día como confirmado">Confirmó</button><input type="date" data-conf-fecha="${p.id}" value="" title="Si el cliente prefiere otro día" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-conf-otro="${p.id}">Otro día</button>`}</span></div>`;
+  const candHtml = p => { const listo = p.estado === 'LISTO EN TALLER'; return `<div class="prop">${esOp ? `<input type="checkbox" data-prop="${p.id}" ${listo ? '' : 'disabled'} title="Proponer para este día; Harold confirma con el cliente">` : ''}<span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}${p.despacho_propuesto ? ` · <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones: va por guía' : ''}</span></span>
+      <span class="acc">${listo ? '<span class="chip ok">LISTO</span>' : `<span class="chip">EN FABRICACIÓN · ${p.piezas_listas}/${p.piezas_total}</span>`}${!esOp ? `<input type="date" data-prog-fecha="${p.id}" value="${f}" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-programar="${p.id}" title="Acordado con el cliente: entra a la ruta de ese día como confirmado">Programar</button>` : ''}</span></div>`; };
+  const movOtroHtml = m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; const prop = m.fecha_propuesta === f; return `<div class="prop">${esOp ? `<input type="checkbox" data-movprop="${m.id}" ${prop ? 'checked' : ''}>` : ''}<span style="flex:1"><strong>${esc(m.tipo)}</strong> · <a class="ficha-num" href="#/pedido/${pm.id || ''}">${esc(pm.numero || '')}</a> ${esc(pm.cliente || '')} · ${esc(pm.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(m.nota || '')}${m.nota ? ' · ' : ''}${esc(m.direccion || pm.direccion || 'dirección pendiente')} · fecha ${fecha(m.fecha, true)}${m.fecha_propuesta && !prop ? ' · Alexis propone ' + fecha(m.fecha_propuesta, true) : ''}</span></span>
+      <span class="acc">${prop ? '<span class="chip prop">PROPUESTO para este día</span>' : ''}${prop && !esOp ? `<button class="btn chico primario" data-mov-conf="${m.id}">Aceptar</button>` : ''}${!esOp ? `<input type="date" data-mov-fecha="${m.id}" value="${m.fecha}" title="Cambiar la fecha" style="min-height:32px;padding:2px 6px">` : ''}</span></div>`; };
+  const resumen = `${orden.length} parada${orden.length === 1 ? '' : 's'}${porConfirmar ? ` · <strong class="ambar-txt">${porConfirmar} por confirmar</strong>` : orden.length ? ' · todas confirmadas' : ''}${cobrar ? ` · cobrar ${pesos(cobrar)}` : ''}${orden.length ? ` · vuelta al taller ~${minHora(plan.fin)}` : ''}`;
+  app.innerHTML = barra('#/ruta') + `<div class="sub no-imprimir"><label>Día <input type="date" id="f-ruta" value="${f}"></label><button class="btn chico ${f === hoy ? 'primario' : 'borde'}" data-dia="${hoy}">Hoy</button><button class="btn chico ${f === manana ? 'primario' : 'borde'}" data-dia="${manana}">Mañana</button>
+      <label title="Hora a la que sale Alexis del taller; las horas de llegada se calculan desde aquí">Salida <input type="time" id="h-salida" value="${salida}" style="min-height:34px;padding:4px 8px"></label>
+      <div class="pasos"><span>1. Alexis propone</span><span>2. Harold manda WhatsApp</span><span>3. Cliente confirma</span><span>4. Alexis entrega</span></div></div>
+    <div class="contenido ruta">
+      <section class="seccion"><div class="cab"><h2>Ruta del ${fecha(f, true)}</h2><span class="gris" style="font-size:13px">${resumen}</span></div>
+        <div class="ruta-cab no-imprimir"><span class="gris" style="font-size:12px">${guardadas.length ? 'Orden guardado (▲▼ para cambiar; lo ven todos).' : 'Orden propuesto por cercanía desde el taller y por el horario de cada cliente; ▲▼ lo cambia y lo guarda.'}${nuevas.length ? ` Ubicando ${nuevas.length} dirección${nuevas.length > 1 ? 'es' : ''} nueva${nuevas.length > 1 ? 's' : ''}…` : ''}</span>
+          <span class="espacio"></span>${orden.length > 1 ? `<button class="btn chico borde" id="b-reordenar" title="Vuelve a calcular el mejor orden y lo guarda">Reordenar por cercanía</button>` : ''}${linkMaps(orden) ? `<a class="btn chico borde" target="_blank" href="${linkMaps(orden)}" title="Abre Google Maps con las paradas en este orden, saliendo y volviendo al taller${orden.filter(x => x.dirLimpia).length > 9 ? ' (solo las primeras 9)' : ''}">Abrir en Google Maps</a>` : ''}<button class="btn chico borde" onclick="window.print()">Imprimir</button><button class="btn chico borde" id="b-etiq" ${orden.some(x => x.tipo === 'pedido') ? '' : 'disabled'}>Etiquetas</button></div>
+        <div class="ruta-lista">${orden.map(tarjeta).join('') || '<div style="color:var(--gris-3)">Sin entregas confirmadas ni programadas para este día</div>'}</div>
+        ${plan.fin > horaMin('19:00') && orden.length ? `<div class="rojo" style="margin-top:8px">Ojo: la ruta termina después de las 19:00 (~${minHora(plan.fin)}). Conviene mover una parada a otro día.</div>` : ''}
+        ${retiros.length ? `<div style="margin-top:10px;font-size:13px"><strong>Retiran en el taller este día:</strong> ${retiros.map(p => `${esc(p.numero)} ${esc(p.cliente)}${saldoDe(p) > 0 ? ' (cobrar ' + pesos(saldoDe(p)) + ')' : ''}`).join(' · ')}</div>` : ''}
+        ${regiones.length ? `<div style="margin-top:6px;font-size:13px"><strong>Regiones (guía y transporte, no van en ruta):</strong> ${regiones.map(p => `${esc(p.numero)} ${esc(p.cliente)} · ${esc(p.comuna || '')}`).join(' · ')}</div>` : ''}</section>
+      ${propuestos.length || !esOp ? `<section class="seccion no-imprimir"><div class="cab"><h2>Propuestos por Alexis para este día (${propuestos.length})</h2><span class="gris" style="font-size:12px">${esOp ? 'Harold manda el WhatsApp y confirma' : 'Manda el WhatsApp; cuando el cliente responda, Confirmó los pasa a la ruta'}</span></div>
+        ${propuestos.map(propHtml).join('') || '<div style="color:var(--gris-3)">Nada propuesto para este día</div>'}</section>` : ''}
+      <details class="seccion plegable no-imprimir" ${esOp ? 'open' : ''}><summary>${esOp ? 'Proponer para este día' : 'Programar otro pedido para este día'} · listos en taller y en fabricación (${candidatos.length})</summary>
+        <div class="gris" style="font-size:12px;margin:4px 0 8px">${esOp ? 'Marca lo que se puede despachar ese día; Harold confirma con el cliente.' : 'Programar = ya lo acordaste con el cliente: entra a la ruta como confirmado.'}</div>
+        ${candidatos.map(candHtml).join('') || '<div style="color:var(--gris-3)">Nada listo en taller</div>'}</details>
+      ${movsOtros.length ? `<details class="seccion plegable no-imprimir"><summary>Otros movimientos pendientes (retiros, visitas, instalaciones) · ${movsOtros.length}</summary>${movsOtros.map(movOtroHtml).join('')}</details>` : ''}
+    </div>`;
+  $('#f-ruta').onchange = e => { cache.rutaFecha = e.target.value; vRuta(); };
+  $$('[data-dia]').forEach(b => b.onclick = () => { cache.rutaFecha = b.dataset.dia; vRuta(); });
+  $('#h-salida').onchange = e => { cache.rutaSalida = e.target.value || SALIDA_DEFECTO; vRuta(); };
+  const antesOrden = orden.map(x => ({ tipo: x.tipo, id: x.id, orden: x.orden }));
+  $$('[data-sube],[data-baja]').forEach(b => b.onclick = async () => { const i = Number(b.dataset.sube ?? b.dataset.baja), j = b.dataset.sube != null ? i - 1 : i + 1; if (j < 0 || j >= orden.length) return; const o = orden.slice();[o[i], o[j]] = [o[j], o[i]]; try { await guardarOrdenRuta(o, antesOrden); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
+  const br = $('#b-reordenar'); if (br) br.onclick = async () => { try { const mejor = planificar(paradas, salida).orden; await guardarOrdenRuta(mejor, antesOrden); aviso('Ruta reordenada por cercanía y horario'); vRuta(); } catch (e) { aviso(errorDe(e), true); } };
+  $$('[data-confirmar]').forEach(b => b.onclick = async () => { const id = Number(b.dataset.confirmar); try { await rpc('confirmar_despacho', { p_pedido_id: id }); aviso('Confirmado por el cliente ✓'); anotarCambio('confirmación del cliente (volver a por confirmar)', () => rpc('confirmar_despacho', { p_pedido_id: id, p_quitar: true })); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
+  $$('[data-conf-otro]').forEach(b => b.onclick = async () => { const id = Number(b.dataset.confOtro); const d = $(`[data-conf-fecha="${id}"]`).value; if (!d) return aviso('Elige el día que acordó el cliente', true); try { await rpc('confirmar_despacho', { p_pedido_id: id, p_fecha: d }); aviso('Confirmado para el ' + fecha(d, true)); cache.rutaFecha = d; vRuta(); } catch (e) { aviso(errorDe(e), true); } });
+  $$('[data-horario]').forEach(b => b.onclick = () => { const p = cache.pedidos.find(x => x.id === Number(b.dataset.horario)); formHorarioEntrega(p, () => vRuta()); });
   $$('[data-entregar]').forEach(b => b.onclick = () => formEntregar(cache.pedidos.find(p => p.id === Number(b.dataset.entregar)), () => vRuta()));
-  const be = $('#b-etiq'); if (be) be.onclick = () => imprimirEtiquetas(ruta);
+  $$('[data-prop]').forEach(c => c.onchange = async () => { try { await rpc('proponer_despacho', { p_pedido_id: Number(c.dataset.prop), p_fecha: c.checked ? f : null }); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
+  $$('[data-prop-quitar]').forEach(b => b.onclick = async () => { try { await rpc('proponer_despacho', { p_pedido_id: Number(b.dataset.propQuitar), p_fecha: null }); aviso('Propuesta retirada'); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
+  $$('[data-movprop]').forEach(c => c.onchange = async () => { const id = Number(c.dataset.movprop); const { error } = await sb.from('movimiento').update({ fecha_propuesta: c.checked ? f : null }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); await cargarMovimientos(); vRuta(); });
+  candidatos.forEach(p => { const b = $(`[data-programar="${p.id}"]`); if (b) activarProgramar(b.closest('.prop'), p, () => vRuta()); });
+  const be = $('#b-etiq'); if (be) be.onclick = () => imprimirEtiquetas(orden.filter(x => x.tipo === 'pedido').map(x => x.p));
   activarMovimientos(app, {}, () => vRuta());
+  if (nuevas.length) (async () => { let cambio = false; for (const x of nuevas) { if (await geocodificar(x)) cambio = true; await new Promise(r => setTimeout(r, 1100)); } if (cambio && location.hash === '#/ruta' && cache.rutaFecha === f) vRuta(); })();
+}
+/* Restricción horaria del cliente: dos columnas del pedido (hora_desde, hora_hasta); el optimizador de la Ruta las respeta */
+function formHorarioEntrega(p, despues) {
+  modal(`<h2>Horario del cliente · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-hor"><div class="campos">
+    <label class="campo">Recibe desde <input type="time" name="hora_desde" value="${hhmm(p.hora_desde)}"></label>
+    <label class="campo">Recibe hasta <input type="time" name="hora_hasta" value="${hhmm(p.hora_hasta)}"></label></div>
+    <div class="gris" style="font-size:12px">Vacío = sin restricción (regla fija: ningún cliente antes de las 10:00). Lo que no es hora (conserjería, llamar antes) va en la nota de entrega.</div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f-hor').onsubmit = async ev => { ev.preventDefault(); const fd = new FormData(ev.target); const cambios = { hora_desde: fd.get('hora_desde') || null, hora_hasta: fd.get('hora_hasta') || null };
+    const { error } = await sb.from('pedido').update(cambios).eq('id', p.id); if (error) return aviso(errorDe(error), true);
+    cerrarModal(); aviso(cambios.hora_desde || cambios.hora_hasta ? `Recibe ${cambios.hora_desde || '…'} a ${cambios.hora_hasta || '…'}` : 'Sin restricción de horario'); despues(); };
 }
 function imprimirEtiquetas(lista) {
   const w = window.open('', '_blank');
