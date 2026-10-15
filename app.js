@@ -639,6 +639,28 @@ async function abrirWaSaldo(p) {
   if (alertas.length) aviso('Revisa antes de enviar: ' + alertas.join(' · '), true);
   window.open(`https://wa.me/${telWa(p)}?text=${encodeURIComponent(texto)}`, '_blank');
 }
+/* Harold 15-oct: en la Ruta el botón WhatsApp es una lista: confirmar despacho, saldo pendiente, y confirmación más saldo ofreciendo la
+   instalación cuando el pedido no la lleva. Sin precio de instalación inventado: se ofrece y Harold confirma el valor por WhatsApp. */
+function mensajeConfirmacionSaldo(p, abonos) {
+  const abonado = (abonos || []).reduce((s, a) => s + (a.monto > 0 ? a.monto : 0), 0), saldo = Number(p.total || 0) - abonado;
+  const L = [mensajeDespacho(p), ''];
+  if (saldo > 0) L.push(`💰 Saldo pendiente: ${pesos(saldo)} (total ${pesos(p.total)}, abonado ${pesos(abonado)}). Lo puedes transferir antes de la entrega o pagarlo al momento de recibir.`, '', CUENTA_SANTINO, '', `Webpay: ${WEBPAY_LINK}`);
+  if (!p.instalacion) L.push('', '🔧 Si quieres, los chicos pueden dejar tu pedido armado e instalado en su lugar el mismo día. Cuéntanos y te confirmamos el valor de la instalación.');
+  return L.join('\n');
+}
+function menuWsp(p, extra = '') {
+  if (!telWa(p)) return '';
+  const saldo = Number(p.saldo_por_cobrar ?? p.saldo ?? 0);
+  return `<span class="menu-mas"><button type="button" class="btn chico" data-wsp-menu="${p.id}">WhatsApp ▾</button><div class="menu-lista" data-wsp-lista="${p.id}"><button type="button" data-wsp="despacho" data-id="${p.id}">Confirmar despacho</button>${saldo > 0 ? `<button type="button" data-wsp="saldo" data-id="${p.id}">Saldo pendiente (detalle del pedido)</button><button type="button" data-wsp="confirmar-saldo" data-id="${p.id}">Confirmación + saldo${p.instalacion ? '' : ' + ofrecer instalación'}</button>` : p.instalacion ? '' : `<button type="button" data-wsp="confirmar-saldo" data-id="${p.id}">Confirmación + ofrecer instalación</button>`}${extra}</div></span>`;
+}
+function activarMenusWsp(raiz) {
+  $$('[data-wsp-menu]', raiz).forEach(b => b.onclick = ev => { ev.stopPropagation(); const l = $(`[data-wsp-lista="${b.dataset.wspMenu}"]`, raiz); const abierto = l.classList.contains('abierto'); $$('.menu-lista.abierto').forEach(x => x.classList.remove('abierto')); if (!abierto) { l.classList.add('abierto'); document.addEventListener('click', () => l.classList.remove('abierto'), { once: true }); } });
+  $$('[data-wsp]', raiz).forEach(b => b.onclick = async ev => { ev.stopPropagation(); const p = cache.pedidos.find(x => x.id === Number(b.dataset.id)); if (!p) return; b.closest('.menu-lista').classList.remove('abierto');
+    if (b.dataset.wsp === 'despacho') return window.open(waLink(p, 'despacho'), '_blank');
+    if (b.dataset.wsp === 'saldo') return abrirWaSaldo(p);
+    const { data: abonos } = await sb.from('abono').select('monto').eq('pedido_id', p.id).order('fecha');
+    window.open(`https://wa.me/${telWa(p)}?text=${encodeURIComponent(mensajeConfirmacionSaldo(p, abonos || []))}`, '_blank'); });
+}
 function exportarCSV() {
   const lista = filtrar(cache.pedidos);
   const cab = ['Estado', 'Numero', 'Cliente', 'Telefono', 'Tipo', 'Origen', 'Modelo', 'Color', 'Personas', 'Forma', 'Cubierta', 'Base', 'Espesor', 'Medida', 'Tono', 'Sillas', 'Entrega', 'Comuna', 'Compra', 'Estimada', 'Comprometida', 'Venta', 'Despacho', 'Total', 'Abonado', 'Saldo', 'Documento', 'Observacion'];
@@ -1476,14 +1498,14 @@ async function vRuta() {
         <div class="gris">llega ~<strong>${minHora(x.eta)}</strong> · ${x.minutos} min${x.hora_desde || x.hora_hasta ? ` · recibe ${x.hora_desde || '…'} a ${x.hora_hasta || '…'}` : ''}${x.espera ? ` · <span class="ambar-txt">espera ${x.espera} min hasta las ${x.hora_desde || HORA_MIN_CLIENTE}</span>` : ''}${x.tarde ? ` · <span class="rojo">llega ${x.tarde} min después de las ${x.hora_hasta}</span>` : ''}</div>
       </div>
       <div class="acc no-imprimir">
-        ${!esOp && x.tipo === 'pedido' && !x.confirmado && x.telefono ? `<a class="btn chico" target="_blank" href="${waLink(x.p, 'despacho')}" title="Abre WhatsApp con el mensaje de confirmación del despacho">WhatsApp</a>` : ''}
+        ${!esOp && x.tipo === 'pedido' ? menuWsp(x.p) : ''}
         ${!esOp && x.tipo === 'pedido' && !x.confirmado ? `<button class="btn chico primario" data-confirmar="${x.id}" title="El cliente respondió que recibe ese día">Confirmó</button>` : ''}
         ${!esOp && x.tipo === 'pedido' ? `<button class="btn chico borde" data-horario="${x.id}" title="Restricción horaria del cliente (recibe desde / hasta)">Horario</button>` : ''}
         <button class="btn chico" data-sube="${i}" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>▲</button><button class="btn chico" data-baja="${i}" aria-label="Bajar" ${i === orden.length - 1 ? 'disabled' : ''}>▼</button>
         ${x.tipo === 'pedido' ? `<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-entregar="${x.id}">Entregado</button>` : `<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-mov-hecho="${x.id}">Hecho</button>`}
       </div></div>`;
   const propHtml = p => `<div class="prop"><span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.estado !== 'LISTO EN TALLER' ? ` · ${esc(p.estado)} ${p.piezas_listas}/${p.piezas_total}` : ''}</span></span>
-      <span class="acc">${esOp ? `<span class="chip prop">PROPUESTO · esperando a Harold</span><button class="btn chico borde" data-prop-quitar="${p.id}">Quitar</button>` : `<span class="chip prop">Alexis propone</span>${telWa(p) ? `<a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp</a>` : ''}<button class="btn chico primario" data-confirmar="${p.id}" title="Entra a la ruta de este día como confirmado">Confirmó</button><input type="date" data-conf-fecha="${p.id}" value="" title="Si el cliente prefiere otro día" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-conf-otro="${p.id}">Otro día</button>`}</span></div>`;
+      <span class="acc">${esOp ? `<span class="chip prop">PROPUESTO · esperando a Harold</span><button class="btn chico borde" data-prop-quitar="${p.id}">Quitar</button>` : `<span class="chip prop">Alexis propone</span>${menuWsp(p)}<button class="btn chico primario" data-confirmar="${p.id}" title="Entra a la ruta de este día como confirmado">Confirmó</button><input type="date" data-conf-fecha="${p.id}" value="" title="Si el cliente prefiere otro día" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-conf-otro="${p.id}">Otro día</button>`}</span></div>`;
   const candHtml = p => { const listo = p.estado === 'LISTO EN TALLER'; return `<div class="prop">${esOp ? `<input type="checkbox" data-prop="${p.id}" ${listo ? '' : 'disabled'} title="Proponer para este día; Harold confirma con el cliente">` : ''}<span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}${p.despacho_propuesto ? ` · <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones: va por guía' : ''}</span></span>
       <span class="acc">${listo ? '<span class="chip ok">LISTO</span>' : `<span class="chip">EN FABRICACIÓN · ${p.piezas_listas}/${p.piezas_total}</span>`}${!esOp ? `<input type="date" data-prog-fecha="${p.id}" value="${f}" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-programar="${p.id}" title="Acordado con el cliente: entra a la ruta de ese día como confirmado">Programar</button>` : ''}</span></div>`; };
   const movOtroHtml = m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; const prop = m.fecha_propuesta === f; return `<div class="prop">${esOp ? `<input type="checkbox" data-movprop="${m.id}" ${prop ? 'checked' : ''}>` : ''}<span style="flex:1"><strong>${esc(m.tipo)}</strong> · <a class="ficha-num" href="#/pedido/${pm.id || ''}">${esc(pm.numero || '')}</a> ${esc(pm.cliente || '')} · ${esc(pm.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(m.nota || '')}${m.nota ? ' · ' : ''}${esc(m.direccion || pm.direccion || 'dirección pendiente')} · fecha ${fecha(m.fecha, true)}${m.fecha_propuesta && !prop ? ' · Alexis propone ' + fecha(m.fecha_propuesta, true) : ''}</span></span>
@@ -1522,6 +1544,7 @@ async function vRuta() {
   $$('[data-movprop]').forEach(c => c.onchange = async () => { const id = Number(c.dataset.movprop); const { error } = await sb.from('movimiento').update({ fecha_propuesta: c.checked ? f : null }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); await cargarMovimientos(); vRuta(); });
   candidatos.forEach(p => { const b = $(`[data-programar="${p.id}"]`); if (b) activarProgramar(b.closest('.prop'), p, () => vRuta()); });
   const be = $('#b-etiq'); if (be) be.onclick = () => imprimirEtiquetas(orden.filter(x => x.tipo === 'pedido').map(x => x.p));
+  activarMenusWsp(app);
   activarMovimientos(app, {}, () => vRuta());
   if (nuevas.length) (async () => { let cambio = false; for (const x of nuevas) { if (await geocodificar(x)) cambio = true; await new Promise(r => setTimeout(r, 1100)); } if (cambio && location.hash === '#/ruta' && cache.rutaFecha === f) vRuta(); })();
 }

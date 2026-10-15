@@ -450,3 +450,5 @@ details.plegable .prop{margin-top:6px}
 .tablet .parada .acc .btn{min-height:42px}
 @media (max-width:900px){.parada{grid-template-columns:36px minmax(0,1fr)}.parada .acc{grid-column:2;justify-content:flex-start;max-width:none}}
 @media print{.contenido.ruta{max-width:none}.parada{break-inside:avoid;padding:6px 8px}.parada .cuerpo{font-size:12px}}
+.parada .menu-lista,.prop .menu-lista{min-width:280px;left:0;right:auto}
+@media (max-width:900px){.parada .menu-lista{left:auto;right:0}}
