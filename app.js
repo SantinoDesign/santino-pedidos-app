@@ -604,10 +604,30 @@ const nombreColor = c => c ? String(c) : '';
 function nombrePila(p) { return ((p.cliente || '').trim().split(' ')[0] || '').replace(/^./, c => c.toUpperCase()); }
 function telWa(p) { return (p.cliente_telefono || '').replace(/\D/g, ''); }
 // Mensaje 1 de Mensajes_Despacho_e_Instalacion_v1_0.md (confirmación de despacho)
+/* Harold 15-oct: UN solo mensaje de confirmación: rango horario del cliente si tiene restricción (hora_desde/hora_hasta; si no, 10 a 20 hrs),
+   saldo pendiente si lo hay (sin "puedes transferir antes": muchos pagan al recibir el mensaje) y, si el pedido no lleva instalación, la oferta con
+   el precio fijo por tipo de producto (tabla INSTALACION de Harold 15-oct). */
+const INSTALACION = { madera: [[4, 9990, 15000], [8, 12000, 20000], [12, 18000, 25000]], vidrio: [[8, 25000, 35000], [12, 35000, 45000]], piedra: [[8, 35000, 35000], [12, 45000, 45000]] };
+function precioInstalacion(p) {
+  const pz = p.piezas || []; const cub = pz.find(x => ['Cubierta', 'Mesa'].includes(x.tipo)) || pz.find(x => x.personas) ; if (!cub) return null;
+  const personas = Number(cub.personas || 0); if (!personas || personas > 12) return null;
+  const mat = String(cub.material_cubierta || ''); const desc = String(cub.descripcion || '');
+  const tipo = /^V\./.test(mat) || /vidrio/i.test(desc) ? 'vidrio' : /TRAVERTINO|M[AÁ]RMOL|PIEDRA|GRANITO|CUARZO/i.test(mat + ' ' + desc) ? 'piedra' : 'madera';
+  const sillas = pz.some(x => x.tipo === 'Silla' || x.tipo === 'Banca');
+  const fila = INSTALACION[tipo].find(f => personas <= f[0]); return fila ? fila[sillas ? 2 : 1] : null;
+}
+const horaTxt = h => { const [a, b] = hhmm(h).split(':'); return b && b !== '00' ? `${Number(a)}:${b}` : String(Number(a)); };
 function mensajeDespacho(p) {
   const f = p.despacho_propuesto || p.fecha_comprometida;
   const dia = f ? 'el ' + fecha(f, true).replace(/^([^ ]+)/, m => ({ lun: 'lunes', mar: 'martes', 'mié': 'miércoles', jue: 'jueves', vie: 'viernes', 'sáb': 'sábado', dom: 'domingo' }[m] || m)) : 'este viernes';
-  return `Hola! Confirmamos el despacho 🚚 de tu pedido ${dia} entre las 10 y 20 hrs. No manejamos un horario fijo por la cantidad de pedidos del día, pero los chicos te pueden avisar con al menos 30 minutos de anticipación.\n\n▶️ Importante: confirma que puedes recibir el pedido, o avísanos si prefieres que lo dejen en conserjería. Saludos! 👋`;
+  const rango = `entre las ${horaTxt(p.hora_desde || '10:00')} y ${horaTxt(p.hora_hasta || '20:00')} hrs`;
+  const L = [`Hola! Confirmamos el despacho 🚚 de tu pedido ${dia} ${rango}. No manejamos un horario fijo por la cantidad de pedidos del día, pero los chicos te pueden avisar con al menos 30 minutos de anticipación.`, '', '▶️ Importante: confirma que puedes recibir el pedido, o avísanos si prefieres que lo dejen en conserjería.'];
+  const abonado = Number(p.abonado || 0), saldo = Number(p.total || 0) - abonado;
+  if (saldo > 0) L.push('', `💰 Queda un saldo pendiente de ${pesos(saldo)} (total ${pesos(p.total)}, abonado ${pesos(abonado)}):`, '', CUENTA_SANTINO, '', `Webpay: ${WEBPAY_LINK}`);
+  if (!p.instalacion) { const v = precioInstalacion(p); const que = (p.piezas || []).some(x => x.tipo === 'Silla' || x.tipo === 'Banca') ? 'el comedor' : /mueble|rack|closet|escritorio/i.test(p.resumen || '') ? 'el mueble' : 'la mesa';
+    L.push('', `🔧 Si quieres, los chicos pueden dejar ${que} armad${que === 'la mesa' ? 'a' : 'o'} e instalad${que === 'la mesa' ? 'a' : 'o'} en su lugar el mismo día${v ? ' por ' + pesos(v) : ''}. Avísanos y lo agregamos a la entrega${v ? '' : '; te confirmamos el valor'}.`); }
+  L.push('', 'Saludos! 👋');
+  return L.join('\n');
 }
 // Formato exacto de la skill mensajes-saldo-pendiente v1.2
 function mensajeSaldo(p, abonos) {
@@ -641,25 +661,17 @@ async function abrirWaSaldo(p) {
 }
 /* Harold 15-oct: en la Ruta el botón WhatsApp es una lista: confirmar despacho, saldo pendiente, y confirmación más saldo ofreciendo la
    instalación cuando el pedido no la lleva. Sin precio de instalación inventado: se ofrece y Harold confirma el valor por WhatsApp. */
-function mensajeConfirmacionSaldo(p, abonos) {
-  const abonado = (abonos || []).reduce((s, a) => s + (a.monto > 0 ? a.monto : 0), 0), saldo = Number(p.total || 0) - abonado;
-  const L = [mensajeDespacho(p), ''];
-  if (saldo > 0) L.push(`💰 Saldo pendiente: ${pesos(saldo)} (total ${pesos(p.total)}, abonado ${pesos(abonado)}). Lo puedes transferir antes de la entrega o pagarlo al momento de recibir.`, '', CUENTA_SANTINO, '', `Webpay: ${WEBPAY_LINK}`);
-  if (!p.instalacion) L.push('', '🔧 Si quieres, los chicos pueden dejar tu pedido armado e instalado en su lugar el mismo día. Cuéntanos y te confirmamos el valor de la instalación.');
-  return L.join('\n');
-}
 function menuWsp(p, extra = '') {
   if (!telWa(p)) return '';
   const saldo = Number(p.saldo_por_cobrar ?? p.saldo ?? 0);
-  return `<span class="menu-mas"><button type="button" class="btn chico" data-wsp-menu="${p.id}">WhatsApp ▾</button><div class="menu-lista" data-wsp-lista="${p.id}"><button type="button" data-wsp="despacho" data-id="${p.id}">Confirmar despacho</button>${saldo > 0 ? `<button type="button" data-wsp="saldo" data-id="${p.id}">Saldo pendiente (detalle del pedido)</button><button type="button" data-wsp="confirmar-saldo" data-id="${p.id}">Confirmación + saldo${p.instalacion ? '' : ' + ofrecer instalación'}</button>` : p.instalacion ? '' : `<button type="button" data-wsp="confirmar-saldo" data-id="${p.id}">Confirmación + ofrecer instalación</button>`}${extra}</div></span>`;
+  if (!(saldo > 0)) return `<a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}" title="Confirmación del despacho${p.instalacion ? '' : ' con oferta de instalación'}">WhatsApp</a>`;
+  return `<span class="menu-mas"><button type="button" class="btn chico" data-wsp-menu="${p.id}">WhatsApp ▾</button><div class="menu-lista" data-wsp-lista="${p.id}"><button type="button" data-wsp="despacho" data-id="${p.id}">Confirmar despacho (con saldo${p.instalacion ? '' : ' y oferta de instalación'})</button><button type="button" data-wsp="saldo" data-id="${p.id}">Saldo pendiente (detalle del pedido)</button>${extra}</div></span>`;
 }
 function activarMenusWsp(raiz) {
   $$('[data-wsp-menu]', raiz).forEach(b => b.onclick = ev => { ev.stopPropagation(); const l = $(`[data-wsp-lista="${b.dataset.wspMenu}"]`, raiz); const abierto = l.classList.contains('abierto'); $$('.menu-lista.abierto').forEach(x => x.classList.remove('abierto')); if (!abierto) { l.classList.add('abierto'); document.addEventListener('click', () => l.classList.remove('abierto'), { once: true }); } });
   $$('[data-wsp]', raiz).forEach(b => b.onclick = async ev => { ev.stopPropagation(); const p = cache.pedidos.find(x => x.id === Number(b.dataset.id)); if (!p) return; b.closest('.menu-lista').classList.remove('abierto');
     if (b.dataset.wsp === 'despacho') return window.open(waLink(p, 'despacho'), '_blank');
-    if (b.dataset.wsp === 'saldo') return abrirWaSaldo(p);
-    const { data: abonos } = await sb.from('abono').select('monto').eq('pedido_id', p.id).order('fecha');
-    window.open(`https://wa.me/${telWa(p)}?text=${encodeURIComponent(mensajeConfirmacionSaldo(p, abonos || []))}`, '_blank'); });
+    if (b.dataset.wsp === 'saldo') return abrirWaSaldo(p); });
 }
 function exportarCSV() {
   const lista = filtrar(cache.pedidos);
@@ -1122,6 +1134,8 @@ async function formPedido(pre = {}) {
       <label class="campo">Cotización N° <input name="cotizacion_numero" placeholder="Cot 3370"></label>
       <label class="campo">Fecha comprometida con el cliente (vacía = aproximada, compra + 21 días) <input name="fecha_comprometida" type="date"></label>
       <label class="campo">Nota de entrega <input name="nota_entrega"></label>
+      <label class="campo">Recibe desde (restricción horaria del cliente; vacío = sin restricción) <input name="hora_desde" type="time"></label>
+      <label class="campo">Recibe hasta <input name="hora_hasta" type="time"></label>
       <label class="campo">Abono inicial <input name="abono" type="number" placeholder="0"></label>
       <label class="campo">Medio del abono <select name="abono_medio"><option>Transferencia</option><option>Webpay</option><option>MercadoPago</option><option>Getnet</option><option>Efectivo</option></select></label>
     </div>
@@ -1149,7 +1163,7 @@ async function formPedido(pre = {}) {
         if (error) throw error; cliente_id = data.id;
       }
       const numero = f.get('numero') || await rpc('siguiente_numero_w', {});
-      const ped = { numero, cliente_id, tipo_pedido: f.get('tipo_pedido'), origen: f.get('origen'), ...leerOrigen(f), fecha_compra: f.get('fecha_compra'), precio_venta: Number(f.get('precio_venta')), precio_despacho: Number(f.get('precio_despacho') || 0), precio_instalacion: Number(f.get('precio_instalacion') || 0), tipo_entrega: f.get('tipo_entrega'), instalacion: !!f.get('instalacion'), cotizacion_numero: f.get('cotizacion_numero') || null, fecha_comprometida: f.get('fecha_comprometida') || null, nota_entrega: f.get('nota_entrega') || null, observacion: f.get('observacion') || null, creado_por: yo.nombre };
+      const ped = { numero, cliente_id, tipo_pedido: f.get('tipo_pedido'), origen: f.get('origen'), ...leerOrigen(f), fecha_compra: f.get('fecha_compra'), precio_venta: Number(f.get('precio_venta')), precio_despacho: Number(f.get('precio_despacho') || 0), precio_instalacion: Number(f.get('precio_instalacion') || 0), tipo_entrega: f.get('tipo_entrega'), instalacion: !!f.get('instalacion'), cotizacion_numero: f.get('cotizacion_numero') || null, fecha_comprometida: f.get('fecha_comprometida') || null, nota_entrega: f.get('nota_entrega') || null, hora_desde: f.get('hora_desde') || null, hora_hasta: f.get('hora_hasta') || null, observacion: f.get('observacion') || null, creado_por: yo.nombre };
       if (A_MEDIDA.includes(ped.tipo_pedido)) ped.estado = 'VISITA TÉCNICA';
       const { data: np, error } = await sb.from('pedido').insert(ped).select('id').single(); if (error) throw error;
       const ls = []; for (let i = 0; i < lineas; i++) { if (!f.get(`l${i}_descripcion`)) continue; const l = leerLinea(f, `l${i}_`); l.pedido_id = np.id; l.orden = i + 1; ls.push(l); }
