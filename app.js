@@ -303,6 +303,24 @@ async function render() {
   } catch (e) { app.innerHTML = barra(h) + `<div class="contenido"><div class="seccion"><h2>Error</h2><p>${esc(errorDe(e))}</p></div></div>`; }
   const bs = $('#btn-salir'); if (bs) bs.onclick = salir;
   pintarDeshacer();
+  if (esOp) avisoRutaAlexis(h).catch(() => {});
+}
+/* Harold 15-oct: "cuando esté la ruta confirmada, que a Alexis le salga un mensaje de que se confirmó la ruta para mañana y lo lleve con un botón
+   Ir a la ruta". Se calcula de los datos (sin columna nueva): paradas DESPACHO PROGRAMADO de mañana (o de hoy antes de las 12) todas con
+   despacho_confirmado_en. Mientras falten, muestra el avance (3 de 6). Se puede cerrar; vuelve a salir si cambia el conteo. */
+async function avisoRutaAlexis(h) {
+  const f = new Date().getHours() < 12 ? hoyISO() : hoyISO(1);
+  if (h === '#/ruta' && cache.rutaFecha === f) return;
+  const { data } = await sb.from('v_pedido_operacion').select('id, tipo_entrega, despacho_confirmado_en').eq('estado', 'DESPACHO PROGRAMADO').eq('fecha_comprometida', f);
+  const paradas = (data || []).filter(p => p.tipo_entrega !== 'Despacho regiones' && p.tipo_entrega !== 'Retiro en taller'); if (!paradas.length) return;
+  const conf = paradas.filter(p => p.despacho_confirmado_en).length, lista = conf === paradas.length;
+  const clave = `aviso-ruta-${f}-${conf}-${paradas.length}`; try { if (localStorage.getItem(clave)) return; } catch (e) { }
+  const dia = f === hoyISO() ? 'hoy' : 'mañana'; const viejo = $('.aviso-ruta'); if (viejo) viejo.remove();
+  const d = document.createElement('div'); d.className = 'aviso-ruta' + (lista ? ' lista' : '');
+  d.innerHTML = `<span>${lista ? `🚚 Ruta de ${dia} (${fecha(f, true)}) confirmada: ${paradas.length} entrega${paradas.length > 1 ? 's' : ''}.` : `Ruta de ${dia} (${fecha(f, true)}): ${conf} de ${paradas.length} entregas confirmadas por el cliente; Harold sigue confirmando.`}</span><button class="btn chico ${lista ? 'primario' : 'borde'}" id="b-ir-ruta">Ir a la ruta</button><button class="btn chico" id="b-cerrar-aviso" aria-label="Cerrar">✕</button>`;
+  const barraEl = $('.barra'); if (barraEl) barraEl.after(d); else app.prepend(d);
+  $('#b-ir-ruta', d).onclick = () => { cache.rutaFecha = f; if (location.hash === '#/ruta') vRuta(); else location.hash = '#/ruta'; };
+  $('#b-cerrar-aviso', d).onclick = () => { try { localStorage.setItem(clave, '1'); } catch (e) { } d.remove(); };
 }
 function vClave() {
   app.innerHTML = barra('') + `<form class="login" id="f-clave"><h1>Nueva clave</h1><label>Clave nueva <input type="password" name="p" minlength="8" required></label><button class="btn primario">Guardar</button></form>`;
@@ -651,13 +669,24 @@ function mensajeSaldo(p, abonos) {
   else L.push('Saldo pendiente: $0 ✓ Pagado');
   return L.join('\n');
 }
+/* Harold 15-oct (captura): WhatsApp de escritorio en el Mac muestra � en vez de los emojis y perdió la línea de Webpay del texto que viene en el
+   enlace (el enlace sale correcto de la app). Por eso todo enlace wa.me pasa por aquí: el mensaje se copia al portapapeles y en pantallas con
+   mouse (Mac) el chat se abre sin texto para pegarlo con Cmd+V; en la tablet o el celular (pantalla táctil) el texto va prellenado. */
+const esTactil = () => window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+async function abrirWa(url) {
+  const [base, q] = url.split('?text='); const texto = q ? decodeURIComponent(q) : '';
+  let copiado = false; if (texto && navigator.clipboard) { try { await navigator.clipboard.writeText(texto); copiado = true; } catch (e) { } }
+  if (texto && !esTactil()) { aviso(copiado ? 'Mensaje copiado: pégalo en el chat con Cmd+V' : 'No se pudo copiar el mensaje; se abre con el texto en el enlace'); window.open(copiado ? base : url, '_blank'); }
+  else window.open(url, '_blank');
+}
+document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('a[href^="https://wa.me/"]'); if (!a) return; ev.preventDefault(); ev.stopPropagation(); abrirWa(a.href); }, true);
 function waLink(p, tipo) { return `https://wa.me/${telWa(p)}?text=${encodeURIComponent(tipo === 'despacho' ? mensajeDespacho(p) : `Hola ${nombrePila(p)}, te escribe Harold de Santino Design por tu pedido ${p.numero}.`)}`; }
 async function abrirWaSaldo(p) {
   const { data: abonos } = await sb.from('abono').select('monto').eq('pedido_id', p.id).order('fecha');
   const texto = mensajeSaldo(p, abonos || []);
   const alertas = []; if (p.precio_instalacion > 80000) alertas.push(`Instalación ${pesos(p.precio_instalacion)} parece alta (¿un cero de más?)`); if (p.precio_despacho > 60000) alertas.push(`Despacho ${pesos(p.precio_despacho)} parece alto`);
   if (alertas.length) aviso('Revisa antes de enviar: ' + alertas.join(' · '), true);
-  window.open(`https://wa.me/${telWa(p)}?text=${encodeURIComponent(texto)}`, '_blank');
+  abrirWa(`https://wa.me/${telWa(p)}?text=${encodeURIComponent(texto)}`);
 }
 /* Harold 15-oct: en la Ruta el botón WhatsApp es una lista: confirmar despacho, saldo pendiente, y confirmación más saldo ofreciendo la
    instalación cuando el pedido no la lleva. Sin precio de instalación inventado: se ofrece y Harold confirma el valor por WhatsApp. */
@@ -673,7 +702,7 @@ function activarMenus(raiz) {
 function activarMenusWsp(raiz) {
   $$('[data-wsp-menu]', raiz).forEach(b => b.onclick = ev => { ev.stopPropagation(); const l = $(`[data-wsp-lista="${b.dataset.wspMenu}"]`, raiz); const abierto = l.classList.contains('abierto'); $$('.menu-lista.abierto').forEach(x => x.classList.remove('abierto')); if (!abierto) { l.classList.add('abierto'); document.addEventListener('click', () => l.classList.remove('abierto'), { once: true }); } });
   $$('[data-wsp]', raiz).forEach(b => b.onclick = async ev => { ev.stopPropagation(); const p = cache.pedidos.find(x => x.id === Number(b.dataset.id)); if (!p) return; b.closest('.menu-lista').classList.remove('abierto');
-    if (b.dataset.wsp === 'despacho') return window.open(waLink(p, 'despacho'), '_blank');
+    if (b.dataset.wsp === 'despacho') return abrirWa(waLink(p, 'despacho'));
     if (b.dataset.wsp === 'saldo') return abrirWaSaldo(p); });
 }
 function exportarCSV() {

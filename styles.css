@@ -453,3 +453,8 @@ details.plegable .prop{margin-top:6px}
 .parada .menu-lista,.prop .menu-lista{min-width:280px;left:0;right:auto}
 @media (max-width:900px){.parada .menu-lista{left:auto;right:0}}
 .menu-lista.mover{padding:8px 0}.menu-lista.mover label{display:flex;flex-direction:column;gap:4px;padding:4px 12px 8px;font-size:12px;color:var(--gris-2)}.menu-lista.mover input{min-height:36px}
+/* Aviso a Alexis de ruta confirmada (tanda 33) */
+.aviso-ruta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 20px;background:var(--ambar);color:var(--ambar-txt);font-size:14px;font-weight:600;border-bottom:1px solid #E8D9A8}
+.aviso-ruta.lista{background:var(--verde-fondo);color:var(--verde)}
+.aviso-ruta span{flex:1}
+@media print{.aviso-ruta{display:none}}
