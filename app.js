@@ -312,6 +312,8 @@ async function render() {
     else if (h.startsWith('#/casos')) await vCasos();
     else if (h === '#/bandeja' && !esOp) await vBandeja();
     else if (h === '#/ruta') await vRuta();
+    else if (h.startsWith('#/compras/proveedor/') && (!esOp || yo.ve_compras)) await vProveedor(Number(h.split('/')[3]));
+    else if (h === '#/compras/proveedores' && (!esOp || yo.ve_compras)) await vProveedores();
     else if (h === '#/compras' && (!esOp || yo.ve_compras)) await vCompras();
     else if (h === '#/odt') await vOdt();
     else if (h === '#/imprimir-listado' && !esOp) await vImprimirListado();
@@ -1826,10 +1828,15 @@ function activarArrastreHorizontal(env) {
    PDF con logo que en celular y tablet abre la hoja de compartir) → el proveedor cotiza (monto y cotización adjunta) → se paga (monto,
    fecha, medio y comprobante) → llega: Recibir pieza a pieza, conforme (bodega) o devuelta al proveedor, con la guía del proveedor
    tachada adjunta → al volver, conforme de nuevo → embalado cierra la OC. Todo queda en el historial de cada pedido. */
-const OC_ESTADOS = ['Enviada', 'Cotizada', 'Pagada', 'Recibida', 'Con devolución', 'Cerrada'];
+const OC_ESTADOS = ['Enviada', 'Cotizada', 'Abonada', 'Pagada', 'Recibida', 'Con devolución', 'Cerrada'];   // Abonada (0044): pagó una parte de lo cotizado
 const ocChip = e => `<span class="chip oc-estado oc-${(e || '').replace(/ /g, '_')}">${esc(e || '')}</span>`;
 const puedeComprar = () => yo.rol !== 'operacion' || !!yo.ve_compras;
-const descCompra = (prov, x) => {
+// Pagos y saldos con proveedores (0044): Harold siempre; Alexis solo con ve_pagos_prov (Harold 16-oct: "no por defecto")
+const puedeVerPagos = () => yo.rol !== 'operacion' || (!!yo.ve_compras && !!yo.ve_pagos_prov);
+// Indicaciones de la pieza (Estrella W3134: "7 cm más alta") van al final de la línea para el proveedor (paso 0, 16-oct)
+const indicCompra = x => x.indicaciones ? `, ${x.indicaciones}` : '';
+const descCompra = (prov, x) => descCompraBase(prov, x) + indicCompra(x);
+const descCompraBase = (prov, x) => {
   const med = medidaTxt(x, ' x ', ' cm');
   if (prov && prov.formato === 'vidrio') return `${x.cantidad} ${ES_VIDRIO(x.material_cubierta) ? nombreMaterial(x.material_cubierta).replace(/^vidrio/, 'vidrio' + (x.cantidad > 1 ? 's' : '')) : 'cubierta' + (x.cantidad > 1 ? 's' : '') + ' ' + nombreMaterial(x.material_cubierta)}${x.espesor_mm ? ' ' + x.espesor_mm + ' mm' : ''}${med ? ', ' + med : ''}${x.forma === 'CIRC' ? ' (redondo)' : x.forma === 'OVAL' ? ' (ovalado)' : ''}${x.nota_acabado ? ', ' + x.nota_acabado : ''}`;
   if (prov && prov.formato === 'sillas_aliwen') return `${x.cantidad} ${x.tipo_linea === 'Silla' || x.tipo === 'Silla' ? 'Silla Santino' : (x.descripcion || 'mueble')}, pata ${({ NGR: 'negra', BL: 'blanca', NAT: 'natural' }[x.color_estructura] || x.color_estructura || 'negra')}, tapiz ${[x.tapiz, x.color_silla].filter(Boolean).join(' ') || 'por definir'}, madera lenga`;
@@ -1861,12 +1868,12 @@ async function vCompras() {
     <td class="num"><b>${esc(oc.codigo)}</b></td><td>${esc(oc.proveedor)}</td><td class="nw">${fecha(oc.fecha)}</td><td>${ocChip(oc.estado)}</td>
     <td>${oc.piezas.map(x => `<div class="l2">${esc(x.numero)} ${esc(nombrePila({ cliente: x.cliente }))} · ${esc(x.tipo)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''} · <span class="${x.etapa === 'Devuelta al proveedor' ? 'rojo' : ''}">${esc(x.etapa)}</span></div>`).join('')}</td>
     <td class="nw ${oc.atrasada ? 'rojo' : ''}">${oc.fecha_prometida ? fecha(oc.fecha_prometida, true) : '<span class="gris">sin fecha aún</span>'}${oc.referencia_prov ? `<div class="l2">${esc(oc.referencia_prov)}</div>` : ''}</td>
-    ${puedeComprar() ? `<td class="nw mono">${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) : '<span class="gris">-</span>'}</td><td class="nw mono">${oc.monto_pagado != null ? pesos(oc.monto_pagado) + `<div class="l2">${fecha(oc.fecha_pago)}${oc.medio_pago ? ' · ' + esc(oc.medio_pago) : ''}</div>` : '<span class="gris">-</span>'}</td>` : ''}
+    ${puedeComprar() ? `<td class="nw mono">${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) : '<span class="gris">-</span>'}</td>` : ''}${puedeVerPagos() ? `<td class="nw mono">${oc.monto_pagado != null ? pesos(oc.monto_pagado) + `<div class="l2">${fecha(oc.fecha_pago)}${oc.medio_pago ? ' · ' + esc(oc.medio_pago) : ''}</div>` : '<span class="gris">-</span>'}</td><td class="nw mono">${saldoOC(oc)}</td>` : ''}
     <td class="nw">${oc.documentos.length ? oc.documentos.map(d => `<span class="chip" title="${esc(d.nombre)}">${esc(abrevDoc(d.tipo))}</span>`).join(' ') : '<span class="gris">-</span>'}</td>
   </tr>`;
-  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><span>Arriba, las órdenes de compra; abajo, las piezas por pedir agrupadas por proveedor: marca las de un mismo proveedor y crea la orden (la fecha la da el proveedor después). Lo pedido antes del 13-oct sigue como Pedido, sin OC.</span><span style="margin-left:auto;color:var(--gris-3)">${cache.ocs.length} OC · ${sinOC.length} piezas sin OC</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
+  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><a href="#/compras/proveedores" class="btn chico" title="Ficha, historial, pagos y saldo de cada proveedor">Proveedores</a><span>Arriba, las órdenes de compra; abajo, las piezas por pedir agrupadas por proveedor: marca las de un mismo proveedor y crea la orden (la fecha la da el proveedor después). Lo pedido antes del 13-oct sigue como Pedido, sin OC.</span><span style="margin-left:auto;color:var(--gris-3)">${cache.ocs.length} OC · ${sinOC.length} piezas sin OC</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
     <section class="seccion"><div class="cab"><h2>Órdenes de compra</h2><label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="c-cerradas" ${verCerradas ? 'checked' : ''}> ver también las cerradas</label></div>
-      ${cache.ocs.length ? `<div class="tabla-env"><table class="lista oc-tabla"><thead><tr><th>OC</th><th>Proveedor</th><th>Enviada</th><th>Estado</th><th>Piezas</th><th>Llega</th>${puedeComprar() ? '<th>Cotizó</th><th>Pagado</th>' : ''}<th>Docs</th></tr></thead><tbody>${cache.ocs.map(filaOC).join('')}</tbody></table></div>` : '<div class="gris">No hay órdenes de compra abiertas.</div>'}
+      ${cache.ocs.length ? `<div class="tabla-env"><table class="lista oc-tabla"><thead><tr><th>OC</th><th>Proveedor</th><th>Enviada</th><th>Estado</th><th>Piezas</th><th>Llega</th>${puedeComprar() ? '<th>Cotizó</th>' : ''}${puedeVerPagos() ? '<th>Pagado</th><th>Saldo</th>' : ''}<th>Docs</th></tr></thead><tbody>${cache.ocs.map(filaOC).join('')}</tbody></table></div>` : '<div class="gris">No hay órdenes de compra abiertas.</div>'}
     </section>
     ${Object.keys(grupos).sort().map(k => { const prov = cache.proveedores.find(p => p.nombre === k); return `<section class="seccion"><div class="cab"><h2>${esc(k)}${prov && prov.que_vende ? ` <span style="font-weight:400;color:var(--gris-2);font-size:13px">· ${esc(prov.que_vende)}</span>` : ''}</h2>${puedeComprar() ? `<button class="btn chico primario" data-armar="${esc(k)}">Crear orden de compra con las marcadas</button>` : ''}</div>
       <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Descripción</th><th>Medida</th><th>Entrega al cliente</th><th title="Toca para avanzar; mantener para volver">Etapa</th></tr></thead><tbody>${grupos[k].map(fila).join('')}</tbody></table></div></section>`; }).join('') || '<div class="seccion">No hay piezas por comprar sin orden de compra.</div>'}
@@ -1906,7 +1913,7 @@ async function modalOC(id, ocDado) {
   const recibibles = oc.piezas.filter(x => /^(Pedid|Recibid|Devuelta)/.test(x.etapa || ''));
   const pz = x => `<tr><td>${etapaChip({ ...x, tipo: x.tipo, etapas: x.etapas }, x.pedido_id)}</td><td><a href="#/pedido/${x.pedido_id}" onclick="cerrarModal()">${esc(x.numero)}</a> ${esc(nombrePila({ cliente: x.cliente }))}</td><td>${esc(descCompra(prov, x))}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw">${x.etapa === 'Devuelta al proveedor' ? `<span class="rojo">devuelta ${fecha(x.devuelta_en)}</span>` : x.recibida_en ? `recibida ${fecha(x.recibida_en)}` : ''}${x.recepcion_nota ? `<div class="l2">${esc(x.recepcion_nota)}</div>` : ''}</td></tr>`;
   const doc = d => `<div class="doc"><span>${esc(d.nombre)}<div class="tipo">${esc(d.tipo)} · ${esc(d.subido_por)} · ${fecha(d.subido_en)}</div></span><span>${d.storage_path ? `<button class="btn chico" data-ver="${esc(d.storage_path)}">Ver</button>` : d.url ? `<a class="btn chico" href="${esc(d.url)}" target="_blank">Abrir</a>` : ''}</span></div>`;
-  modal(`<div class="cab"><h2>${esc(oc.codigo)} · ${esc(oc.proveedor)} ${ocChip(oc.estado)}${oc.atrasada ? ' <span class="chip atrasado">ATRASADA</span>' : ''}</h2><button type="button" class="btn chico" id="oc-x">Cerrar ventana</button></div>
+  modal(`<div class="cab"><h2>${esc(oc.codigo)} · <a href="#/compras/proveedor/${oc.proveedor_id}" onclick="cerrarModal()" title="Ficha del proveedor: historial, pagos y saldo">${esc(oc.proveedor)}</a> ${ocChip(oc.estado)}${oc.atrasada ? ' <span class="chip atrasado">ATRASADA</span>' : ''}</h2><button type="button" class="btn chico" id="oc-x">Cerrar ventana</button></div>
     <div class="gris" style="font-size:12px">Enviada el ${fecha(oc.fecha, true)} por ${esc(oc.creado_por)}${prov.contacto ? ' · ' + esc(prov.contacto) : ''}${prov.telefono ? ' · ' + esc(prov.telefono) : ''}${oc.nota ? ' · nota: ' + esc(oc.nota) : ''}</div>
     <div class="campos" style="align-items:end">
       <label class="campo">Fecha prometida por el proveedor <input type="date" id="oc-fecha" value="${oc.fecha_prometida || ''}" ${pc ? '' : 'disabled'}></label>
@@ -1914,8 +1921,8 @@ async function modalOC(id, ocDado) {
       ${pc ? '<button type="button" class="btn chico" id="oc-guardar" style="margin-bottom:2px">Guardar</button>' : ''}
     </div>
     <table class="d-tabla"><thead><tr><th>Etapa</th><th>Pedido</th><th>Pieza</th><th>Entrega cliente</th><th>Recepción</th></tr></thead><tbody>${oc.piezas.map(pz).join('')}</tbody></table>
-    ${pc ? `<div class="oc-dinero"><div><b>Cotización del proveedor:</b> ${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) : '<span class="gris">aún no cotiza</span>'} <button type="button" class="btn chico" id="oc-cot">${oc.monto_cotizado != null ? 'Corregir' : 'Registrar cotización'}</button></div>
-      <div><b>Pago:</b> ${oc.monto_pagado != null ? `${pesos(oc.monto_pagado)} el ${fecha(oc.fecha_pago)}${oc.medio_pago ? ' · ' + esc(oc.medio_pago) : ''}` : '<span class="gris">sin pagar</span>'} <button type="button" class="btn chico" id="oc-pago">${oc.monto_pagado != null ? 'Corregir' : 'Registrar pago'}</button></div></div>` : ''}
+    ${pc || puedeVerPagos() ? `<div class="oc-dinero">${pc ? `<div><b>Cotización del proveedor:</b> ${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) + (oc.proveedor_con_iva === false ? ' <span class="gris">(neto)</span>' : '') : '<span class="gris">aún no cotiza</span>'} <button type="button" class="btn chico" id="oc-cot">${oc.monto_cotizado != null ? 'Corregir' : 'Registrar cotización'}</button></div>` : ''}
+      ${puedeVerPagos() ? `<div><b>Pagos:</b> ${(oc.pagos || []).length ? (oc.pagos || []).map(g => `<span class="chip pago" title="${esc([g.tipo, g.medio_pago, cuentaNombre(g.cuenta_origen) !== '-' ? cuentaNombre(g.cuenta_origen) : '', g.referencia, g.registrado_por].filter(Boolean).join(' · '))}">${pesos(g.monto_aplicado)} · ${fecha(g.fecha)}${g.comprobante_path ? ` <button type="button" class="btn chico" data-ver="${esc(g.comprobante_path)}">ver</button>` : g.comprobante_url ? ` <a href="${esc(g.comprobante_url)}" target="_blank">ver</a>` : ''}</span>`).join(' ') + ` = <b>${pesos(oc.monto_pagado || 0)}</b>` : '<span class="gris">sin pagar</span>'}${oc.saldo != null ? ` · saldo ${saldoOC(oc)}` : ''} <button type="button" class="btn chico" id="oc-pago">Registrar pago</button></div>` : ''}</div>` : ''}
     <div><div class="cab"><h2 style="font-size:14px">Documentos (${oc.documentos.length})</h2>${pc || esOp ? '<button type="button" class="btn chico" id="oc-adj">Adjuntar</button>' : ''}</div><div class="docs">${oc.documentos.map(doc).join('') || '<div class="gris" style="font-size:12px">Nada adjunto aún: cotización del proveedor, comprobante de pago, guía del proveedor tachada.</div>'}</div></div>
     <details ${oc.estado === 'Enviada' ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">Texto enviado al proveedor</summary><textarea id="oc-texto" class="oc-texto" ${pc ? '' : 'readonly'}>${esc(oc.texto_enviado || textoOC(prov, oc.piezas, oc.codigo, oc.fecha))}</textarea>
       <div class="acciones" style="justify-content:flex-start"><button type="button" class="btn" id="oc-copiar">Copiar</button><button type="button" class="btn" id="oc-wa">WhatsApp${prov.telefono ? '' : ' (elige el chat)'}</button><button type="button" class="btn" id="oc-pdf">PDF${navigator.canShare ? ' · compartir' : ''}</button></div></details>
@@ -1924,7 +1931,7 @@ async function modalOC(id, ocDado) {
       ${pc && oc.estado !== 'Cerrada' ? `<button type="button" class="btn" id="oc-cerrar" title="Cerrarla a mano (se cierra sola cuando todas las piezas quedan embaladas)">Cerrar OC</button>` : ''}
       ${pc && oc.estado === 'Cerrada' ? `<button type="button" class="btn" id="oc-reabrir">Reabrir</button>` : ''}
     </div>`, 'ancha');
-  const refrescar = async () => { if (location.hash.startsWith('#/compras')) await vCompras(); else if (typeof render === 'function') await render(); modalOC(oc.id); };
+  const refrescar = async () => { if (typeof render === 'function') await render(); modalOC(oc.id); };
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
   on('#oc-x', cerrarModal);
   activarEtapas($('#modal'), () => refrescar());
@@ -1938,11 +1945,11 @@ async function modalOC(id, ocDado) {
   on('#oc-wa', async () => { await guardarTexto(); window.open(waProveedor(prov, $('#oc-texto').value), '_blank'); });
   on('#oc-pdf', async () => { await guardarTexto(); try { const r = await pdfOC(oc, prov); if (r) aviso(r); } catch (e) { aviso(errorDe(e), true); } });
   on('#oc-cot', () => formCotizacionOC(oc, refrescar));
-  on('#oc-pago', () => formPagoOC(oc, refrescar));
+  on('#oc-pago', () => formPagoProveedor({ id: oc.proveedor_id }, oc, refrescar));
   on('#oc-adj', () => formAdjuntarOC(oc, refrescar));
   on('#oc-recibir', () => formRecibir(recibibles.map(x => ({ ...x, oc })), oc, refrescar));
   on('#oc-cerrar', async () => { if (!confirm(`¿Cerrar la ${oc.codigo}? Se cierra sola cuando todas las piezas quedan embaladas; ciérrala a mano solo si ya no llegará nada más.`)) return; try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { estado: 'Cerrada' } }); aviso(`${oc.codigo} cerrada`); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
-  on('#oc-reabrir', async () => { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { estado: oc.monto_pagado != null ? 'Pagada' : oc.monto_cotizado != null ? 'Cotizada' : 'Enviada' } }); aviso(`${oc.codigo} reabierta`); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+  on('#oc-reabrir', async () => { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { estado: 'Enviada' } }); await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { texto_enviado: oc.texto_enviado || '' } }); aviso(`${oc.codigo} reabierta`); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
 }
 /* Subir un archivo a la OC (carpeta compras/<id>/ del bucket) y registrarlo como documento */
 async function subirDocOC(oc, tipo, archivo, nombre, url) {
@@ -1964,17 +1971,148 @@ function formCotizacionOC(oc, despues) {
     const a = f.get('archivo'); if (a && a.size) await subirDocOC(oc, 'Cotización proveedor', a, `Cotización ${oc.codigo} ${oc.proveedor}`);
     aviso('Cotización registrada'); cerrarModal(); despues(); } catch (e) { aviso(errorDe(e), true); } };
 }
-function formPagoOC(oc, despues) {
-  modal(`<h2>Pago al proveedor · ${esc(oc.codigo)}</h2><div class="gris" style="font-size:12px">Se anota aquí junto al comprobante (sin módulo de gastos todavía; cuando exista, lee de aquí).</div><form id="f"><div class="campos">
-    <label class="campo">Monto pagado ($) <input name="monto" type="number" min="0" step="1" value="${oc.monto_pagado != null ? oc.monto_pagado : (oc.monto_cotizado != null ? oc.monto_cotizado : '')}" required></label>
-    <label class="campo">Fecha del pago <input name="fecha" type="date" value="${oc.fecha_pago || hoyISO()}" required></label>
-    <label class="campo">Medio <select name="medio">${['Transferencia', 'Tarjeta', 'Efectivo', 'Otro'].map(m => `<option ${(oc.medio_pago || 'Transferencia') === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
-    <label class="campo">Comprobante (foto o PDF) <input name="archivo" type="file" accept="application/pdf,image/*"></label></div>
-    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar pago</button></div></form>`);
-  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
-    await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { monto_pagado: f.get('monto') || '', fecha_pago: f.get('fecha') || '', medio_pago: f.get('medio') || '' } });
-    const a = f.get('archivo'); if (a && a.size) await subirDocOC(oc, 'Comprobante proveedor', a, `Comprobante ${oc.codigo} ${fecha(f.get('fecha'))}`);
-    aviso('Pago registrado'); cerrarModal(); despues(); } catch (e) { aviso(errorDe(e), true); } };
+/* ---------- Proveedores y pagos (Compras v2 pasos 1 y 2, 16-oct-2026; ARQUITECTURA_COMPRAS_v2.md) ----------
+   Harold: "necesito un lugar donde ver el historial de pedidos que se le hizo a cada proveedor" y "los abonos y saldos que tengo con proveedores".
+   Un pago puede cubrir varias OC y una OC puede recibir varios pagos (anticipo y saldo). Lo pagado de la OC se deriva de los pagos.
+   Quién ve pagos y saldos: Harold; Alexis solo con ve_pagos_prov (no por defecto). */
+const saldoOC = oc => oc.saldo == null ? '<span class="gris">-</span>' : oc.saldo > 0 ? `<span class="rojo">${pesos(oc.saldo)}</span>` : oc.saldo < 0 ? `<span class="verde-txt" title="pagado de más: queda a favor">${pesos(oc.saldo)}</span>` : '<span class="verde-txt">al día</span>';
+const waTel = tel => tel ? `<a href="https://wa.me/${String(tel).replace(/\D/g, '')}" target="_blank" title="WhatsApp">${esc(tel)}</a>` : '';
+const ivaTxt = p => p && p.precios_con_iva === false ? 'cotiza neto (IVA aparte)' : 'cotiza con IVA';
+const PAGO_TIPOS = ['Pago total', 'Anticipo', 'Saldo', 'Nota de crédito', 'Ajuste'];
+const CATEGORIAS_PROV = ['vidrio', 'piedra', 'silla', 'sofá', 'tela', 'cubierta', 'madera', 'perfil', 'pintura', 'embalaje', 'herraje', 'servicio', 'otro'];
+
+async function vProveedores() {
+  const provs = (await rpc('proveedores_json', {})) || [];
+  cache.provsInactivos = !!cache.provsInactivos;
+  const lista = provs.filter(p => cache.provsInactivos || p.activo);
+  const pv = puedeVerPagos(), pc = puedeComprar(), admin = yo.rol === 'admin';
+  const saldoTotal = provs.reduce((s, p) => s + (p.saldo || 0), 0);
+  const fila = p => `<tr class="fila-prov ${p.activo ? '' : 'inactivo'}" data-prov="${p.id}" title="Abrir la ficha del proveedor">
+    <td class="nw"><b>${esc(p.nombre)}</b>${p.activo ? '' : ' <span class="chip">inactivo</span>'}${p.categoria ? `<div class="l2">${esc(p.categoria)}</div>` : ''}</td>
+    <td>${esc(p.que_vende || '')}</td>
+    <td class="nw">${esc(p.contacto || '')}${p.telefono ? `<div class="l2">${waTel(p.telefono)}</div>` : ''}</td>
+    <td class="num">${p.por_pedir ? `<a href="#/compras" title="Piezas por pedir que le corresponden a este proveedor">${p.por_pedir}</a>` : '<span class="gris">-</span>'}</td>
+    <td class="num">${p.oc_abiertas || '<span class="gris">-</span>'}<div class="l2">${p.oc_total ? p.oc_total + ' en total' : ''}</div></td>
+    <td class="nw">${p.ultima_compra ? fecha(p.ultima_compra) : '<span class="gris">-</span>'}</td>
+    ${pc ? `<td class="nw mono">${p.comprado ? pesos(p.comprado) : '<span class="gris">-</span>'}</td>` : ''}
+    ${pv ? `<td class="nw mono">${p.pagado ? pesos(p.pagado) : '<span class="gris">-</span>'}</td><td class="nw mono">${saldoOC(p)}</td>` : ''}
+  </tr>`;
+  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><a href="#/compras" class="btn chico">← Compras</a><span>Toca un proveedor para ver su ficha: datos, órdenes de compra, pagos, saldo e historial de lo comprado.</span>
+      <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin-left:auto"><input type="checkbox" id="p-inactivos" ${cache.provsInactivos ? 'checked' : ''}> ver inactivos</label>
+      ${admin ? '<button class="btn chico primario" id="p-nuevo">+ Proveedor</button>' : ''}</div>
+    <div class="contenido" style="display:flex;flex-direction:column;gap:14px">
+      ${pv ? `<div class="kpis"><div class="kpi"><b>Saldo total con proveedores</b><span class="${saldoTotal > 0 ? 'rojo' : ''}">${pesos(saldoTotal)}</span></div><div class="kpi"><b>Proveedores con saldo</b><span>${provs.filter(p => (p.saldo || 0) > 0).length}</span></div><div class="kpi"><b>OC abiertas</b><span>${provs.reduce((s, p) => s + (p.oc_abiertas || 0), 0)}</span></div></div>` : ''}
+      <section class="seccion"><div class="tabla-env"><table class="lista prov-tabla"><thead><tr><th>Proveedor</th><th>Qué vende</th><th>Contacto</th><th>Por pedir</th><th>OC abiertas</th><th>Última compra</th>${pc ? '<th>Comprado</th>' : ''}${pv ? '<th>Pagado</th><th>Saldo</th>' : ''}</tr></thead><tbody>${lista.map(fila).join('')}</tbody></table></div>
+      <div class="gris" style="font-size:12px;margin-top:8px">Comprado = suma de lo cotizado en sus OC (las OC sin cotización no suman). Saldo = comprado menos pagado; en rojo lo que se debe, en verde lo pagado de más.</div></section>
+    </div>`;
+  $$('tr.fila-prov').forEach(tr => tr.onclick = () => { location.hash = '#/compras/proveedor/' + tr.dataset.prov; });
+  $('#p-inactivos').onchange = ev => { cache.provsInactivos = ev.target.checked; vProveedores(); };
+  const bn = $('#p-nuevo'); if (bn) bn.onclick = () => formProveedor(null, p => { location.hash = '#/compras/proveedor/' + p.id; });
+}
+
+async function vProveedor(id) {
+  await cargarProveedores();
+  const p = await rpc('proveedor_json', { p_id: id });
+  if (!p) { app.innerHTML = barra('#/compras') + '<div class="contenido"><div class="seccion">Proveedor no encontrado.</div></div>'; return; }
+  const pv = puedeVerPagos(), pc = puedeComprar(), admin = yo.rol === 'admin'; const c = p.cuenta || {};
+  const dato = (t, v) => v == null || v === '' ? '' : `<div class="dato"><b>${t}</b>${v}</div>`;
+  // Cuenta corriente: OC (cargo = lo cotizado) y pagos (abono) en orden de fecha, con saldo acumulado
+  const movs = [];
+  (p.ocs || []).forEach(o => movs.push({ fecha: o.fecha, orden: 0, tipo: 'oc', texto: `${o.codigo} · ${o.piezas_resumen || (o.n_piezas + ' piezas')}`, ref: o.referencia_prov, cargo: o.monto_cotizado, estado: o.estado, oc_id: o.id, sinCot: o.monto_cotizado == null }));
+  (p.pagos || []).forEach(g => movs.push({ fecha: g.fecha, orden: 1, tipo: 'pago', texto: `${g.tipo}${g.aplicado && g.aplicado.length ? ' · ' + g.aplicado.map(a => 'OC-' + a.numero + (g.aplicado.length > 1 ? ' ' + pesos(a.monto) : '')).join(', ') : ' · sin aplicar a una OC'}${g.nota ? ' · ' + g.nota : ''}`, ref: [g.medio_pago, cuentaNombre(g.cuenta_origen) !== '-' ? cuentaNombre(g.cuenta_origen) : '', g.referencia].filter(Boolean).join(' · '), abono: g.monto, pago: g }));
+  movs.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || a.orden - b.orden);
+  let acum = 0;
+  const filaMov = m => { acum += (m.cargo || 0) - (m.abono || 0); return `<tr class="${m.oc_id ? 'fila-oc' : ''}" ${m.oc_id ? `data-oc="${m.oc_id}"` : ''}><td class="nw">${fecha(m.fecha)}</td><td>${esc(m.texto)}${m.estado ? ' ' + ocChip(m.estado) : ''}${m.sinCot ? ' <span class="chip">sin cotización</span>' : ''}${m.ref ? `<div class="l2">${esc(m.ref)}</div>` : ''}</td><td class="nw mono">${m.cargo != null ? pesos(m.cargo) : ''}</td><td class="nw mono">${m.abono != null ? pesos(m.abono) : ''}</td><td class="nw mono ${acum > 0 ? 'rojo' : acum < 0 ? 'verde-txt' : ''}">${pesos(acum)}</td><td class="nw">${m.pago ? (m.pago.comprobante_path ? `<button class="btn chico" data-ver="${esc(m.pago.comprobante_path)}">Ver</button>` : m.pago.comprobante_url ? `<a class="btn chico" href="${esc(m.pago.comprobante_url)}" target="_blank">Abrir</a>` : '') + (admin ? ` <button class="btn chico" data-borrar-pago="${m.pago.id}" title="Borrar este pago (si se registró mal)">Borrar</button>` : '') : ''}</td></tr>`; };
+  const filaOC = o => `<tr class="fila-oc ${o.atrasada ? 'atrasado' : ''}" data-oc="${o.id}" title="Abrir la orden de compra"><td class="num"><b>${esc(o.codigo)}</b></td><td class="nw">${fecha(o.fecha)}</td><td>${ocChip(o.estado)}</td><td>${esc(o.piezas_resumen || '')}</td><td class="nw ${o.atrasada ? 'rojo' : ''}">${o.fecha_prometida ? fecha(o.fecha_prometida, true) : '<span class="gris">sin fecha</span>'}${o.referencia_prov ? `<div class="l2">${esc(o.referencia_prov)}</div>` : ''}</td>${pc ? `<td class="nw mono">${o.monto_cotizado != null ? pesos(o.monto_cotizado) : '<span class="gris">-</span>'}</td>` : ''}${pv ? `<td class="nw mono">${o.monto_pagado != null ? pesos(o.monto_pagado) : '<span class="gris">-</span>'}</td><td class="nw mono">${saldoOC(o)}</td>` : ''}</tr>`;
+  const filaPz = x => `<tr><td class="nw">${x.fecha_pedido ? fecha(x.fecha_pedido) : '-'}</td><td class="nw"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a> ${esc(nombrePila({ cliente: x.cliente }))}</td><td>${esc(descCompra(p, { ...x, tipo_linea: x.tipo }))}</td><td class="nw">${esc(x.etapa || '')}${x.devuelta_en ? `<div class="l2 rojo">devuelta ${fecha(x.devuelta_en)}${x.recepcion_nota ? ' · ' + esc(x.recepcion_nota) : ''}</div>` : x.recibida_en ? `<div class="l2">recibida ${fecha(x.recibida_en)}</div>` : ''}</td><td class="nw">${x.oc_numero ? `<a href="#" data-oc="${x.oc_id}">OC-${x.oc_numero}</a>` : '<span class="gris">sin OC</span>'}</td></tr>`;
+  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><a href="#/compras/proveedores" class="btn chico">← Proveedores</a><span><b>${esc(p.nombre)}</b> · ${esc(p.que_vende || '')}</span>
+      <span style="margin-left:auto;display:flex;gap:8px">${pv ? '<button class="btn chico primario" id="pv-pago">Registrar pago</button>' : ''}${admin ? '<button class="btn chico" id="pv-editar">Editar</button>' : ''}</span></div>
+    <div class="contenido ficha-prov" style="display:flex;flex-direction:column;gap:14px">
+      <section class="seccion"><div class="cab"><h2>${esc(p.nombre)}${p.activo ? '' : ' <span class="chip">inactivo</span>'}${p.categoria ? ` <span class="chip">${esc(p.categoria)}</span>` : ''}</h2></div>
+        <div class="datos">${dato('Contacto', esc(p.contacto))}${dato('Teléfono', waTel(p.telefono))}${dato('Correo', p.correo ? `<a href="mailto:${esc(p.correo)}">${esc(p.correo)}</a>` : '')}${dato('RUT', esc(p.rut))}${dato('Dirección', esc(p.direccion))}${dato('Forma de pago', esc(p.forma_pago))}
+          ${dato('Condición', [p.pct_anticipo != null ? p.pct_anticipo + '% para empezar' : '', p.pct_contra_entrega != null ? p.pct_contra_entrega + '% contra entrega' : '', p.plazo_dias ? p.plazo_dias + ' días' : ''].filter(Boolean).join(' · '))}
+          ${dato('Precios', ivaTxt(p))}${dato('Despacho', esc(p.despacho))}${dato('Cuenta bancaria', esc(p.cuenta_bancaria))}${dato('Formato del pedido', esc(p.formato))}${dato('Nota', esc(p.nota))}</div></section>
+      <div class="kpis">
+        <div class="kpi"><b>OC abiertas</b><span>${c.oc_abiertas || 0}</span>${c.oc_sin_cotizar ? `<small>${c.oc_sin_cotizar} sin cotización</small>` : ''}</div>
+        <div class="kpi"><b>Última compra</b><span>${c.ultima_compra ? fecha(c.ultima_compra) : '-'}</span></div>
+        ${pc ? `<div class="kpi"><b>Comprado ${new Date().getFullYear()}</b><span>${pesos(c.comprado_ano || 0)}</span><small>${pesos(c.comprado || 0)} histórico</small></div>` : ''}
+        ${pv ? `<div class="kpi"><b>Pagado ${new Date().getFullYear()}</b><span>${pesos(c.pagado_ano || 0)}</span><small>${pesos(c.pagado || 0)} histórico</small></div><div class="kpi"><b>Saldo</b><span class="${(c.saldo || 0) > 0 ? 'rojo' : (c.saldo || 0) < 0 ? 'verde-txt' : ''}">${pesos(c.saldo || 0)}</span><small>${(c.saldo || 0) > 0 ? 'se le debe' : (c.saldo || 0) < 0 ? 'a favor nuestro' : 'al día'}${c.sin_aplicar ? ' · ' + pesos(c.sin_aplicar) + ' pagados sin OC' : ''}</small></div>` : ''}
+        <div class="kpi"><b>Piezas devueltas</b><span class="${c.piezas_devueltas ? 'rojo' : ''}">${c.piezas_devueltas || 0}</span></div>
+      </div>
+      ${pv ? `<section class="seccion"><div class="cab"><h2>Cuenta corriente</h2><span class="gris" style="font-size:12px">cargo = lo cotizado en la OC · abono = pago · saldo acumulado</span></div>
+        ${movs.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Detalle</th><th>Cargo</th><th>Abono</th><th>Saldo</th><th></th></tr></thead><tbody>${movs.map(filaMov).join('')}</tbody></table></div>` : '<div class="gris">Sin movimientos todavía.</div>'}</section>` : ''}
+      <section class="seccion"><div class="cab"><h2>Órdenes de compra (${(p.ocs || []).length})</h2></div>
+        ${(p.ocs || []).length ? `<div class="tabla-env"><table class="lista oc-tabla"><thead><tr><th>OC</th><th>Enviada</th><th>Estado</th><th>Piezas</th><th>Llega</th>${pc ? '<th>Cotizó</th>' : ''}${pv ? '<th>Pagado</th><th>Saldo</th>' : ''}</tr></thead><tbody>${p.ocs.map(filaOC).join('')}</tbody></table></div>` : '<div class="gris">Todavía no se le ha hecho ninguna orden de compra desde la app.</div>'}</section>
+      <section class="seccion"><div class="cab"><h2>Historial de piezas compradas (${(p.piezas || []).length})</h2></div>
+        ${(p.piezas || []).length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Pedida</th><th>Pedido</th><th>Pieza</th><th>Etapa</th><th>OC</th></tr></thead><tbody>${p.piezas.map(filaPz).join('')}</tbody></table></div>` : '<div class="gris">Nada comprado a este proveedor desde la app.</div>'}</section>
+    </div>`;
+  const refrescar = () => vProveedor(id);
+  $$('tr.fila-oc, a[data-oc]').forEach(el => el.onclick = ev => { ev.preventDefault(); modalOC(Number(el.dataset.oc)); });
+  $$('[data-ver]').forEach(b => b.onclick = async ev => { ev.stopPropagation(); const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
+  $$('[data-borrar-pago]').forEach(b => b.onclick = async ev => { ev.stopPropagation(); if (!confirm('¿Borrar este pago? Las OC vuelven a su estado según lo que quede pagado. Queda anotado en el historial de los pedidos.')) return; try { await rpc('borrar_pago_proveedor', { p_pago_id: Number(b.dataset.borrarPago) }); aviso('Pago borrado'); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+  const be = $('#pv-editar'); if (be) be.onclick = () => formProveedor(p, refrescar);
+  const bp = $('#pv-pago'); if (bp) bp.onclick = () => formPagoProveedor(p, null, refrescar);
+}
+
+/* Crear o editar un proveedor (solo Harold). Los datos de contacto, condiciones de pago y si cotiza con o sin IVA. */
+function formProveedor(p, despues) {
+  const v = k => esc(p && p[k] != null ? p[k] : '');
+  modal(`<h2>${p ? 'Editar proveedor · ' + esc(p.nombre) : 'Nuevo proveedor'}</h2><form id="f"><div class="campos">
+    <label class="campo">Nombre <input name="nombre" value="${v('nombre')}" required></label>
+    <label class="campo">Qué vende <input name="que_vende" value="${v('que_vende')}" placeholder="ej. Telas para tapiz"></label>
+    <label class="campo">Categoría <select name="categoria"><option value="">(sin categoría)</option>${CATEGORIAS_PROV.map(c => `<option ${p && p.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <label class="campo">Contacto (persona) <input name="contacto" value="${v('contacto')}"></label>
+    <label class="campo">Teléfono (WhatsApp) <input name="telefono" value="${v('telefono')}" placeholder="+56 9 ..."></label>
+    <label class="campo">Correo <input name="correo" type="email" value="${v('correo')}"></label>
+    <label class="campo">RUT <input name="rut" value="${v('rut')}"></label>
+    <label class="campo">Dirección <input name="direccion" value="${v('direccion')}"></label>
+    <label class="campo">Forma de pago <input name="forma_pago" value="${v('forma_pago') || (p ? '' : 'Transferencia')}"></label>
+    <label class="campo">% para empezar <input name="pct_anticipo" type="number" min="0" max="100" value="${v('pct_anticipo')}"></label>
+    <label class="campo">% contra entrega <input name="pct_contra_entrega" type="number" min="0" max="100" value="${v('pct_contra_entrega')}"></label>
+    <label class="campo">Plazo (días) <input name="plazo_dias" type="number" min="0" value="${v('plazo_dias')}"></label>
+    <label class="campo">Precios <select name="precios_con_iva"><option value="true" ${!p || p.precios_con_iva !== false ? 'selected' : ''}>Cotiza con IVA incluido</option><option value="false" ${p && p.precios_con_iva === false ? 'selected' : ''}>Cotiza neto (IVA aparte)</option></select></label>
+    <label class="campo">Despacho <input name="despacho" value="${v('despacho')}" placeholder="ej. Despachan gratis, Solo retiro"></label>
+    <label class="campo">Cuenta bancaria <input name="cuenta_bancaria" value="${v('cuenta_bancaria')}" placeholder="banco, tipo, número, RUT, correo"></label>
+    <label class="campo">Formato del texto de la OC <select name="formato">${[['generico', 'Genérico (cantidad, descripción, medidas)'], ['vidrio', 'Vidrio (tipo, espesor, medidas, forma)'], ['sillas_aliwen', 'Sillas Aliwen (pata, tapiz, madera)']].map(([k, t]) => `<option value="${k}" ${(p ? p.formato : 'generico') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    ${p ? `<label class="campo">Activo <select name="activo"><option value="true" ${p.activo ? 'selected' : ''}>Sí</option><option value="false" ${!p.activo ? 'selected' : ''}>No (ya no se le compra)</option></select></label>` : ''}
+    <label class="campo" style="grid-column:1/-1">Nota (precios acordados, cómo pedir, horarios) <textarea name="nota" rows="3">${v('nota')}</textarea></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">${p ? 'Guardar' : 'Crear proveedor'}</button></div></form>`, 'ancha');
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const c = {}; for (const [k, val] of f.entries()) c[k] = val; if (c.precios_con_iva != null) c.precios_con_iva = c.precios_con_iva === 'true'; if (c.activo != null) c.activo = c.activo === 'true';
+    try { const r = await rpc('editar_proveedor', { p_id: p ? p.id : null, p_cambios: c }); cache.proveedores = null; aviso(p ? 'Proveedor guardado' : 'Proveedor creado'); cerrarModal(); despues(r); } catch (e) { aviso(errorDe(e), true); } };
+}
+
+/* Registrar un pago a un proveedor: monto, fecha, medio, desde qué cuenta, tipo (anticipo, saldo...), comprobante, y a qué OC se aplica
+   (una, varias o ninguna; lo no aplicado queda a favor en su cuenta). ocPre = OC desde la que se abrió (queda marcada con su saldo). */
+async function formPagoProveedor(prov, ocPre, despues) {
+  const p = prov.ocs ? prov : await rpc('proveedor_json', { p_id: prov.id || prov.proveedor_id });
+  if (!p) return aviso('No se pudo cargar el proveedor', true);
+  const abiertas = (p.ocs || []).filter(o => o.estado !== 'Cerrada' || (o.saldo || 0) > 0 || (ocPre && o.id === ocPre.id));
+  const filaOC = o => { const pre = ocPre && o.id === ocPre.id; const sug = o.saldo != null && o.saldo > 0 ? o.saldo : o.monto_cotizado != null && o.monto_pagado == null ? o.monto_cotizado : ''; return `<div class="aplicar-fila"><label><input type="checkbox" name="oc_${o.id}" ${pre ? 'checked' : ''}> <b>${esc(o.codigo)}</b> ${ocChip(o.estado)} ${esc(o.piezas_resumen || '')}<div class="l2">${o.monto_cotizado != null ? 'cotizó ' + pesos(o.monto_cotizado) : 'sin cotización'}${o.monto_pagado ? ' · pagado ' + pesos(o.monto_pagado) : ''}${o.saldo != null ? ' · saldo ' + pesos(o.saldo) : ''}</div></label><input name="m_${o.id}" type="number" step="1" placeholder="monto" value="${pre ? sug : ''}" style="width:120px"></div>`; };
+  modal(`<h2>Pago a ${esc(p.nombre)}</h2><div class="gris" style="font-size:12px">${ivaTxt(p)}. Marca a qué órdenes de compra se aplica; si pagas varias juntas, reparte el monto. Lo que no apliques queda a favor en su cuenta.</div><form id="f"><div class="campos">
+    <label class="campo">Monto pagado ($) <input name="monto" type="number" step="1" value="${ocPre && ocPre.saldo > 0 ? ocPre.saldo : ocPre && ocPre.monto_cotizado != null && ocPre.monto_pagado == null ? ocPre.monto_cotizado : ''}" required></label>
+    <label class="campo">Fecha <input name="fecha" type="date" value="${hoyISO()}" required></label>
+    <label class="campo">Tipo <select name="tipo">${PAGO_TIPOS.map(t => `<option ${(ocPre && ocPre.monto_pagado ? 'Saldo' : 'Pago total') === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    <label class="campo">Medio <select name="medio">${['Transferencia', 'Efectivo', 'Tarjeta', 'Otro'].map(m => `<option>${m}</option>`).join('')}</select></label>
+    <label class="campo">Desde qué cuenta <select name="cuenta"><option value="">(sin anotar)</option>${cuentasOpciones()}</select></label>
+    <label class="campo">Referencia (n° transferencia, factura) <input name="ref"></label>
+    <label class="campo">Comprobante (foto o PDF) <input name="archivo" type="file" accept="application/pdf,image/*"></label>
+    <label class="campo">o enlace <input name="url" type="url" placeholder="https://..."></label>
+    <label class="campo" style="grid-column:1/-1">Nota <input name="nota" placeholder="ej. anticipo sillas Estrella y Liliana"></label></div>
+    <div style="margin-top:10px"><b style="font-size:13px">Aplicar a órdenes de compra</b>${abiertas.length ? `<div class="aplicar">${abiertas.map(filaOC).join('')}</div>` : '<div class="gris" style="font-size:12px">Este proveedor no tiene OC abiertas: el pago queda a favor en su cuenta.</div>'}</div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar pago</button></div></form>`, 'ancha');
+  const sel = $('select[name=cuenta]'); if (sel && codigoDe('cuenta', 'SANTINO.SANTANDER')) sel.value = 'SANTINO.SANTANDER';
+  $$('.aplicar-fila input[type=checkbox]').forEach(cb => cb.onchange = () => { const m = cb.closest('.aplicar-fila').querySelector('input[type=number]'); if (cb.checked && !m.value) { const o = abiertas.find(x => 'oc_' + x.id === cb.name); const mon = Number($('input[name=monto]').value) || 0; m.value = o.saldo != null && o.saldo > 0 ? Math.min(o.saldo, mon || o.saldo) : o.monto_cotizado != null && o.monto_pagado == null ? Math.min(o.monto_cotizado, mon || o.monto_cotizado) : mon || ''; } });
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const monto = Number(f.get('monto'));
+    if (!monto) return aviso('Falta el monto', true);
+    const aplicar = abiertas.filter(o => f.get('oc_' + o.id)).map(o => ({ oc_id: o.id, monto: Number(f.get('m_' + o.id)) || 0 })).filter(a => a.monto);
+    const suma = aplicar.reduce((s, a) => s + a.monto, 0);
+    if (Math.abs(suma) > Math.abs(monto)) return aviso(`Lo aplicado (${pesos(suma)}) supera el monto del pago (${pesos(monto)})`, true);
+    try {
+      let path = null; const a = f.get('archivo');
+      if (a && a.size) { path = `compras/pagos/${p.id}/${Date.now()}_${a.name.replace(/[^\w.\-]/g, '_')}`; const { error } = await sb.storage.from('documentos').upload(path, a, { contentType: a.type || undefined }); if (error) throw error; }
+      await rpc('registrar_pago_proveedor', { p_proveedor_id: p.id, p_monto: monto, p_fecha: f.get('fecha'), p_medio: f.get('medio'), p_cuenta: f.get('cuenta') || null, p_tipo: f.get('tipo'), p_referencia: f.get('ref') || null, p_nota: f.get('nota') || null, p_aplicar: aplicar, p_comprobante_path: path, p_comprobante_url: f.get('url') || null });
+      aviso(`Pago de ${pesos(monto)} a ${p.nombre} registrado${aplicar.length ? ' y aplicado a ' + aplicar.length + ' OC' : ''}`); cerrarModal(); despues();
+    } catch (e) { aviso(errorDe(e), true); } };
 }
 function formAdjuntarOC(oc, despues) {
   const esOp = yo.rol === 'operacion';

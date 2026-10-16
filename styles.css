@@ -464,3 +464,10 @@ details.plegable .prop{margin-top:6px}
 /* Indicaciones del maestro: celda editable con un clic (16-oct) */
 .ind-edit{cursor:text}
 @media (hover:hover){.ind-edit:hover{background:var(--azul-suave);outline:1px dashed var(--gris-3)}}
+/* Proveedores y pagos (Compras v2, 16-oct-2026) */
+.chip.oc-Abonada{background:var(--ambar);color:var(--ambar-txt)}
+.verde-txt{color:var(--verde)}
+.kpis{display:flex;gap:12px;flex-wrap:wrap}.kpi{background:#fff;border:1px solid var(--linea);border-radius:10px;padding:8px 14px;min-width:130px}.kpi b{display:block;font-size:11px;color:var(--gris-3);font-weight:600}.kpi span{font-size:18px;font-weight:700}.kpi small{display:block;font-size:11px;color:var(--gris-3)}
+.ficha-prov .datos{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 18px;font-size:13px}.dato b{display:block;font-size:11px;color:var(--gris-3);font-weight:600}
+table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila-prov:hover td{background:var(--azul-suave)}}table.lista tr.fila-prov.inactivo td{color:var(--gris-3)}
+.aplicar{display:flex;flex-direction:column;gap:6px;margin-top:6px}.aplicar-fila{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px solid var(--linea);border-radius:8px;padding:6px 10px;font-size:13px;background:#fff}.aplicar-fila label{display:flex;gap:6px;align-items:flex-start;flex:1;cursor:pointer}
