@@ -446,7 +446,7 @@ function pintarLista() {
   const movDelPedido = p => sinPiezas(p) ? (cache.movs || []).filter(m => m.pedido_id === p.id).sort((a, b) => a.fecha.localeCompare(b.fecha))[0] : null;
   entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha; } });
   if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => ids.has(m.pedido_id) && !sinPiezas(lista.find(p => p.id === m.pedido_id))).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
-  else lista.forEach(p => movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })));
+  else lista.forEach(p => { if (sinPiezas(p) && movDelPedido(p)) return; movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })); });   // sin piezas: el movimiento ya va dentro de su fila (Harold 16-oct, Dina W3153 salía dos veces)
   entradas.sort((a, b) => cache.filtro === 'entregados' ? String(b.k).localeCompare(String(a.k)) : String(a.k).localeCompare(String(b.k)));   // entregados: el último entregado arriba (Harold 14-oct)
   let semAct = null;
   const cuerpo = entradas.map(({ p, m, k, mp }) => {
@@ -468,7 +468,7 @@ function pintarLista() {
     const celdaBase = celdas ? celdaPieza(r.base.tipo ? r.base : null, p, baseL1, baseL2) : dos(baseL1, baseL2);
     const celdaSil = r.sillasL1 ? (celdas ? celdaPieza(r.sil, p, r.sillasL1, r.sillasL2) : dos(r.sillasL1, r.sillasL2)) : '<span class="gris">-</span>';
     return sep + `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
-      <td class="c-est">${estadoHtml(p.estado, true)}</td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a></td>
+      <td class="c-est">${mp ? `<span class="estado e-MOV" title="${esc(p.tipo_pedido)}: ${esc(mp.tipo)}, no se fabrica nada">${esc(COD_MOV[mp.tipo] || 'MOV')}</span>` : estadoHtml(p.estado, true)}</td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a></td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2">${tipoHtml(p.tipo_pedido)} ${alertasPedido(p)}</div></td>
       <td class="c-mod" title="${esc(r.descripcion || '')}"><div class="l1">${esc(r.modelo)}</div>${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
@@ -1054,10 +1054,10 @@ function formLinea(p, despues) {
 }
 /* Postventa desde un pedido entregado (Harold 13-oct): crea un pedido Postventa ligado al original (mismo cliente, sin valor, sin piezas)
    con su movimiento (visita técnica, retiro, otro). Si después lleva una pieza (repuesto, cubierta nueva) se agrega desde la ficha nueva. */
-function formPostventa(p) {
+function formPostventa(p, fechaDefecto, despues) {
   modal(`<h2>Nueva postventa · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pv"><div class="campos">
     <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
-    <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO(1)}"></label>
+    <label class="campo">Fecha <input type="date" name="fecha" required value="${fechaDefecto || hoyISO(1)}"></label>
     <label class="campo">Dirección (vacía = la del pedido) <input name="direccion" placeholder="${esc(p.direccion_entrega || p.direccion || '')}"></label></div>
     <label class="campo" style="display:block;margin-top:8px">Qué se hace o se revisa <textarea name="nota" rows="2" style="width:100%" required placeholder="Ej. revisar cajón que no cierra, llevar rieles de 35 mm"></textarea></label>
     <label class="campo" style="display:block;margin-top:8px">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label>
@@ -1071,7 +1071,7 @@ function formPostventa(p) {
       if (error) throw error;
       const { error: e2 } = await sb.from('movimiento').insert({ pedido_id: np.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: (f.get('direccion') || '').trim() || null, nota: f.get('nota') });
       if (e2) throw e2;
-      cerrarModal(); aviso(`Postventa ${numero} creada`); location.hash = '#/pedido/' + np.id;
+      cerrarModal(); aviso(`Postventa ${numero} creada`); if (despues) despues(); else location.hash = '#/pedido/' + np.id;
     } catch (e) { aviso(errorDe(e), true); }
   };
 }
@@ -1249,7 +1249,9 @@ async function vPanel() {
 /* ---------- Harold · Clientes y Bandeja ---------- */
 async function vClientes() {
   // Harold 14-oct: "antes teníamos la hoja de entregados; Clientes debe ir quedando por orden de entrega, el último entregado arriba, y desde ahí abrir su ficha"
-  const [{ data }, { data: casosCli }] = await Promise.all([sb.from('v_cliente').select('*').order('ultima_entrega', { ascending: false, nullsFirst: false }).order('ultima_compra', { ascending: false, nullsFirst: false }).limit(400), sb.from('v_caso').select('cliente_id, estado')]);
+  // Todos los clientes, por páginas de 1000 (tope de PostgREST): con el límite de 400 los entregados hace más de un año no salían al buscar (Harold 16-oct, Carolina y Sebastián)
+  const todos = async () => { const out = []; for (let d = 0; ; d += 1000) { const { data: pg, error } = await sb.from('v_cliente').select('*').order('ultima_entrega', { ascending: false, nullsFirst: false }).order('ultima_compra', { ascending: false, nullsFirst: false }).order('id').range(d, d + 999); if (error) throw error; out.push(...(pg || [])); if (!pg || pg.length < 1000) return out; } };
+  const [data, { data: casosCli }] = await Promise.all([todos(), sb.from('v_caso').select('cliente_id, estado')]);
   const casosDe = {}; (casosCli || []).forEach(c => { const k = casosDe[c.cliente_id] = casosDe[c.cliente_id] || { n: 0, ab: 0 }; k.n++; if (c.estado !== 'Cerrado') k.ab++; });
   cache.clientesOrden = cache.clientesOrden || 'entrega';
   app.innerHTML = barra('#/clientes') + `<div class="sub"><label>Buscar <input type="search" id="b" style="width:240px" placeholder="nombre, teléfono, correo, empresa"></label>
@@ -1283,6 +1285,8 @@ function movFechaCelda(m) {
 }
 const movFechaTxt = m => { const tarde = m.fecha < hoyISO() && !m.hecho; return `<div class="l1 ${tarde ? 'rojo' : ''}">${fecha(m.fecha)}</div>${m.fecha_propuesta ? `<div class="l2">Alexis propone ${fecha(m.fecha_propuesta)}</div>` : m.hecho ? '<div class="l2">hecho</div>' : ''}`; };
 const MOV_TIPOS = ['Retiro en cliente', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
+// Etiqueta de estado de un pedido sin piezas (postventa): lo que hay que hacer, no "POR FABRICAR" (Harold 16-oct, Dina W3153)
+const COD_MOV = { 'Retiro en cliente': 'RETIRO', 'Entrega': 'ENTREGA', 'Visita técnica': 'VISITA', 'Instalación': 'INSTAL', 'Otro': 'MOV' };
 const movEtiqueta = m => `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()} ${fecha(m.fecha)}`;
 async function cargarMovimientos() { const { data } = await sb.from('movimiento').select('*').eq('hecho', false).order('fecha'); cache.movs = data || []; }
 const movsDe = id => (cache.movs || []).filter(m => m.pedido_id === id);
@@ -1300,15 +1304,32 @@ function activarMovimientos(raiz, p, despues) {
   $$('[data-mov-conf]', raiz).forEach(b => b.onclick = async ev => { ev.stopPropagation(); const id = Number(b.dataset.movConf), m = movDe(id); const antes = m && m.fecha, prop = m && m.fecha_propuesta; if (!prop) return; const { error } = await sb.from('movimiento').update({ fecha: prop, fecha_propuesta: null, confirmado: true }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso('Fecha aceptada: ' + fecha(prop, true)); anotarCambio(`fecha del movimiento (volver a ${fecha(antes)})`, async () => { await sb.from('movimiento').update({ fecha: antes, fecha_propuesta: prop, confirmado: false }).eq('id', id); await cargarMovimientos(); }); refrescar(); });
   $$('[data-mov-hecho]', raiz).forEach(b => b.onclick = async () => { const { error } = await sb.from('movimiento').update({ hecho: true }).eq('id', Number(b.dataset.movHecho)); if (error) return aviso(errorDe(error), true); aviso('Movimiento hecho'); anotarCambio('movimiento hecho (volver a pendiente)', async () => { await sb.from('movimiento').update({ hecho: false, hecho_en: null, hecho_por: null }).eq('id', Number(b.dataset.movHecho)); }); despues(); });
   $$('[data-mov-borrar]', raiz).forEach(b => b.onclick = async () => { if (!confirm('¿Borrar este movimiento?')) return; const { error } = await sb.from('movimiento').delete().eq('id', Number(b.dataset.movBorrar)); if (error) return aviso(errorDe(error), true); aviso('Movimiento borrado'); despues(); });
-  const ba = $('#b-mov', raiz); if (ba) ba.onclick = () => {
-    modal(`<h2>Nuevo movimiento · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-mov"><div class="campos">
-      <label class="campo">Qué <select name="tipo">${MOV_TIPOS.map(t => `<option>${t}</option>`).join('')}</select></label>
-      <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO()}"></label>
-      <label class="campo">Dirección (vacío = la del pedido) <input name="direccion" placeholder="${esc(p.direccion || '')}"></label>
-      <label class="campo">Nota <input name="nota" placeholder="Qué se retira o se hace"></label></div>
-      <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
-    $('#f-mov').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const { error } = await sb.from('movimiento').insert({ pedido_id: p.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: f.get('direccion') || null, nota: f.get('nota') || null }); if (error) return aviso(errorDe(error), true); cerrarModal(); aviso('Movimiento agregado'); despues(); };
+  const ba = $('#b-mov', raiz); if (ba) ba.onclick = () => formMovimiento(p, hoyISO(), despues);
+}
+/* Nuevo movimiento de un pedido (ficha y Ruta). fechaDefecto: hoy en la ficha, el día que se está mirando en la Ruta. */
+function formMovimiento(p, fechaDefecto, despues) {
+  modal(`<h2>Nuevo movimiento · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-mov"><div class="campos">
+    <label class="campo">Qué <select name="tipo">${MOV_TIPOS.map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Fecha <input type="date" name="fecha" required value="${fechaDefecto || hoyISO()}"></label>
+    <label class="campo">Dirección (vacío = la del pedido) <input name="direccion" placeholder="${esc(p.direccion || '')}"></label>
+    <label class="campo">Nota <input name="nota" placeholder="Qué se retira o se hace"></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f-mov').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const { error } = await sb.from('movimiento').insert({ pedido_id: p.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: f.get('direccion') || null, nota: f.get('nota') || null }); if (error) return aviso(errorDe(error), true); cerrarModal(); aviso('Movimiento agregado'); despues(); };
+}
+/* "+ Movimiento" desde la Ruta (Harold 16-oct: una acción se hace desde donde uno está). Se busca el pedido por número o cliente entre
+   todos (no solo los pendientes): si ya está ENTREGADO, lo que corresponde es una Postventa (pedido sin piezas con su movimiento, que es
+   lo que la Ruta y la Lista muestran); si está pendiente, un movimiento más del mismo pedido. */
+function formMovimientoRuta(dia, despues) {
+  modal(`<h2>Movimiento para el ${fecha(dia, true)}</h2><div class="gris" style="font-size:12px">Retiro, visita técnica, instalación o entrega extra. Busca el pedido; si ya está entregado se crea una Postventa.</div>
+    <label class="campo" style="display:block;margin-top:8px">Pedido o cliente <input id="mr-q" type="search" placeholder="W3153, Dina Soto, P25-014…" autofocus></label><div id="mr-res" style="margin-top:6px"></div>`);
+  const res = $('#mr-res'); let t;
+  const buscar = async q => {
+    q = q.trim(); if (q.length < 2) { res.innerHTML = ''; return; }
+    const { data } = await sb.from('v_pedido').select('*').or(`numero.ilike.%${q.replace(/[%,()]/g, '')}%,cliente.ilike.%${q.replace(/[%,()]/g, '')}%`).order('fecha_compra', { ascending: false }).limit(12);
+    res.innerHTML = (data || []).map(p => `<div class="prop" data-mr="${p.id}" style="cursor:pointer"><span style="flex:1"><strong>${esc(p.numero)}</strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}</span></span>${estadoHtml(p.estado, true)}</div>`).join('') || '<div class="gris" style="font-size:13px">Nada con ese texto</div>';
+    $$('[data-mr]', res).forEach(d => d.onclick = () => { const p = data.find(x => x.id === Number(d.dataset.mr)); cerrarModal(); if (p.estado === 'ENTREGADO') formPostventa(p, dia, despues); else formMovimiento(p, dia, despues); });
   };
+  $('#mr-q').oninput = e => { clearTimeout(t); t = setTimeout(() => buscar(e.target.value), 250); };
 }
 async function cargarOperacion() {
   await cargarModelos(); await cargarMovimientos();
@@ -1564,7 +1585,7 @@ async function vRuta() {
     <div class="contenido ruta">
       <section class="seccion"><div class="cab"><h2>Ruta del ${fecha(f, true)}</h2><span class="gris" style="font-size:13px">${resumen}</span></div>
         <div class="ruta-cab no-imprimir"><span class="gris" style="font-size:12px">${guardadas.length ? 'Orden guardado (▲▼ para cambiar; lo ven todos).' : 'Orden propuesto por cercanía desde el taller y por el horario de cada cliente; ▲▼ lo cambia y lo guarda.'}${nuevas.length ? ` Ubicando ${nuevas.length} dirección${nuevas.length > 1 ? 'es' : ''} nueva${nuevas.length > 1 ? 's' : ''}…` : ''}</span>
-          <span class="espacio"></span>${orden.length > 1 ? `<button class="btn chico borde" id="b-reordenar" title="Vuelve a calcular el mejor orden y lo guarda">Reordenar por cercanía</button>` : ''}${linkMaps(orden) ? `<a class="btn chico borde" target="_blank" href="${linkMaps(orden)}" title="Abre Google Maps con las paradas en este orden, saliendo y volviendo al taller${orden.filter(x => x.dirLimpia).length > 9 ? ' (solo las primeras 9)' : ''}">Abrir en Google Maps</a>` : ''}<button class="btn chico borde" onclick="window.print()">Imprimir</button><button class="btn chico borde" id="b-etiq" ${orden.some(x => x.tipo === 'pedido') ? '' : 'disabled'}>Etiquetas</button></div>
+          <span class="espacio"></span>${orden.length > 1 ? `<button class="btn chico borde" id="b-reordenar" title="Vuelve a calcular el mejor orden y lo guarda">Reordenar por cercanía</button>` : ''}${linkMaps(orden) ? `<a class="btn chico borde" target="_blank" href="${linkMaps(orden)}" title="Abre Google Maps con las paradas en este orden, saliendo y volviendo al taller${orden.filter(x => x.dirLimpia).length > 9 ? ' (solo las primeras 9)' : ''}">Abrir en Google Maps</a>` : ''}${!esOp ? `<button class="btn chico borde" id="b-mov-ruta" title="Retiro, visita técnica, instalación o entrega extra para este día; si el pedido ya está entregado se crea una Postventa">+ Movimiento</button>` : ''}<button class="btn chico borde" onclick="window.print()">Imprimir</button><button class="btn chico borde" id="b-etiq" ${orden.some(x => x.tipo === 'pedido') ? '' : 'disabled'}>Etiquetas</button></div>
         <div class="ruta-lista">${orden.map(tarjeta).join('') || '<div style="color:var(--gris-3)">Sin entregas confirmadas ni programadas para este día</div>'}</div>
         ${plan.fin > horaMin('19:00') && orden.length ? `<div class="rojo" style="margin-top:8px">Ojo: la ruta termina después de las 19:00 (~${minHora(plan.fin)}). Conviene mover una parada a otro día.</div>` : ''}
         ${retiros.length ? `<div style="margin-top:10px;font-size:13px"><strong>Retiran en el taller este día:</strong> ${retiros.map(p => `${esc(p.numero)} ${esc(p.cliente)}${saldoDe(p) > 0 ? ' (cobrar ' + pesos(saldoDe(p)) + ')' : ''}`).join(' · ')}</div>` : ''}
@@ -1590,6 +1611,7 @@ async function vRuta() {
   $$('[data-prop-quitar]').forEach(b => b.onclick = async () => { try { await rpc('proponer_despacho', { p_pedido_id: Number(b.dataset.propQuitar), p_fecha: null }); aviso('Propuesta retirada'); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
   $$('[data-movprop]').forEach(c => c.onchange = async () => { const id = Number(c.dataset.movprop); const { error } = await sb.from('movimiento').update({ fecha_propuesta: c.checked ? f : null }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); await cargarMovimientos(); vRuta(); });
   candidatos.forEach(p => { const b = $(`[data-programar="${p.id}"]`); if (b) activarProgramar(b.closest('.prop'), p, () => vRuta()); });
+  const bm = $('#b-mov-ruta'); if (bm) bm.onclick = () => formMovimientoRuta(f, async () => { await cargarMovimientos(); vRuta(); });
   const be = $('#b-etiq'); if (be) be.onclick = () => imprimirEtiquetas(orden.filter(x => x.tipo === 'pedido').map(x => x.p));
   activarMenusWsp(app); activarMenus(app);
   const pedidoDe = b => cache.pedidos.find(p => p.id === Number(b.dataset.id || b.dataset.aceptaProp || b.dataset.descartaProp));
@@ -2094,7 +2116,7 @@ async function modalCaso(id) {
 function formPostventaDeCaso(c, despues) {
   modal(`<h2>Postventa desde ${esc(c.codigo)} · ${esc(c.cliente)}</h2><div class="gris" style="font-size:12px">Resultado: ${esc(c.resultado)}. Se crea un pedido POSTVENTA ligado a ${esc(c.pedido_numero || 'este caso')} con el movimiento en la fecha indicada; desde ahí Alexis lo ve en su Lista. Si lleva una pieza de taller (cubierta nueva, repuesto), se agrega después en su ficha.</div><form id="f-pv"><div class="campos">
     <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
-    <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO(1)}"></label>
+    <label class="campo">Fecha <input type="date" name="fecha" required value="${fechaDefecto || hoyISO(1)}"></label>
     <label class="campo">Dirección (vacía = la del pedido) <input name="direccion"></label>
     <label class="campo">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label></div>
     <label class="campo" style="display:block;margin-top:8px">Qué se hace o se revisa <textarea name="nota" rows="2" style="width:100%" required>${esc(c.resumen)}</textarea></label>
