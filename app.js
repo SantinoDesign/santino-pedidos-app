@@ -6,6 +6,8 @@
 const sb = window.supabase.createClient(window.SANTINO_CONFIG.url, window.SANTINO_CONFIG.anon);
 const app = document.getElementById('app');
 let yo = null;            // {id, nombre, rol}
+// Versión que corre (el ?v= que publicar_app.js pone en index.html); sirve para avisar cuando hay una nueva (vigilarVersion)
+const MI_VERSION = (document.currentScript && (String(document.currentScript.src).match(/[?&]v=(\d+)/) || [])[1]) || null;
 let cache = { pedidos: [], filtro: 'pendientes', estados: new Set(), tipos: new Set(), bases: new Set(), etapas: new Set(), mios: new Set(), modelos: null, busqueda: '', opVer: 'pendientes', rutaFecha: null, rutaSalida: null };
 const META = 62;          // pedidos al mes (objetivo de utilidad, DM_Financiero v7.15)
 const ESTADOS = ['POR FABRICAR','VISITA TÉCNICA','DIBUJO 3D','DISEÑO APROBADO','EN FABRICACIÓN','LISTO EN TALLER','DESPACHO PROGRAMADO','ENTREGADO','CANCELADO','DEVUELTO'];
@@ -247,7 +249,7 @@ async function iniciar() {
   // Harold 12-oct (tanda 20): la app se usa en horizontal, también en el celular. Android lo respeta al instalarla; iPhone no deja bloquearla (queda el aviso de girar).
   try { if (matchMedia('(display-mode: standalone)').matches && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* navegador sin soporte */ }
   if (!location.hash || location.hash === '#/') location.hash = yo.rol === 'operacion' ? '#/taller' : '#/lista';
-  render();
+  render(); if (!window.__vigilando) { window.__vigilando = true; vigilarVersion(); }
 }
 function pantallaLogin() {
   document.body.classList.remove('tablet');
@@ -321,6 +323,24 @@ async function avisoRutaAlexis(h) {
   const barraEl = $('.barra'); if (barraEl) barraEl.after(d); else app.prepend(d);
   $('#b-ir-ruta', d).onclick = () => { cache.rutaFecha = f; if (location.hash === '#/ruta') vRuta(); else location.hash = '#/ruta'; };
   $('#b-cerrar-aviso', d).onclick = () => { try { localStorage.setItem(clave, '1'); } catch (e) { } d.remove(); };
+}
+/* Versión nueva publicada (Harold 16-oct: "¿cómo se actualiza la app en la tablet?"; en el Mac veía cambios atrasados aunque recargara:
+   GitHub Pages deja app.js en caché 10 minutos). La app mira cada 3 minutos, y al volver a la pantalla, el index.html publicado; si trae
+   otro ?v= que el que corre, muestra arriba "Hay una versión nueva · Actualizar" (recarga). Sirve igual en la app instalada en la tablet,
+   que no tiene botón de recargar. */
+function vigilarVersion() {
+  if (!MI_VERSION || location.protocol === 'file:') return;
+  const mirar = async () => {
+    try {
+      const t = await (await fetch(location.pathname.replace(/[^/]*$/, '') + 'index.html?t=' + Date.now(), { cache: 'no-store' })).text();
+      const v = (t.match(/app\.js\?v=(\d+)/) || [])[1]; if (!v || v === MI_VERSION || $('.aviso-version')) return;
+      const d = document.createElement('div'); d.className = 'aviso-version';
+      d.innerHTML = `<span>Hay una versión nueva de la app.</span><button class="btn chico primario" id="b-actualizar">Actualizar</button>`;
+      document.body.appendChild(d); $('#b-actualizar', d).onclick = () => location.reload();
+    } catch (e) { /* sin red: se intenta después */ }
+  };
+  setTimeout(mirar, 15000); setInterval(mirar, 3 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) mirar(); });
 }
 function vClave() {
   app.innerHTML = barra('') + `<form class="login" id="f-clave"><h1>Nueva clave</h1><label>Clave nueva <input type="password" name="p" minlength="8" required></label><button class="btn primario">Guardar</button></form>`;

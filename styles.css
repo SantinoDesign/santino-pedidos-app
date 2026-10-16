@@ -458,3 +458,5 @@ details.plegable .prop{margin-top:6px}
 .aviso-ruta.lista{background:var(--verde-fondo);color:var(--verde)}
 .aviso-ruta span{flex:1}
 @media print{.aviso-ruta{display:none}}
+.aviso-version{position:fixed;top:0;left:0;right:0;z-index:40;display:flex;gap:12px;align-items:center;justify-content:center;padding:8px 16px;background:var(--ambar);color:var(--ambar-txt);font-weight:600;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+@media print{.aviso-version{display:none}}
