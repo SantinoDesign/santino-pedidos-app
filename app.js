@@ -189,6 +189,22 @@ function activarPiezasEdicion(raiz, despues) {
     };
   });
   $$('[data-editar-pieza]', raiz).forEach(b => b.onclick = ev => { ev.stopPropagation(); formEditarPieza(Number(b.dataset.editarPieza), despues); });
+  // Indicaciones del maestro editables con un clic en la celda (Harold 16-oct: "debería poder hacerlo desde acá o desde la ODT, solo clickear"):
+  // Enter o salir de la celda guarda, Esc cancela; en el historial del pedido queda el cambio (editar_pieza).
+  $$('[data-ind]', raiz).forEach(td => td.onclick = ev => {
+    ev.stopPropagation(); if (td.querySelector('textarea')) return;
+    const id = Number(td.dataset.ind), antesHtml = td.innerHTML, antes = (td.dataset.valor != null ? td.dataset.valor : td.textContent.replace(/^agregar…$/, '')).trim();
+    td.innerHTML = `<textarea rows="2" style="width:100%;min-width:220px;font:inherit;padding:4px 6px">${esc(antes)}</textarea>`;
+    const ta = td.querySelector('textarea'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.onclick = e => e.stopPropagation();
+    let listo = false;
+    const cerrar = () => { listo = true; td.innerHTML = antesHtml; };
+    const guardar = async () => { if (listo) return; listo = true; const v = ta.value.trim(); if (v === antes) { td.innerHTML = antesHtml; return; }
+      try { const r = await rpc('editar_pieza', { p_linea_id: id, p_cambios: { indicaciones: v || null } }); actualizarPiezas(r); aviso(v ? 'Indicaciones guardadas' : 'Indicaciones borradas');
+        anotarCambio('indicaciones de la pieza (volver a lo anterior)', async () => { actualizarPiezas(await rpc('editar_pieza', { p_linea_id: id, p_cambios: { indicaciones: antes || null } })); }); despues && despues(r); }
+      catch (e) { aviso(errorDe(e), true); td.innerHTML = antesHtml; } };
+    ta.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); cerrar(); } else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); guardar(); } };
+    ta.onblur = () => setTimeout(guardar, 150);
+  });
 }
 /* Editar una pieza desde la app (Harold 12-oct: Capponi era un velador, no mesa de centro). Queda en el historial del pedido. */
 function formEditarPieza(lineaId, despues) {
@@ -538,7 +554,7 @@ function tablaPiezasHtml(p, esOp) {
   const nombrePz = x => x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
   const madera = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base); return (m ? esc(codMaterial(m)) : (x.tipo === 'Silla' ? '' : '-')) + (x.espesor_mm ? `<div class="l2">${num(x.espesor_mm)} mm</div>` : (x.area === 'Carpintería' && !/espesor/i.test(x.indicaciones || '') ? '<div class="l2 falta-dato">esp.?</div>' : '')); };
   const term = x => x.tipo === 'Silla' || x.tipo === 'Banca' ? [x.tapiz ? x.tapiz + (x.color_silla ? ' ' + x.color_silla : '') : (x.color_silla ? 'tapiz ' + x.color_silla : ''), x.color ? 'pata ' + x.color : ''].filter(Boolean).join(' · ') || '<span class="falta-dato">tapiz por definir</span>' : esc([x.tipo === 'Base' || !x.tono ? x.color : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · '));
-  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${ocLineaPieza(x)}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td><td class="gris">${esc(x.indicaciones || '')}</td></tr>`;
+  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${ocLineaPieza(x)}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td>${esOp ? `<td class="gris">${esc(x.indicaciones || '')}</td>` : `<td class="gris ind-edit" data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro">${esc(x.indicaciones || '') || '<span class="falta-dato">agregar…</span>'}</td>`}</tr>`;
   return piezas.length ? `<table class="d-tabla"><thead><tr><th>Etapa</th><th>Pieza</th><th>Madera</th><th>Medidas L × A × Al</th><th>Term.</th><th>Acabado</th><th>Fecha maestro</th><th>Indicaciones</th></tr></thead><tbody>${piezas.map(filaPz).join('')}</tbody></table>` : '<div class="gris">Sin piezas de taller</div>';
 }
 function activarFechaMaestro(raiz, p, despues) {
@@ -1467,7 +1483,7 @@ async function vOdt() {
     const ind = [x.indicaciones].filter(Boolean);
     return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}">${filaFecha(x, p)}<td class="num">${esc(p.numero)}</td><td class="cli"><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza (medidas, formato, indicaciones, fecha para el maestro)">${esc(p.cliente)}</a></td>
     <td class="pieza"><strong>${esc(nombrePieza(x))}</strong><div class="l2">${esc(x.tipo)}</div></td>
-    <td class="madera">${maderaHtml(x)}</td><td class="medidas">${tamanoHtml(x, p)}</td><td class="forma">${esc(formatoTxt(x))}</td><td class="ctd">${x.cantidad || 1}</td><td class="term">${esc(terminacion(x))}</td><td class="indic">${ind.map(esc).join(' · ')}</td>
+    <td class="madera">${maderaHtml(x)}</td><td class="medidas">${tamanoHtml(x, p)}</td><td class="forma">${esc(formatoTxt(x))}</td><td class="ctd">${x.cantidad || 1}</td><td class="term">${esc(terminacion(x))}</td><td class="indic${esOp ? '' : ' ind-edit'}" ${esOp ? '' : `data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro"`}>${ind.map(esc).join(' · ')}</td>
     <td class="estado no-imprimir">${conChip ? etapaChip(x, p.id) : esc(x.etapa)}</td><td class="hecho solo-impresion caja-ok"></td><td class="rev solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
   const hoy = new Date();
   app.innerHTML = barra('#/odt') + `<div class="sub no-imprimir">
