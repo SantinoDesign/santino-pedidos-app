@@ -263,7 +263,7 @@ function activarCotizacion(ed) {
     $('[name=tipo_cliente]').onchange = ev => { leerCabecera(); c.cuenta = ev.target.value === 'empresa' ? 'empresa' : 'harold'; pintarCotizacion(); };
     const bc = $('[name=buscar_cliente]');
     bc.oninput = async () => { const t = bc.value.trim(); if (t.length < 2) return; const data = await rpc('buscar_clientes_cotizador', { p_texto: t }); const dl = $('#dl-cli-cot'); dl.innerHTML = (data || []).map(x => `<option value="${esc(x.nombre)} · ${esc(x.telefono || '')} · ${esc(x.comuna || '')}" data-id="${x.id}"></option>`).join(''); dl._datos = data || [];
-      const op = [...dl.options].find(o => o.value === bc.value); if (op) { const x = (dl._datos || []).find(y => String(y.id) === op.dataset.id); if (x) { leerCabecera(); c.cliente_id = x.id; c.cliente_nombre = c.tipo_cliente === 'empresa' && x.empresa ? x.empresa : x.nombre; c.cliente_rut = x.rut || c.cliente_rut; c.cliente_telefono = x.telefono || c.cliente_telefono; c.cliente_email = x.email || c.cliente_email; c.cliente_direccion = x.direccion || c.cliente_direccion; if (x.tipo_cliente === 'Empresa') c.tipo_cliente = 'empresa'; pintarCotizacion(); aviso('Cliente cargado: ' + x.nombre); } } };
+      const op = [...dl.options].find(o => o.value === bc.value); if (op) { const x = (dl._datos || []).find(y => String(y.id) === op.dataset.id); if (x) { leerCabecera(); c.cliente_id = x.id; c.cliente_nombre = c.tipo_cliente === 'empresa' && x.empresa ? x.empresa : x.nombre; c.cliente_rut = x.rut || c.cliente_rut; c.cliente_telefono = x.telefono || c.cliente_telefono; c.cliente_email = x.email || c.cliente_email; c.cliente_direccion = x.direccion || c.cliente_direccion; if (x.tipo_cliente === 'Empresa') c.tipo_cliente = 'empresa'; const cond = aplicarCondicionesCliente(c, x.condiciones); pintarCotizacion(); aviso('Cliente cargado: ' + x.nombre + (cond ? ' · condiciones de convenio aplicadas (' + cond + ')' : '')); } } };
     bc.onchange = bc.oninput;
     $$('#cot-tbody [data-k]').forEach(el => el.onchange = () => { leerCabecera(); const l = c.lineas[Number(el.dataset.i)], k = el.dataset.k; l[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : el.value; if (k === 'precio' || k === 'cantidad' || k === 'descripcion') { if (l.motor && k !== 'cantidad') l.motor.editado = true; } pintarCotizacion(); });
     $$('#cot-tbody [data-del]').forEach(b => b.onclick = () => { leerCabecera(); c.lineas.splice(Number(b.dataset.del), 1); pintarCotizacion(); });
@@ -284,6 +284,20 @@ function activarCotizacion(ed) {
   const bor = $('#c-borrar'); if (bor) bor.onclick = async () => { if (!confirm('¿Borrar este borrador? No tiene número, no queda rastro.')) return; try { await rpc('borrar_borrador_cotizacion', { p_id: c.id }); aviso('Borrador borrado'); location.hash = '#/cotizador'; } catch (e) { aviso(errorDe(e), true); } };
   const conv = $('#c-convertir'); if (conv) conv.onclick = () => formConvertir(c);
   const ver = $('#c-verpdf'); if (ver) ver.onclick = async ev => { ev.preventDefault(); const { data, error } = await sb.storage.from('documentos').createSignedUrl(c.pdf_path, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); };
+}
+/* D5 (18-oct-2026): condiciones del cliente frecuente (cliente.condiciones_cotizacion): cuenta, validez, garantía, asesor, etiqueta, T&C base.
+   Devuelve un texto corto con lo aplicado, o null si el cliente no tiene condiciones. Harold puede corregir cualquier campo después. */
+function aplicarCondicionesCliente(c, k) {
+  if (!k || typeof k !== 'object') return null; const ap = [];
+  if (k.tipo_cliente) { c.tipo_cliente = k.tipo_cliente; }
+  if (k.cuenta) { c.cuenta = k.cuenta; ap.push('cuenta ' + k.cuenta); }
+  if (k.validez_dias != null) { c.validez_dias = Number(k.validez_dias); ap.push('validez ' + k.validez_dias + ' días'); }
+  if (k.garantia_meses != null) { c.garantia_meses = Number(k.garantia_meses); ap.push('garantía ' + k.garantia_meses + ' meses'); }
+  if (k.asesor) c.asesor = k.asesor;
+  if (k.label) { c.cliente_label = k.label; ap.push(k.label); }
+  if (k.forma_pago) c.forma_pago = k.forma_pago; if (k.plazo) c.plazo = k.plazo;
+  if (Array.isArray(k.tyc_base) && k.tyc_base.length) { c.tyc = k.tyc_base.slice(); if (Number(c.garantia_meses) > 0) c.tyc.push(TYC_COT.garantia(c.garantia_meses)); ap.push('T&C de convenio'); }
+  return ap.join(', ') || 'sin cambios';
 }
 async function guardarCotizacion(silencio) {
   const c = leerCabecera();
