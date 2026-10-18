@@ -471,3 +471,16 @@ details.plegable .prop{margin-top:6px}
 .ficha-prov .datos{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 18px;font-size:13px}.dato b{display:block;font-size:11px;color:var(--gris-3);font-weight:600}
 table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila-prov:hover td{background:var(--azul-suave)}}table.lista tr.fila-prov.inactivo td{color:var(--gris-3)}
 .aplicar{display:flex;flex-direction:column;gap:6px;margin-top:6px}.aplicar-fila{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px solid var(--linea);border-radius:8px;padding:6px 10px;font-size:13px;background:#fff}.aplicar-fila label{display:flex;gap:6px;align-items:flex-start;flex:1;cursor:pointer}
+/* ---- Cotizador (tanda 36, 18-oct-2026) ---- */
+.cot-grid{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:14px;align-items:start}
+@media (max-width:1100px){.cot-grid{grid-template-columns:1fr}}
+.cot-motor{position:sticky;top:60px;max-height:calc(100vh - 80px);overflow:auto}
+.cot-motor .seg{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.cot-motor .seg button{padding:5px 9px;border:1px solid #CCD4D8;border-radius:6px;background:#fff;font-size:12px;cursor:pointer;min-height:30px}.cot-motor .seg button.on{background:var(--azul);border-color:var(--azul);color:#fff;font-weight:600}
+.cot-motor .campo>span:first-child{font-size:13px}
+.motor-res{background:var(--fondo);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;font-size:13px}.motor-res .fila{display:flex;justify-content:space-between;gap:10px}.motor-res .fila.total{border-top:1px solid var(--linea);padding-top:5px;margin-top:3px;font-size:14px}.motor-res .interno,.cot-totales .interno{color:var(--gris-2);font-size:12px}
+.cot-lineas td{vertical-align:top}.cot-lineas input,.cot-lineas select{min-height:30px;padding:2px 6px;font-size:12px}
+.cot-totales{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:13px}.cot-totales>div{display:flex;justify-content:space-between;gap:16px;min-width:300px;padding:2px 10px}.cot-totales .total{background:var(--azul);color:#fff;font-weight:700;border-radius:6px;padding:6px 10px}.cot-totales .ahorro{color:var(--azul);font-weight:600}
+.cot-tabla tr.fila-cot{cursor:pointer}.cot-tabla tr.fila-cot:hover td{background:var(--azul-suave)}
+.chip.cot-Borrador{background:var(--panel);color:var(--gris)}.chip.cot-Emitida{background:var(--azul-suave);color:var(--azul-osc)}.chip.cot-Enviada{background:var(--azul-claro);color:var(--azul-osc)}.chip.cot-Aceptada{background:var(--verde-fondo);color:var(--verde)}.chip.cot-Rechazada{background:var(--rojo-fondo);color:var(--rojo-txt)}.chip.cot-Vencida{background:var(--ambar);color:var(--ambar-txt)}.chip.cot-Convertida{background:var(--gris);color:#fff}
+.cot-preview{background:#eee;padding:10px;overflow:auto;max-height:75vh}.cot-preview .sdc-doc{box-shadow:0 2px 12px rgba(0,0,0,.15)}
+.modal .caja.ancha .cot-preview{margin:-4px}

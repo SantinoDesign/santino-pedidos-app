@@ -260,6 +260,8 @@ async function iniciar() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return pantallaLogin();
   try { yo = await rpc('mi_perfil', {}); } catch (e) { yo = null; }
+  // Tanda 36 (seguridad): si el usuario activó la verificación en dos pasos, la base no entrega nada hasta que la sesión sea aal2.
+  if (yo && yo.requiere_2fa) return pantallaCodigo2FA();
   if (!yo) { app.innerHTML = `<div class="login"><h1>Sin perfil</h1><p>Tu usuario entró, pero no tiene un rol asignado. Pídele a Harold que te active.</p><button class="btn" id="salir">Salir</button></div>`; $('#salir').onclick = salir; return; }
   document.body.classList.toggle('tablet', yo.rol === 'operacion');
   // Harold 12-oct (tanda 20): la app se usa en horizontal, también en el celular. Android lo respeta al instalarla; iPhone no deja bloquearla (queda el aviso de girar).
@@ -290,13 +292,57 @@ function pantallaLogin() {
   };
 }
 async function salir() { await sb.auth.signOut(); yo = null; location.hash = ''; pantallaLogin(); }
+/* ---------- verificación en dos pasos (TOTP) · tanda 36 ---------- */
+async function pantallaCodigo2FA() {
+  document.body.classList.remove('tablet');
+  const { data: fac } = await sb.auth.mfa.listFactors(); const f = fac && fac.totp && fac.totp.find(x => x.status === 'verified');
+  if (!f) { app.innerHTML = `<div class="login"><h1>Falta el segundo paso</h1><p>Tu cuenta exige verificación en dos pasos pero no encuentro el factor. Pídele a Harold que lo revise.</p><button class="btn" id="salir">Salir</button></div>`; $('#salir').onclick = salir; return; }
+  app.innerHTML = `<form class="login" id="f-2fa"><img src="logo.png" alt="Santino Design" class="logo-login"><h1 style="font-size:16px;color:var(--gris-2);font-weight:600">Código de verificación</h1>
+    <div style="font-size:13px;color:var(--gris-2)">Abre tu app de códigos (Google Authenticator, Authy, 1Password) y escribe los 6 dígitos.</div>
+    <label>Código <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" autofocus></label>
+    <button class="btn primario" type="submit">Entrar</button><button class="btn" type="button" id="salir">Salir</button></form>`;
+  $('#salir').onclick = salir;
+  $('#f-2fa').onsubmit = async ev => {
+    ev.preventDefault(); const code = new FormData(ev.target).get('code').trim();
+    const { data: ch, error: e1 } = await sb.auth.mfa.challenge({ factorId: f.id }); if (e1) return aviso(errorDe(e1), true);
+    const { error: e2 } = await sb.auth.mfa.verify({ factorId: f.id, challengeId: ch.id, code }); if (e2) return aviso('Código incorrecto o vencido', true);
+    iniciar();
+  };
+}
+async function menuUsuario() {
+  const { data: fac } = await sb.auth.mfa.listFactors(); const activo = fac && fac.totp && fac.totp.find(x => x.status === 'verified');
+  const m = modal(`<h2>${esc(yo.nombre)} · ${esc(yo.rol)}</h2>
+    <div class="seccion" style="padding:12px"><b>Verificación en dos pasos</b><div class="gris" style="font-size:13px">${activo ? 'Activa. Al entrar, además de la clave, la app pide el código de tu teléfono. Sin el código la base no entrega ningún dato.' : 'Inactiva. Con ella, aunque alguien tenga tu clave no puede entrar sin el código de tu teléfono. Recomendado para Harold.'}</div>
+      <div class="acciones" style="justify-content:flex-start">${activo ? '<button class="btn peligro" id="u-quitar">Desactivar</button>' : '<button class="btn primario" id="u-activar">Activar ahora</button>'}</div></div>
+    <div class="acciones"><button class="btn" id="u-salir">Salir de la app</button><button class="btn" onclick="cerrarModal()">Cerrar</button></div>`);
+  $('#u-salir', m).onclick = () => { cerrarModal(); salir(); };
+  const act = $('#u-activar', m); if (act) act.onclick = () => activar2FA().catch(e => aviso(errorDe(e), true));
+  const qui = $('#u-quitar', m); if (qui) qui.onclick = async () => { if (!confirm('¿Desactivar la verificación en dos pasos? La cuenta queda protegida solo por la clave.')) return; const { error } = await sb.auth.mfa.unenroll({ factorId: activo.id }); if (error) return aviso(errorDe(error), true); aviso('Verificación en dos pasos desactivada'); cerrarModal(); };
+}
+async function activar2FA() {
+  const { data: fac } = await sb.auth.mfa.listFactors();
+  for (const x of (fac && fac.totp) || []) if (x.status !== 'verified') await sb.auth.mfa.unenroll({ factorId: x.id });   // intentos a medias
+  const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Santino Pedidos' }); if (error) throw error;
+  const m = modal(`<h2>Activar verificación en dos pasos</h2>
+    <ol style="margin:0;padding-left:18px;font-size:13px;line-height:1.6"><li>Instala una app de códigos en el teléfono (Google Authenticator, Authy o 1Password).</li><li>Escanea este código QR con ella.</li><li>Escribe abajo los 6 dígitos que muestra.</li></ol>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><img src="${data.totp.qr_code}" alt="QR" style="width:180px;height:180px;border:1px solid var(--linea);border-radius:8px"><div class="gris" style="font-size:12px;word-break:break-all">Si no puedes escanear, escribe esta clave en la app:<br><span class="mono">${esc(data.totp.secret)}</span></div></div>
+    <form id="f"><label class="campo">Código de 6 dígitos <input name="code" inputmode="numeric" maxlength="6" required autocomplete="one-time-code"></label>
+    <div class="acciones"><button type="button" class="btn" id="cancelar">Cancelar</button><button class="btn primario">Confirmar</button></div></form>`);
+  $('#cancelar', m).onclick = async () => { await sb.auth.mfa.unenroll({ factorId: data.id }); cerrarModal(); };
+  $('#f', m).onsubmit = async ev => {
+    ev.preventDefault(); const code = new FormData(ev.target).get('code').trim();
+    const { data: ch, error: e1 } = await sb.auth.mfa.challenge({ factorId: data.id }); if (e1) return aviso(errorDe(e1), true);
+    const { error: e2 } = await sb.auth.mfa.verify({ factorId: data.id, challengeId: ch.id, code }); if (e2) return aviso('Código incorrecto: prueba con el siguiente que muestre la app', true);
+    cerrarModal(); aviso('Verificación en dos pasos activa. Desde ahora la app pedirá el código al entrar.'); yo = await rpc('mi_perfil', {}); render();
+  };
+}
 
 /* ---------- navegación ---------- */
 window.addEventListener('hashchange', () => { if (yo) render(); });
 function barra(activa) {
   const links = yo.rol === 'operacion'
     ? [['#/taller', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ...(yo.ve_compras ? [['#/compras', 'Compras']] : [])]
-    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
+    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/cotizador', 'Cotizador'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
   return `<div class="barra"><a class="marca" href="${links[0][0]}" title="Santino Design · Pedidos"><img src="logo.png" alt="Santino Design" class="logo-barra"></a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
 }
 async function render() {
@@ -315,13 +361,15 @@ async function render() {
     else if (h.startsWith('#/compras/proveedor/') && (!esOp || yo.ve_compras)) await vProveedor(Number(h.split('/')[3]));
     else if (h === '#/compras/proveedores' && (!esOp || yo.ve_compras)) await vProveedores();
     else if (h === '#/compras' && (!esOp || yo.ve_compras)) await vCompras();
+    else if ((h === '#/cotizador' || h.startsWith('#/cotizador?')) && !esOp) await vCotizaciones();
+    else if (h.startsWith('#/cotizacion/') && !esOp) await vCotizacion(h.split('/')[2]);
     else if (h === '#/odt') await vOdt();
     else if (h === '#/imprimir-listado' && !esOp) await vImprimirListado();
     else if (h === '#/taller' || esOp) await vLista();
     else if (h === '#/clave') vClave();
     else await vLista();
   } catch (e) { app.innerHTML = barra(h) + `<div class="contenido"><div class="seccion"><h2>Error</h2><p>${esc(errorDe(e))}</p></div></div>`; }
-  const bs = $('#btn-salir'); if (bs) bs.onclick = salir;
+  const bs = $('#btn-salir'); if (bs) bs.onclick = () => menuUsuario().catch(e => aviso(errorDe(e), true));
   pintarDeshacer();
   if (esOp) avisoRutaAlexis(h).catch(() => {});
 }
