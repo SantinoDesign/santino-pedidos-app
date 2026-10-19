@@ -32,10 +32,12 @@ const sumarDias = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate
 /* ---------- motor de precios (privado) ---------- */
 async function cargarMotor() {
   if (COT.motor) return COT.motor;
-  const [bajada, params, cfg] = await Promise.all([sb.storage.from('codigo').download('motor_precios.js'), rpc('parametros_motor_json', {}), sb.from('config_app').select('valor').eq('clave', 'motor').maybeSingle()]);
+  const [bajada, params, cfg, precios] = await Promise.all([sb.storage.from('codigo').download('motor_precios.js'), rpc('parametros_motor_json', {}), sb.from('config_app').select('valor').eq('clave', 'motor').maybeSingle(), rpc('precios_catalogo_json', { p_detalle: false })]);
   if (bajada.error) throw new Error('No se pudo cargar el motor de precios: ' + errorDe(bajada.error) + '. Hay que correr scripts/sincronizar_motor.js (o tu usuario no es admin).');
   const src = await bajada.data.text();
-  const m = new Function(src + '\nreturn {VARS, VARS_DEFAULT, VLAB, MODELOS, SILLA_PRICE, SILLA_LABEL, SILLA_RETAIL, DESPACHO, nPers, instalacion, cotizar, vkReferencia, refEstandar};')();
+  // D2: los precios publicados (lista y oferta por variante) vienen de la tabla precio_catalogo, no del motor.
+  COT.precios = precios || {};
+  const m = new Function('PRECIOS_CATALOGO', src + '\nreturn {VARS, VARS_DEFAULT, VLAB, MODELOS, SILLA_PRICE, SILLA_LABEL, SILLA_RETAIL, DESPACHO, nPers, instalacion, cotizar, vkReferencia, refEstandar};')(COT.precios);
   COT.params = params || {}; COT.motor = m; aplicarParametrosMotor();
   COT.motorVersion = cfg.data && cfg.data.valor ? cfg.data.valor.version : null;
   return m;
@@ -131,6 +133,7 @@ async function vCotizaciones() {
       <input id="cot-buscar" placeholder="cliente, número o proyecto" value="${esc(COT.buscar)}" style="min-width:220px">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" id="cot-todas" ${COT.todas ? 'checked' : ''}> ver convertidas, rechazadas y vencidas</label>
       <button class="btn chico" id="cot-params">Precios y parámetros</button>
+      <button class="btn chico" id="cot-catalogo" title="Precio de lista y de oferta de cada variante de catálogo; de aquí salen el cotizador y Shopify">Precios de catálogo</button>
       <button class="btn chico" id="cot-correlativo" title="El próximo número que tomará una cotización al emitirse">Próximo N° ${esc(proximo)}</button>
       <a class="btn primario" href="#/cotizacion/nueva">+ Nueva cotización</a></div></div>
     ${COT.lista.length ? `<div style="overflow:auto"><table class="d-tabla cot-tabla"><thead><tr><th>N°</th><th>Estado</th><th>Fecha</th><th>Cliente</th><th>Qué</th><th>Total</th><th title="Margen estimado sobre el neto, según el motor">Margen</th><th>Pedido</th><th>Válida hasta</th></tr></thead><tbody>${COT.lista.map(fila).join('')}</tbody></table></div>`
@@ -141,6 +144,7 @@ async function vCotizaciones() {
   $('#cot-buscar').onkeydown = ev => { if (ev.key === 'Enter') { COT.buscar = ev.target.value.trim(); vCotizaciones(); } };
   $('#cot-todas').onchange = ev => { COT.todas = ev.target.checked; vCotizaciones(); };
   $('#cot-params').onclick = () => modalParametrosMotor().catch(e => aviso(errorDe(e), true));
+  $('#cot-catalogo').onclick = () => modalPreciosCatalogo().catch(e => aviso(errorDe(e), true));
   $('#cot-correlativo').onclick = () => formCorrelativo(proximo);
 }
 function formCorrelativo(actual) {
@@ -397,6 +401,34 @@ async function modalParametrosMotor() {
     <div style="overflow:auto;max-height:60vh"><table class="d-tabla"><thead><tr><th>Clave</th><th>Qué es</th><th>Motor</th><th>Tu valor</th><th>Cambio</th></tr></thead><tbody>${filas}</tbody></table></div>
     <div class="acciones"><button class="btn" onclick="cerrarModal()">Cerrar</button></div>`, 'ancha');
   $$('[data-p]', mm).forEach(inp => inp.onchange = async () => { try { COT.params = (await rpc('fijar_parametro_motor', { p_clave: inp.dataset.p, p_valor: inp.value === '' ? null : Number(inp.value), p_nota: null })) || {}; aplicarParametrosMotor(); aviso('Parámetro ' + inp.dataset.p + (inp.value === '' ? ' vuelve al valor del motor' : ' = ' + inp.value)); } catch (e) { aviso(errorDe(e), true); } });
+}
+
+/* ---------- precios de catálogo (D2): la base manda, Shopify recibe ---------- */
+async function modalPreciosCatalogo() {
+  const filas = (await rpc('precios_catalogo_json', { p_detalle: true })) || [];
+  const estadoChip = e => `<span class="chip ${e === 'igual' ? 'ok' : e === 'sin variante en Shopify' ? '' : 'atrasado'}" title="${esc(e)}">${e === 'igual' ? 'igual' : e === 'sin variante en Shopify' ? 'no está en Shopify' : e === 'distinto' ? 'distinto' : 'colores ≠'}</span>`;
+  const porModelo = {}; filas.forEach(f => (porModelo[f.modelo] = porModelo[f.modelo] || []).push(f));
+  const resumen = { igual: 0, distinto: 0, sin: 0 }; filas.forEach(f => { if (f.estado === 'igual') resumen.igual++; else if (f.estado === 'sin variante en Shopify') resumen.sin++; else resumen.distinto++; });
+  const html = Object.entries(porModelo).map(([mo, fs]) => `<h3 style="margin:12px 0 4px;font-size:14px">${esc(COT.motor && COT.motor.MODELOS[mo] ? COT.motor.MODELOS[mo].label : mo)} <span class="gris" style="font-weight:400">(${fs.length})</span></h3>
+    <table class="d-tabla"><thead><tr><th>Variante</th><th>Lista</th><th>Oferta</th><th title="Hoy se vende a precio de oferta">En oferta</th><th>Shopify hoy</th><th></th><th>Cambio</th></tr></thead><tbody>${fs.map(f => `<tr data-clave="${esc(f.clave)}">
+      <td>${esc(f.descripcion || f.clave)}</td>
+      <td><input type="number" data-k="lista" value="${f.precio_lista}" style="width:110px"></td>
+      <td><input type="number" data-k="oferta" value="${f.precio_oferta || ''}" placeholder="sin oferta" style="width:110px"></td>
+      <td style="text-align:center"><input type="checkbox" data-k="en_oferta" ${f.en_oferta ? 'checked' : ''} ${f.precio_oferta ? '' : 'disabled'}></td>
+      <td class="num nw">${f.variantes_shopify ? (f.shopify_min === f.shopify_max ? pesos(f.shopify_min) : pesos(f.shopify_min) + ' a ' + pesos(f.shopify_max)) + (f.shopify_antes ? ` <span class="gris" style="text-decoration:line-through">${pesos(f.shopify_antes)}</span>` : '') + ` <span class="gris">(${f.variantes_shopify})</span>` : '<span class="gris">-</span>'}</td>
+      <td>${estadoChip(f.estado)}</td>
+      <td class="gris" style="font-size:11px">${f.origen === 'Harold' ? esc(f.actualizado_por) + ' ' + fecha(f.actualizado_en) : esc(f.origen || '')}</td></tr>`).join('')}</tbody></table>`).join('');
+  const m = modal(`<h2>Precios de catálogo</h2><p class="gris" style="font-size:12px;margin:0">Un precio aquí es el que usa el cotizador al instante y el que debe mostrar Shopify. ${resumen.igual} variantes iguales a Shopify, <b class="${resumen.distinto ? 'rojo' : ''}">${resumen.distinto} distintas</b>, ${resumen.sin} sin variante publicada. Para subir las diferencias a Shopify: <span class="mono">node scripts/precios_catalogo.mjs --subir-shopify --aplicar</span>. Cambiar un valor y salir de la casilla lo guarda (con historial).</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn chico" id="pc-oferta-on">Activar oferta en todo el catálogo</button><button class="btn chico" id="pc-oferta-off">Apagar oferta en todo</button></div>
+    <div style="overflow:auto;max-height:62vh">${html || '<p class="gris">Sin precios cargados: corre scripts/precios_catalogo.mjs --sembrar.</p>'}</div>
+    <div class="acciones"><button class="btn" onclick="cerrarModal()">Cerrar</button></div>`, 'ancha');
+  $$('tr[data-clave] input', m).forEach(inp => inp.onchange = async () => {
+    const tr = inp.closest('tr'), lista = Number($('[data-k=lista]', tr).value), oferta = $('[data-k=oferta]', tr).value === '' ? null : Number($('[data-k=oferta]', tr).value), en = $('[data-k=en_oferta]', tr).checked;
+    try { const r = await rpc('fijar_precio_catalogo', { p_clave: tr.dataset.clave, p_lista: lista, p_oferta: oferta, p_en_oferta: en, p_nota: null }); COT.precios[tr.dataset.clave] = [r.precio_lista, r.precio_oferta || r.precio_lista]; COT.motor = null; aviso('Precio guardado: ' + r.descripcion + ' ' + pesos(r.precio_esperado)); }
+    catch (e) { aviso(errorDe(e), true); }
+  });
+  $('#pc-oferta-on', m).onclick = async () => { if (!confirm('¿Activar el precio de oferta en todas las variantes que lo tienen? El cotizador y Shopify (al subir) pasan a oferta.')) return; try { const n = await rpc('oferta_catalogo', { p_activar: true, p_modelo: null }); aviso('Oferta activada en ' + n + ' variantes'); COT.motor = null; cerrarModal(); modalPreciosCatalogo(); } catch (e) { aviso(errorDe(e), true); } };
+  $('#pc-oferta-off', m).onclick = async () => { try { const n = await rpc('oferta_catalogo', { p_activar: false, p_modelo: null }); aviso('Oferta apagada en ' + n + ' variantes'); COT.motor = null; cerrarModal(); modalPreciosCatalogo(); } catch (e) { aviso(errorDe(e), true); } };
 }
 
 /* ---------- documento: HTML (vista previa) con el formato oficial del generador Python ---------- */
