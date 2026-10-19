@@ -2053,6 +2053,10 @@ const abrevDoc = t => ({ 'Cotización proveedor': 'COT', 'Comprobante proveedor'
    (paso 3, 19-oct-2026). Sin piezas (botón "+ Compra de insumos") es una OC solo de insumos: tela, film, madera. */
 async function formCrearOC(piezas, prov0) {
   const provs = cache.proveedores; const insumos = await cargarInsumos();
+  // Las piezas se releen de la base al abrir (Harold 19-oct: corrigió la pata de Liliana y la pantalla seguía mostrando "por confirmar")
+  if (piezas.length) { try { const { data } = await sb.from('v_compras').select('*').in('linea_id', piezas.map(x => x.linea_id)); if (data && data.length) { piezas = piezas.map(x => data.find(d => d.linea_id === x.linea_id) || x); piezas.forEach(x => { const cx = (cache.compras || []).find(c => c.linea_id === x.linea_id); if (cx) Object.assign(cx, x); }); } } catch (e) { } }
+  // Número real de la próxima OC (migración 0060: max + 1, sin saltos); si no se pudo leer, queda {OC} y la base lo reemplaza
+  let codigoPrev = '{OC}'; try { codigoPrev = (await rpc('proximo_oc', {})) || '{OC}'; } catch (e) { }
   let prov = prov0 || provs[0]; let items = [], extras = [], nota = '';
   const ids = piezas.map(x => x.linea_id);
   const pedidosOpc = () => { const m = {}; (cache.compras || []).concat(piezas).forEach(x => { m[x.pedido_id] = [x.numero, x.cliente]; }); return Object.entries(m).map(([id, [numero, cliente]]) => ({ id: Number(id), numero, cliente })).sort((a, b) => String(a.numero).localeCompare(String(b.numero))); };
@@ -2079,13 +2083,14 @@ async function formCrearOC(piezas, prov0) {
       <label class="campo">Proveedor <select id="c-prov">${provs.map(p => `<option value="${p.id}" ${p.id === prov.id ? 'selected' : ''}>${esc(p.nombre)}${p.iva_pct ? '' : ' (sin IVA)'}${p.pct_anticipo ? ' · abono ' + p.pct_anticipo + '%' : ''}</option>`).join('')}</select></label>
       <div class="tabla-env"><table class="d-tabla oc-lineas"><thead><tr><th>N°</th><th>Línea</th><th>Cant.</th><th>Precio unit.</th><th>IVA</th><th>Total</th><th></th></tr></thead><tbody>${items.map(filaPieza).join('')}${extras.map(filaExtra).join('')}</tbody></table></div>
       <div class="acciones" style="justify-content:space-between;align-items:center"><button type="button" class="btn chico" id="c-mas">+ Insumo o línea libre</button><div class="mono" style="font-size:13px">${t.sin ? `<span class="gris">${t.sin} línea${t.sin > 1 ? 's' : ''} sin precio</span> · ` : ''}${t.conIva ? `neto ${pesos(t.neto)} · IVA ${pesos(t.iva)} · ` : ''}<b>Total ${pesos(t.total)}</b>${prov.pct_anticipo && !t.sin && lista.length ? ` · abono ${prov.pct_anticipo}% ${pesos(Math.round(t.total * prov.pct_anticipo / 100))}` : ''}</div></div>
-      <label class="campo">Texto para el proveedor ({OC} será el número real) <textarea id="c-texto" class="oc-texto" style="min-height:260px">${esc(textoOC(prov, lista))}</textarea></label>
+      <label class="campo">Texto para el proveedor${codigoPrev !== '{OC}' ? ` (será la ${esc(codigoPrev)})` : ' ({OC} será el número real)'} <textarea id="c-texto" class="oc-texto" style="min-height:260px">${esc(textoOC(prov, lista, codigoPrev))}</textarea></label>
       <div class="acciones" style="justify-content:flex-start;margin-top:-6px"><button type="button" class="btn chico" id="c-copiar" title="Copia el texto tal como está en el cuadro">Copiar texto</button></div>
       <label class="campo">Nota interna (opcional) <input id="c-nota" value="${esc(nota)}" placeholder="ej. pedir con urgencia, retiro el viernes"></label>
       <div class="acciones"><button type="button" class="btn" id="c-cancelar">Cancelar</button><button type="button" class="btn primario" id="c-ok">Crear orden de compra</button></div>`, 'ancha');
+    $('#modal').onclick = null;   // un clic fuera de la ventana no la cierra: se perdería lo editado (Harold 19-oct: "al volver atrás se salió")
     const guardarNota = () => { nota = $('#c-nota').value; };
-    $('#c-cancelar').onclick = cerrarModal;
-    $('#c-copiar').onclick = async () => { try { await navigator.clipboard.writeText($('#c-texto').value); aviso('Texto copiado (con {OC}: el número real sale al crear la orden)'); } catch (e) { aviso('No se pudo copiar: selecciona el texto y cópialo', true); } };
+    $('#c-cancelar').onclick = () => { if (extras.length || items.some(it => it.precio_unitario != null)) { if (!confirm('¿Cerrar sin crear la orden de compra? Se pierde lo editado aquí (las correcciones de piezas ya quedaron guardadas en el pedido).')) return; } cerrarModal(); };
+    $('#c-copiar').onclick = async () => { try { await navigator.clipboard.writeText($('#c-texto').value); aviso(codigoPrev !== '{OC}' ? `Texto copiado con el número ${codigoPrev}: recuerda crear la orden para que quede registrada` : 'Texto copiado ({OC}: el número real sale al crear la orden)'); } catch (e) { aviso('No se pudo copiar: selecciona el texto y cópialo', true); } };
     // Harold 19-oct: "ahí mismo yo podría editar el tapiz y las patas de Liliana; de cualquier lado se puede editar para no ir a otro lado y volver"
     $$('[data-pieza]', $('#modal')).forEach(b => b.onclick = () => { guardarNota(); const x = piezas.find(p => p.linea_id === Number(b.dataset.pieza)); formPiezaCompra(x, async nuevo => { Object.assign(x, nuevo); const cx = (cache.compras || []).find(c => c.linea_id === x.linea_id); if (cx) Object.assign(cx, nuevo); await proponer(); render(); }, render); });
     $('#c-prov').onchange = async () => { guardarNota(); prov = provs.find(p => p.id === Number($('#c-prov').value)); await proponer(); extras.forEach(e => { e.iva_pct = prov.iva_pct != null ? prov.iva_pct : 19; }); render(); };
@@ -2101,7 +2106,8 @@ async function formCrearOC(piezas, prov0) {
         .concat(extras.map(e => ({ insumo_id: e.insumo_id || null, descripcion: e.descripcion || null, cantidad: e.cantidad, unidad: extraCompleto(e).unidad, precio_unitario: e.precio_unitario, iva_pct: e.iva_pct, color: e.color || null, pedido_id: e.pedido_id || null, indicaciones: e.indicaciones || null })));
       if (!p_items.length) return aviso('Agrega al menos una línea', true);
       if (extras.some(e => !e.insumo_id && !(e.descripcion || '').trim())) return aviso('Cada línea libre necesita un insumo del catálogo o una descripción', true);
-      try { const oc = await rpc('crear_orden_compra', { p_linea_ids: ids, p_proveedor_id: prov.id, p_texto: $('#c-texto').value, p_nota: $('#c-nota').value || null, p_items }); cerrarModal(); const n = (oc.items || []).length; aviso(`${oc.codigo} creada con ${n} línea${n > 1 ? 's' : ''}: ahora mándala al proveedor`); await vCompras(); modalOC(oc.id, oc); } catch (e) { aviso(errorDe(e), true); } };
+      const texto = codigoPrev !== '{OC}' ? $('#c-texto').value.split(codigoPrev).join('{OC}') : $('#c-texto').value;   // la base pone el número definitivo
+      try { const oc = await rpc('crear_orden_compra', { p_linea_ids: ids, p_proveedor_id: prov.id, p_texto: texto, p_nota: $('#c-nota').value || null, p_items }); cerrarModal(); const n = (oc.items || []).length; aviso(`${oc.codigo} creada con ${n} línea${n > 1 ? 's' : ''}: ahora mándala al proveedor`); await vCompras(); modalOC(oc.id, oc); } catch (e) { aviso(errorDe(e), true); } };
   };
   render();
 }
