@@ -30,7 +30,7 @@ function errorDe(e) { return (e && (e.message || e.error_description || e.hint))
 function modal(html, clase = '') { const m = $('#modal'); m.innerHTML = `<div class="caja ${clase}">${html}</div>`; m.classList.remove('oculto'); m.onclick = ev => { if (ev.target === m) cerrarModal(); }; return m; }
 function cerrarModal() { $('#modal').classList.add('oculto'); $('#modal').innerHTML = ''; }
 function chip(t) {
-  const cls = t.startsWith('URGENTE') ? 'urgente' : t.startsWith('ATRASADO') ? 'atrasado' : t.startsWith('SALDO') ? 'saldo' : t.startsWith('PAGO') ? 'pago' : t.startsWith('INSTAL') ? 'inst' : t.startsWith('A MEDIDA') ? 'medida' : t.startsWith('PROPUESTO') ? 'prop' : /^(RETIRO|VISITA|ENTREGA|INSTALACIÓN|OTRO) /.test(t) ? 'inst' : '';
+  const cls = t.startsWith('URGENTE') || t === 'ENTREGA HOY' ? 'urgente' : t === 'ENTREGA MAÑANA' ? 'prop' : t === 'CONFIRMADO' ? 'ok' : t.startsWith('ATRASADO') ? 'atrasado' : t.startsWith('SALDO') ? 'saldo' : t.startsWith('PAGO') ? 'pago' : t.startsWith('INSTAL') ? 'inst' : t.startsWith('A MEDIDA') ? 'medida' : t.startsWith('PROPUESTO') ? 'prop' : /^(RETIRO|VISITA|ENTREGA|INSTALACIÓN|OTRO) /.test(t) ? 'inst' : '';
   return `<span class="chip ${cls}">${esc(t)}</span>`;
 }
 /* Códigos cortos para la Lista (Harold 12-oct-2026: columnas acotadas). El nombre completo va en el title (pasar el mouse). */
@@ -116,7 +116,7 @@ function rasgos(p) {
 const NOMBRE_SILLA = { 'S.SANTINO': 'Santino', WISH: 'Wish', CROSS: 'Cross', TULIP: 'Tulip', WIND: 'Windsor' };
 // Nombre abreviado para la columna Cliente (Harold 13-oct: ancho estándar, el completo en el despliegue y la ficha)
 function abrev(n) { n = (n || '').trim(); if (n.length <= 22) return n; const t = n.split(/\s+/); const empresa = /spa|ltda|eirl|s\.a\.|inmobiliaria|estudio|sociedad|empresa|constructora|comercial/i.test(n); if (empresa || t.length < 3) return n.slice(0, 21) + '…'; const corto = t[0] + ' ' + t[t.length >= 4 ? 2 : 1]; return corto.length > 22 ? corto.slice(0, 21) + '…' : corto; }
-/* Etapa por pieza (Harold 12-oct): cada pieza avanza por las etapas de su área (carpintería: En cola → Fabricación → Barniz → Embalado; "En cola" = cola de producción, Harold 13-oct;
+/* Etapa por pieza (Harold 12-oct): cada pieza avanza por las etapas de su área (carpintería: En cola → Fabricación → Barniz → Por embalar → Embalado (Por embalar desde el 19-oct, migración 0055); "En cola" = cola de producción, Harold 13-oct;
    soldadura: → Soldadura → Pintura → Embalado; compras: Por pedir → Pedido → Recibido → Embalado...). Un toque avanza; clic derecho
    o mantener apretado vuelve atrás. Embalado = pieza lista. Las etapas las define la base (privado.etapas_de). */
 /* Medida de una pieza; las extensibles muestran el largo abierta: "130 x 90 a 180 ext" (Harold 13-oct, Sandra W3149) */
@@ -469,7 +469,7 @@ async function vLista() {
   app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir filtros-v2">
       <label>Ver <select id="f-modo"><option value="pendientes" ${cache.filtro === 'pendientes' ? 'selected' : ''}>Pendientes</option><option value="todos" ${cache.filtro === 'todos' ? 'selected' : ''}>Todos (últimos 500)</option></select></label>
       ${estadosVisibles.length ? `<span class="fgrupo"><span class="fgrupo-t">Estado</span>${estadosVisibles.map(e => toggle('estado', e, COD_ESTADO[e], e)).join('')}</span>` : ''}
-      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Taller</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Fabricándose ahora en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Devuelta al proveedor', 'Piezas compradas que volvieron al proveedor por venir mal'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
+      ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">Taller</span>${[['En cola', 'Cola de producción: piezas sin empezar'], ['Fabricación', 'Fabricándose ahora en carpintería'], ['Soldadura', 'Piezas en soldadura'], ['Armado', 'Piezas en armado'], ['Barniz', 'Todo lo que está para barnizar'], ['Pintura', 'Piezas en pintura'], ['Por pedir', 'Compras por hacer'], ['Devuelta al proveedor', 'Piezas compradas que volvieron al proveedor por venir mal'], ['Por embalar', 'Piezas terminadas que faltan por embalar (Harold 19-oct)'], ['Embalado', 'Piezas listas']].map(([v, t]) => toggle('etapa', v, v, t)).join('')}</span>` : ''}
       ${cache.filtro === 'pendientes' ? `<span class="fgrupo"><span class="fgrupo-t">${esOp ? 'Pendientes' : 'Pendientes míos'}</span>${Object.keys(PENDIENTES_MIOS).filter(k => !esOp || !['Con saldo', 'Pago pendiente'].includes(k)).map(k => toggle('mios', k, k, 'Solo pedidos con: ' + k.toLowerCase()).replace('class="ftog', 'class="ftog alerta')).join('')}</span>` : ''}
       <label>Buscar <input type="search" id="f-busca" placeholder="cliente, número, modelo, comuna" value="${esc(cache.busqueda)}" style="width:210px"></label>
       <button class="ayuda" type="button" title="${esc(leyenda)}" id="b-leyenda">?</button>
