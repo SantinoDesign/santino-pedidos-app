@@ -7,7 +7,7 @@
    Este archivo se carga antes de app.js y usa sus utilidades (sb, $, esc, aviso, modal, rpc, pesos…) en tiempo de ejecución. */
 'use strict';
 
-const COT = { motor: null, motorVersion: null, params: {}, lista: [], todas: false, buscar: '', actual: null, st: null, ultimoMotor: null };
+const COT = { motor: null, motorVersion: null, params: {}, lista: [], todas: false, buscar: '', categoria: '', estado: '', actual: null, st: null, ultimoMotor: null };
 const CTAS_COT = {
   empresa: { titular: 'Santino Design SpA', rut: '77.551.022-6', banco: 'Banco Santander', tipo: 'Cuenta Corriente', num: '87727157', email: 'hola@santinodesign.cl' },
   harold: { titular: 'Harold Matías Ahumada Yáñez', rut: '18.976.134-1', banco: 'Bci / Banco Crédito e Inversiones', tipo: 'Cuenta Corriente', num: '777918976134', email: 'hola@santinodesign.cl' }
@@ -121,26 +121,40 @@ function totalesCot(c) {
 /* ---------- lista ---------- */
 async function vCotizaciones() {
   if (yo.rol !== 'admin') { location.hash = '#/lista'; return; }
-  COT.lista = (await rpc('cotizaciones_json', { p_todas: COT.todas, p_buscar: COT.buscar || null })) || [];
+  // Tanda 40 (19-oct-2026): CRM de cotizaciones. Harold: "un lugar donde ver las cotizaciones con filtro de categoría (proyectos, y mesas y demás)
+  // y hacer seguimiento con mensaje directo". Al abrir, las emitidas o enviadas con validez vencida hace más de 7 días pasan a Vencida.
+  try { await rpc('vencer_cotizaciones', {}); } catch (e) { }
+  COT.lista = (await rpc('cotizaciones_json', { p_todas: COT.todas, p_buscar: COT.buscar || null, p_categoria: COT.categoria || null, p_estado: COT.estado || null })) || [];
   const proximo = await rpc('proximo_numero_cotizacion', {});
-  const fila = c => `<tr data-id="${c.id}" class="fila-cot ${c.vencida ? 'atrasado' : ''}" title="Abrir">
-    <td class="num"><b>${esc(c.codigo)}</b></td><td>${cotChip(c.estado)}${c.vencida ? ' <span class="chip atrasado">VENCIDA</span>' : ''}</td><td class="nw">${fecha(c.fecha)}</td>
-    <td>${esc(c.cliente_nombre)}${c.proyecto ? `<div class="l2">${esc(c.proyecto)}</div>` : ''}<div class="l2">${c.tipo_cliente === 'empresa' ? 'Empresa (con IVA desglosado)' : 'Persona'}</div></td>
+  const porContactar = COT.lista.filter(c => c.por_contactar).length;
+  const seguimiento = c => { if (!['Emitida', 'Enviada', 'Aceptada'].includes(c.estado)) return `<span class="gris">${c.contactos ? c.contactos + ' contactos' : ''}</span>`;
+    return `${c.ultimo_contacto ? `<div class="l2">último ${fecha(c.ultimo_contacto)}</div>` : '<div class="l2 gris">sin contacto</div>'}${c.proximo_seguimiento ? `<div class="l2 ${c.por_contactar ? 'rojo' : ''}">próximo ${fecha(c.proximo_seguimiento, true)}</div>` : c.por_contactar ? '<div class="l2 rojo">contactar</div>' : ''}`; };
+  const fila = c => `<tr data-id="${c.id}" class="fila-cot ${c.vencida ? 'atrasado' : ''} ${c.por_contactar ? 'por-contactar' : ''}" title="Abrir">
+    <td class="num"><b>${esc(c.codigo)}</b><div class="l2">${c.categoria === 'proyectos' ? 'Proyecto' : 'Mesas'}</div></td><td>${cotChip(c.estado)}${c.vencida ? ' <span class="chip atrasado">VENCIDA</span>' : ''}</td><td class="nw">${fecha(c.fecha)}</td>
+    <td>${esc(c.cliente_nombre)}${c.proyecto ? `<div class="l2">${esc(c.proyecto)}</div>` : ''}<div class="l2">${c.tipo_cliente === 'empresa' ? 'Empresa' : 'Persona'}${c.cliente_telefono ? ' · ' + esc(c.cliente_telefono) : ''}</div></td>
     <td>${esc(c.resumen || '')}</td><td class="num nw">${pesos(c.total)}</td><td class="nw ${c.margen != null && c.margen < 0.15 ? 'rojo' : ''}">${c.margen != null ? Math.round(c.margen * 100) + '%' : '<span class="gris">-</span>'}</td>
+    <td class="nw">${seguimiento(c)}</td>
+    <td class="nw" data-stop="1">${c.cliente_telefono && ['Emitida', 'Enviada', 'Aceptada'].includes(c.estado) ? `<button class="btn chico" data-wa="${c.id}" title="WhatsApp de seguimiento (abre el chat con el mensaje listo y registra el contacto)">WhatsApp</button> <button class="btn chico" data-contacto="${c.id}" title="Anotar un contacto o nota y el próximo seguimiento">+ contacto</button>` : ''}</td>
     <td class="nw">${c.pedido_id ? `<a href="#/pedido/${c.pedido_id}">${esc(c.pedido_numero)}</a>` : ''}</td><td class="nw">${c.vencida ? '<span class="rojo">' : ''}${fecha(c.valida_hasta)}${c.vencida ? '</span>' : ''}</td></tr>`;
   app.innerHTML = barra('#/cotizador') + `<div class="contenido"><div class="seccion">
-    <div class="cab"><h2>Cotizaciones</h2><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <input id="cot-buscar" placeholder="cliente, número o proyecto" value="${esc(COT.buscar)}" style="min-width:220px">
+    <div class="cab"><h2>Cotizaciones ${porContactar ? `<span class="chip atrasado" title="Emitidas o enviadas con el próximo seguimiento vencido o sin contacto hace 3 días">${porContactar} por contactar</span>` : ''}</h2><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="seg" id="cot-cat">${[['', 'Todas'], ['mesas', 'Mesas y demás'], ['proyectos', 'Proyectos']].map(([v, l]) => `<button type="button" data-v="${v}" class="${COT.categoria === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <select id="cot-estado"><option value="">todos los estados</option><option value="por_contactar" ${COT.estado === 'por_contactar' ? 'selected' : ''}>por contactar</option>${ESTADOS_COT.map(e => `<option value="${e}" ${COT.estado === e ? 'selected' : ''}>${e}</option>`).join('')}</select>
+      <input id="cot-buscar" placeholder="cliente, número o proyecto" value="${esc(COT.buscar)}" style="min-width:200px">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" id="cot-todas" ${COT.todas ? 'checked' : ''}> ver convertidas, rechazadas y vencidas</label>
       <button class="btn chico" id="cot-params">Precios y parámetros</button>
       <button class="btn chico" id="cot-catalogo" title="Precio de lista y de oferta de cada variante de catálogo; de aquí salen el cotizador y Shopify">Precios de catálogo</button>
       <button class="btn chico" id="cot-correlativo" title="El próximo número que tomará una cotización al emitirse">Próximo N° ${esc(proximo)}</button>
       <a class="btn primario" href="#/cotizacion/nueva">+ Nueva cotización</a></div></div>
-    ${COT.lista.length ? `<div style="overflow:auto"><table class="d-tabla cot-tabla"><thead><tr><th>N°</th><th>Estado</th><th>Fecha</th><th>Cliente</th><th>Qué</th><th>Total</th><th title="Margen estimado sobre el neto, según el motor">Margen</th><th>Pedido</th><th>Válida hasta</th></tr></thead><tbody>${COT.lista.map(fila).join('')}</tbody></table></div>`
+    ${COT.lista.length ? `<div style="overflow:auto"><table class="d-tabla cot-tabla"><thead><tr><th>N°</th><th>Estado</th><th>Fecha</th><th>Cliente</th><th>Qué</th><th>Total</th><th title="Margen estimado sobre el neto, según el motor">Margen</th><th>Seguimiento</th><th></th><th>Pedido</th><th>Válida hasta</th></tr></thead><tbody>${COT.lista.map(fila).join('')}</tbody></table></div>`
       : `<p class="gris">${COT.buscar ? 'Nada con ese texto.' : 'Todavía no hay cotizaciones en la app. Crea la primera con + Nueva cotización: toma el número ' + esc(proximo) + ' al emitirse.'}</p>`}
     <p class="gris" style="font-size:12px;margin:0">Las cotizaciones anteriores (hasta la Cot 3374) siguen en OneDrive, carpeta 2.Cotización. Desde aquí el correlativo lo lleva la base.</p>
   </div></div>`;
-  $$('.fila-cot').forEach(tr => tr.onclick = () => { location.hash = '#/cotizacion/' + tr.dataset.id; });
+  $$('.fila-cot').forEach(tr => tr.onclick = ev => { if (ev.target.closest('[data-stop]') || ev.target.closest('a')) return; location.hash = '#/cotizacion/' + tr.dataset.id; });
+  $$('[data-wa]').forEach(b => b.onclick = () => { const c = COT.lista.find(x => String(x.id) === b.dataset.wa); if (c) whatsappCotizacion(c); });
+  $$('[data-contacto]').forEach(b => b.onclick = () => { const c = COT.lista.find(x => String(x.id) === b.dataset.contacto); if (c) formContactoCotizacion(c, vCotizaciones); });
+  $$('#cot-cat button').forEach(b => b.onclick = () => { COT.categoria = b.dataset.v; vCotizaciones(); });
+  $('#cot-estado').onchange = ev => { COT.estado = ev.target.value; vCotizaciones(); };
   $('#cot-buscar').onkeydown = ev => { if (ev.key === 'Enter') { COT.buscar = ev.target.value.trim(); vCotizaciones(); } };
   $('#cot-todas').onchange = ev => { COT.todas = ev.target.checked; vCotizaciones(); };
   $('#cot-params').onclick = () => modalParametrosMotor().catch(e => aviso(errorDe(e), true));
@@ -154,10 +168,40 @@ function formCorrelativo(actual) {
   $('#f', m).onsubmit = async ev => { ev.preventDefault(); try { await rpc('fijar_correlativo_cotizacion', { p_proximo: Number(new FormData(ev.target).get('n')) }); aviso('Correlativo fijado'); cerrarModal(); vCotizaciones(); } catch (e) { aviso(errorDe(e), true); } };
 }
 
+/* ---------- seguimiento (CRM): WhatsApp y contactos ---------- */
+function mensajeSeguimientoCot(c) {
+  const nombre = String(c.cliente_nombre || '').trim().split(/\s+/)[0] || '';
+  const que = (c.resumen || '').split(' + ')[0].replace(/\*\*/g, '');
+  const vencida = c.vencida || c.estado === 'Vencida';
+  return vencida
+    ? `Hola ${nombre}, te escribe Harold de Santino Design. Te envié la cotización N° ${c.numero} por ${que}. Ya venció su validez, pero si sigues interesado la actualizo y te la reenvío. ¿Te acomoda?`
+    : `Hola ${nombre}, te escribe Harold de Santino Design. Te envié la cotización N° ${c.numero} por ${que}, vigente hasta el ${fecha(c.valida_hasta)}. ¿Te quedó alguna duda o quieres que ajustemos algo?`;
+}
+async function whatsappCotizacion(c) {
+  const tel = String(c.cliente_telefono || '').replace(/\D/g, ''); if (!tel) return aviso('La cotización no tiene teléfono del cliente', true);
+  const texto = mensajeSeguimientoCot(c);
+  const m = modal(`<h2>WhatsApp a ${esc(c.cliente_nombre)}</h2><label class="campo">Mensaje (edítalo si quieres) <textarea id="wa-texto" rows="5">${esc(texto)}</textarea></label>
+    <label class="campo">Próximo seguimiento <input id="wa-prox" type="date" value="${hoyISO(3)}"></label>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario" id="wa-ir">Abrir WhatsApp y registrar</button></div>`);
+  $('#wa-ir', m).onclick = async () => {
+    const t = $('#wa-texto', m).value, prox = $('#wa-prox', m).value || null;
+    try { await rpc('registrar_contacto_cotizacion', { p_id: c.id, p_canal: 'WhatsApp', p_texto: t, p_proximo: prox }); } catch (e) { return aviso(errorDe(e), true); }
+    cerrarModal(); await abrirWa(`https://wa.me/${tel}?text=${encodeURIComponent(t)}`); if (location.hash === '#/cotizador') vCotizaciones(); else if (COT.actual && COT.actual.id === c.id) vCotizacion(String(c.id));
+  };
+}
+function formContactoCotizacion(c, despues) {
+  const m = modal(`<h2>Contacto · ${esc(c.codigo || ('Cot ' + c.numero))} · ${esc(c.cliente_nombre)}</h2><form id="f"><div class="campos">
+    <label class="campo">Canal <select name="canal">${['WhatsApp', 'Teléfono', 'Correo', 'Instagram', 'Presencial', 'Nota'].map(x => `<option>${x}</option>`).join('')}</select></label>
+    <label class="campo">Próximo seguimiento (vacío = sin fecha) <input name="prox" type="date" value="${hoyISO(3)}"></label></div>
+    <label class="campo">Qué pasó <textarea name="texto" rows="3" placeholder="cliente pidió cambiar a lenga; espera respuesta del arquitecto; etc."></textarea></label>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f', m).onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try { await rpc('registrar_contacto_cotizacion', { p_id: c.id, p_canal: f.get('canal'), p_texto: f.get('texto') || null, p_proximo: f.get('prox') || null }); cerrarModal(); aviso('Contacto registrado'); despues(); } catch (e) { aviso(errorDe(e), true); } };
+}
+
 /* ---------- edición ---------- */
 function cotNueva() {
   return { id: null, numero: null, estado: 'Borrador', fecha: hoyISO(), validez_dias: 7, tipo_cliente: 'persona', cliente_id: null, cliente_nombre: '', cliente_label: '', cliente_rut: '', cliente_telefono: '', cliente_email: '', cliente_direccion: '', proyecto: '',
-    asesor: 'Harold Ahumada', cuenta: 'harold', garantia_meses: 12, forma_pago: '', plazo: '', tyc: null, nota: '', total_label: 'Total', mostrar_total_final: true, ahorro_label: '', canal: null, zona: null, lineas: [], pdf_path: null, pedido_id: null };
+    asesor: 'Harold Ahumada', cuenta: 'harold', garantia_meses: 12, forma_pago: '', plazo: '', tyc: null, nota: '', total_label: 'Total', mostrar_total_final: true, ahorro_label: '', canal: null, zona: null, lineas: [], pdf_path: null, pedido_id: null, categoria: 'mesas', proximo_seguimiento: null, notas: [] };
 }
 async function vCotizacion(idTxt) {
   if (yo.rol !== 'admin') { location.hash = '#/lista'; return; }
@@ -216,7 +260,12 @@ function pintarCotizacion() {
       <label class="campo" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="mostrar_total_final" ${c.mostrar_total_final !== false ? 'checked' : ''} ${ed ? '' : 'disabled'}> Mostrar el Total (apagar si las líneas son opciones alternativas)</label>
     </div>
     <label class="campo">T&C completos (una línea por ítem; vacío = los 4 por defecto más la garantía; si escribes aquí, el último ítem debe ser la garantía) <textarea name="tyc" rows="3" ${ed ? '' : 'disabled'}>${esc(tyc)}</textarea></label>
+    <div class="campos">
+      <label class="campo">Categoría (seguimiento) <select name="categoria"><option value="mesas" ${c.categoria !== 'proyectos' ? 'selected' : ''}>Mesas y demás</option><option value="proyectos" ${c.categoria === 'proyectos' ? 'selected' : ''}>Proyectos (muebles a medida, cocinas, clósets)</option></select></label>
+      <label class="campo">Próximo seguimiento <input name="proximo_seguimiento" type="date" value="${esc(c.proximo_seguimiento || '')}"></label>
+    </div>
     </form>
+    ${(c.notas && c.notas.length) || c.numero ? `<div class="seccion" style="padding:10px;gap:4px"><div class="cab"><b style="font-size:13px">Seguimiento</b>${c.numero && !c.pedido_id ? `<span><button class="btn chico" id="c-wa">WhatsApp</button> <button class="btn chico" id="c-contacto">+ contacto</button></span>` : ''}</div>${(c.notas || []).map(n => `<div class="l2"><b>${fecha(n.fecha)}</b> ${esc(n.canal)} · ${esc(n.quien)}${n.texto ? ': ' + esc(n.texto) : ''}</div>`).join('') || '<div class="l2 gris">Sin contactos registrados</div>'}</div>` : ''}
     <h2 style="font-size:14px;margin:6px 0 0">Líneas</h2>
     <div style="overflow:auto"><table class="d-tabla cot-lineas"><thead><tr><th>N</th><th>Tipo</th><th>Descripción (** negrita **) y detalle</th><th>Precio${emp ? ' <span class="gris" title="Para empresa: marca IVA incl. si el precio ya trae IVA">(IVA)</span>' : ''}</th><th>Ctd</th><th>Precio normal</th><th>Total</th><th></th></tr></thead>
       <tbody id="cot-tbody">${(c.lineas || []).map((l, i) => filaLineaHtml(l, i, ed, emp)).join('') || '<tr><td colspan="8" class="gris">Sin líneas. Agrega desde el motor (derecha) o con + línea.</td></tr>'}</tbody></table></div>
@@ -250,6 +299,8 @@ function leerCabecera() {
   const f = new FormData($('#f-cot')), c = COT.actual, v = k => { const x = f.get(k); return x == null ? null : String(x).trim(); };
   ['tipo_cliente', 'cliente_nombre', 'cliente_label', 'cliente_rut', 'cliente_telefono', 'cliente_email', 'cliente_direccion', 'proyecto', 'fecha', 'asesor', 'cuenta', 'forma_pago', 'plazo', 'nota', 'ahorro_label'].forEach(k => { if (f.has(k)) c[k] = v(k); });
   if (f.has('total_label')) c.total_label = v('total_label') || 'Total';
+  if (f.has('categoria')) c.categoria = v('categoria') || 'mesas'; if (f.has('proximo_seguimiento')) c.proximo_seguimiento = v('proximo_seguimiento') || null;
+  if (!editable(c)) return c;   // enviada o respondida: solo cambia el seguimiento
   c.cliente_id = v('cliente_id') ? Number(v('cliente_id')) : null;
   c.validez_dias = Number(v('validez_dias') || 0); c.garantia_meses = Number(v('garantia_meses') || 0);
   c.mostrar_total_final = !!f.get('mostrar_total_final');
@@ -258,7 +309,7 @@ function leerCabecera() {
 }
 function datosCabecera(c) {
   const o = {}; ['tipo_cliente', 'cliente_id', 'cliente_nombre', 'cliente_label', 'cliente_rut', 'cliente_telefono', 'cliente_email', 'cliente_direccion', 'proyecto', 'fecha', 'validez_dias', 'asesor', 'cuenta', 'garantia_meses', 'forma_pago', 'plazo', 'tyc', 'nota', 'total_label', 'mostrar_total_final', 'ahorro_label', 'canal', 'zona'].forEach(k => o[k] = c[k] == null ? '' : c[k]);
-  o.tyc = c.tyc || []; o.motor_version = COT.motorVersion || ''; return o;
+  o.tyc = c.tyc || []; o.motor_version = COT.motorVersion || ''; o.categoria = c.categoria || 'mesas'; o.proximo_seguimiento = c.proximo_seguimiento || ''; return o;
 }
 function activarCotizacion(ed) {
   const c = COT.actual;
@@ -280,6 +331,9 @@ function activarCotizacion(ed) {
     $('#c-guardar').onclick = () => guardarCotizacion().catch(e => aviso(errorDe(e), true));
     const em = $('#c-emitir'); if (em) em.onclick = () => emitirCotizacion().catch(e => aviso(errorDe(e), true));
   }
+  if (!ed) { ['categoria', 'proximo_seguimiento'].forEach(k => { const el = $(`[name=${k}]`); if (el) { el.disabled = false; el.onchange = async () => { leerCabecera(); try { const r = await rpc('guardar_cotizacion', { p_id: c.id, p_datos: { categoria: c.categoria, proximo_seguimiento: c.proximo_seguimiento || '' }, p_lineas: null }); COT.actual = r; COT.actual.lineas = r.lineas || []; aviso('Seguimiento guardado'); } catch (e) { aviso(errorDe(e), true); } }; } }); }
+  const wa = $('#c-wa'); if (wa) wa.onclick = () => whatsappCotizacion(c);
+  const ct = $('#c-contacto'); if (ct) ct.onclick = () => formContactoCotizacion(c, () => vCotizacion(String(c.id)));
   $('#c-preview').onclick = () => { if (ed) leerCabecera(); modal(`<div class="cot-preview">${htmlCotizacion(COT.actual, { paraPantalla: true })}</div><div class="acciones"><button class="btn" onclick="cerrarModal()">Cerrar</button></div>`, 'ancha'); };
   const pdf = $('#c-pdf'); if (pdf) pdf.onclick = async () => { try { if (ed) await guardarCotizacion(true); const r = await pdfCotizacion(COT.actual); aviso(r || 'PDF listo'); pintarCotizacion(); } catch (e) { aviso(errorDe(e), true); } };
   const estadoBtn = (id, estado) => { const b = $(id); if (b) b.onclick = async () => { try { COT.actual = await rpc('cambiar_estado_cotizacion', { p_id: c.id, p_estado: estado }); aviso('Cot ' + c.numero + ' ' + estado.toLowerCase()); pintarCotizacion(); } catch (e) { aviso(errorDe(e), true); } }; };

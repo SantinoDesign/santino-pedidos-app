@@ -903,7 +903,7 @@ async function vFicha(id) {
       </section>
       ${movimientosHtml(p, esOp)}
       ${`<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px">${esOp ? '' : '<button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button>'}<button class="btn chico borde" id="b-abono">+ Registrar ${esOp ? 'cobro' : 'abono'}</button></span></div>
-        <div class="cifras">${esOp ? `<div class="cifra"><div>Total</div><div>${pesos(p.total)}</div></div>` : `<div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div>`}<div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)} ${pctAbono(p)}</div></div><div class="cifra"><div>Saldo${esOp ? ' por cobrar' : ' (calculado)'}</div><div style="color:${(p.saldo ?? p.saldo_por_cobrar) > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo ?? p.saldo_por_cobrar)}</div></div></div>
+        <div class="cifras">${esOp ? `<div class="cifra"><div>Total</div><div>${pesos(p.total)}</div></div>` : `<div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div>`}<div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)} ${pctAbono(p)}</div></div><div class="cifra"><div>Saldo${esOp ? ' por cobrar' : ' (calculado)'}</div><div style="color:${(p.saldo ?? p.saldo_por_cobrar) > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo ?? p.saldo_por_cobrar)}</div></div>${esOp ? '' : `<div class="cifra" id="cifra-margen" title="Fase 6: costo manual, de la cotización o del motor; clic para fijar el costo a mano"><div>Costo est. · margen</div><div class="gris" style="font-size:14px">calculando…</div></div>`}</div>
         ${grupoHtml(p, esOp)}
         ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Cuenta</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(cuentaNombre(a.cuenta))}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
         ${esOp ? '' : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>`}
@@ -980,6 +980,7 @@ async function vFicha(id) {
     on('#b-linea', () => formLinea(p, recargar));
     on('#b-guia', () => formGuia(p));
   }
+  if (!esOp) pintarMargenFicha(p).catch(() => {});   // Fase 6: costo y margen (solo Harold)
 }
 /* Pedidos unidos (tanda 30, Harold 14-oct, Belén Ureta Studio): cada pedido sigue siendo una fila con sus piezas, entrega y guía;
    comparten el pago. Un abono del grupo completa primero el saldo del pedido que se entrega antes y el resto pasa al siguiente. */
@@ -1292,15 +1293,31 @@ async function formPedido(pre = {}) {
   };
 }
 
+/* Fase 6 (19-oct-2026): costo estimado y margen del pedido en la ficha, con costo manual de Harold. */
+async function pintarMargenFicha(p) {
+  const el = $('#cifra-margen'); if (!el) return;
+  const { data: m } = await sb.from('v_pedido_margen').select('*').eq('id', p.id).maybeSingle(); if (!m) { el.remove(); return; }
+  el.querySelector('div:last-child').innerHTML = m.costo != null ? `<span style="font-size:14px">${pesos(m.costo)}</span> · <b class="${(m.margen_pct || 0) < 0.3 ? 'rojo' : ''}">${Math.round((m.margen_pct || 0) * 100)}%</b><div class="gris" style="font-size:11px;font-weight:400">${m.costo_origen === 'manual' ? 'costo manual' : m.costo_origen === 'cotizacion' ? 'de la cotización' : 'motor de precios'}${m.compras_reales ? ' · compras reales ' + pesos(m.compras_reales) : ''}</div>` : `<span class="gris" style="font-size:13px">sin costo: clic para ponerlo</span>`;
+  el.style.cursor = 'pointer'; el.onclick = () => {
+    const mm = modal(`<h2>Costo del pedido ${esc(p.numero)}</h2><p class="gris" style="font-size:13px;margin:0">Neto sin IVA ${pesos(m.neto)}. Costo estimado hoy: ${m.costo != null ? pesos(m.costo) + ' (' + (m.costo_origen || 'motor') + ')' : 'sin costo'}. Si pones un costo a mano manda sobre el estimado; vacío vuelve al estimado.</p>
+      <form id="f"><div class="campos"><label class="campo">Costo total (pesos) <input name="costo" type="number" value="${m.costo_origen === 'manual' ? m.costo : ''}" placeholder="${m.costo != null ? m.costo : ''}"></label><label class="campo">Nota <input name="nota" placeholder="qué incluye"></label></div>
+      <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+    $('#f', mm).onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try { await rpc('fijar_costo_pedido', { p_pedido_id: p.id, p_costo: f.get('costo') === '' ? null : Number(f.get('costo')), p_nota: f.get('nota') || null }); cerrarModal(); aviso('Costo guardado'); pintarMargenFicha(p); } catch (e) { aviso(errorDe(e), true); } };
+  };
+}
+
 /* ---------- Harold · Panel ---------- */
 async function vPanel() {
-  const [{ data: meses }, { data: atrasados }, { data: delMes }, { data: casosAb }, { data: mkt }, { data: mktOrigen }] = await Promise.all([
+  const [{ data: meses }, { data: atrasados }, { data: delMes }, { data: casosAb }, { data: mkt }, { data: mktOrigen }, { data: mgMes }, mgRes, { data: cotMes }] = await Promise.all([
     sb.from('v_panel_mes').select('*').order('mes'),
     sb.from('v_pedido').select('id,numero,cliente,dias_atraso,saldo,estado,tipo_entrega').eq('atrasado', true).order('dias_atraso', { ascending: false }),
     sb.from('v_pedido').select('origen,tipo_cliente,total,tipo_pedido,pago_pendiente,estado').gte('fecha_compra', hoyISO().slice(0, 8) + '01'),
     sb.from('v_caso').select('id,tipo,sin_movimiento').neq('estado', 'Cerrado'),
     sb.from('v_panel_marketing_mes').select('*'),
     sb.from('v_marketing_origen').select('*').gte('mes', hoyISO().slice(0, 8) + '01'),
+    sb.from('v_panel_margen_mes').select('*').order('mes'),
+    rpc('margen_resumen', { p_desde: hoyISO().slice(0, 8) + '01', p_hasta: hoyISO() }),
+    sb.from('v_panel_cotizacion_mes').select('*').order('mes'),
   ]);
   const h = new Date(); const y = h.getFullYear(), m = h.getMonth();
   const porMes = {}; (meses || []).forEach(r => porMes[r.mes.slice(0, 7)] = r);
@@ -1328,8 +1345,18 @@ async function vPanel() {
     <section class="seccion"><h2>Pedidos por mes · ${y} contra ${y - 1}</h2><div class="barras">${MESES.map((mm, i) => { const a = porMes[`${y}-${String(i + 1).padStart(2, '0')}`], b = porMes[`${y - 1}-${String(i + 1).padStart(2, '0')}`]; return `<div class="barra-mes"><div class="par"><div class="b" style="height:${(b ? b.pedidos : 0) / maxP * 100}%" title="${y - 1}: ${b ? b.pedidos : 0}"></div><div class="b actual" style="height:${(a ? a.pedidos : 0) / maxP * 100}%" title="${y}: ${a ? a.pedidos : 0}"></div></div><span>${mm}</span><span style="font-size:10px">${a ? a.pedidos : '·'} / ${b ? b.pedidos : '·'}</span></div>`; }).join('')}</div><div style="font-size:12px;color:var(--gris-2)">Barra gris ${y - 1}, barra azul ${y}. Datos de prueba en el prototipo.</div></section>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
       <section class="seccion"><h2>Por origen · mes actual</h2><table class="lista"><thead><tr><th>Origen</th><th>Pedidos</th><th>Ventas</th></tr></thead><tbody>${agrupar('origen').map(([kk, v]) => `<tr><td>${esc(kk)}</td><td>${v.n}</td><td class="mono">${pesos(v.v)}</td></tr>`).join('')}</tbody></table></section>
-      <section class="seccion"><h2>Por tipo de cliente · mes actual</h2><table class="lista"><thead><tr><th>Tipo</th><th>Pedidos</th><th>Ventas</th><th>Margen $ ; %</th></tr></thead><tbody>${agrupar('tipo_cliente').map(([kk, v]) => `<tr><td>${esc(kk)}</td><td>${v.n}</td><td class="mono">${pesos(v.v)}</td><td style="color:var(--gris-3)">Fase 6</td></tr>`).join('')}</tbody></table></section>
-    </div></div>`;
+      <section class="seccion"><h2>Por tipo de cliente · mes actual</h2><table class="lista"><thead><tr><th>Tipo</th><th>Pedidos</th><th>Ventas</th><th>Margen $ ; %</th></tr></thead><tbody>${agrupar('tipo_cliente').map(([kk, v]) => `<tr><td>${esc(kk)}</td><td>${v.n}</td><td class="mono">${pesos(v.v)}</td><td class="mono">${(() => { const t = ((mgRes && mgRes.por_tipo_cliente) || []).find(x => x.tipo_cliente === kk); return t && t.costo != null ? `${pesos(t.margen)} ; ${Math.round((t.margen_pct || 0) * 100)}%${t.sin_costo ? ` <span class="gris" title="pedidos sin costo estimado">(${t.sin_costo} s/c)</span>` : ''}` : '<span class="gris">sin costo</span>'; })()}</td></tr>`).join('')}</tbody></table></section>
+    </div>
+    ${(() => { /* Fase 6 (19-oct-2026): margen estimado por mes y por modelo. Costo = manual > cotización > motor; compras reales de OC aparte. */
+      const pm = {}; (mgMes || []).forEach(r => pm[r.mes.slice(0, 7)] = r); const a = pm[k], b = pm[kAnt];
+      const fila = (r, tit) => r ? `<tr><td>${tit}</td><td>${r.pedidos} <span class="gris">(${r.con_costo} con costo)</span></td><td class="mono">${pesos(r.neto)}</td><td class="mono">${pesos(r.costo)}</td><td class="mono"><b>${pesos((r.neto_con_costo || 0) - (r.costo || 0))}</b> · ${r.neto_con_costo ? Math.round(((r.neto_con_costo - r.costo) / r.neto_con_costo) * 100) : 0}%</td><td class="mono">${r.compras_reales ? pesos(r.compras_reales) : '<span class="gris">-</span>'}</td></tr>` : '';
+      const modelos = ((mgRes && mgRes.por_modelo) || []);
+      const ult = Object.values(pm).sort((x, z) => String(z.mes).localeCompare(String(x.mes))).slice(0, 6).reverse();
+      return `<section class="seccion"><h2>Margen estimado · ${MESES_L[m]} ${y} <small class="gris">neto sin IVA menos costo (manual, de la cotización o del motor con los parámetros vigentes); compras reales = OC a proveedores prorrateadas, para contrastar cuando se usen</small></h2>
+      <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>Pedidos</th><th>Neto</th><th>Costo est.</th><th>Margen $ · %</th><th>Compras reales</th></tr></thead><tbody>${fila(a, `${MESES_L[m]} ${y}`)}${fila(b, `${MESES_L[m]} ${y - 1}`)}${ult.filter(r => r !== a && r !== b).map(r => fila(r, r.mes.slice(0, 7))).join('')}</tbody></table></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px"><div><h3 style="margin:6px 0;font-size:13px">Por modelo (${MESES_L[m]})</h3><table class="lista"><thead><tr><th>Modelo</th><th>Pedidos</th><th>Neto</th><th>Margen $ · %</th></tr></thead><tbody>${modelos.map(r => `<tr><td>${esc(r.modelo || '(sin modelo)')}</td><td>${r.pedidos}</td><td class="mono">${pesos(r.neto)}</td><td class="mono ${(r.margen_pct || 0) < 0.3 ? 'rojo' : ''}">${pesos(r.margen)} · ${Math.round((r.margen_pct || 0) * 100)}%</td></tr>`).join('') || '<tr><td colspan="4" class="gris">Sin pedidos con costo este mes</td></tr>'}</tbody></table>${mgRes && mgRes.sin_costo ? `<div class="gris" style="font-size:12px;margin-top:4px">${mgRes.sin_costo} pedidos del mes sin costo (muebles a medida o proyectos sin cotización en la app): se les pone a mano desde la ficha.</div>` : ''}</div>
+      <div><h3 style="margin:6px 0;font-size:13px">Cotizaciones por mes</h3><table class="lista"><thead><tr><th>Mes</th><th>Categoría</th><th>Emitidas</th><th>Convertidas</th><th>Perdidas</th><th>Abiertas</th></tr></thead><tbody>${(cotMes || []).slice(-8).map(r => `<tr><td>${r.mes.slice(0, 7)}</td><td>${r.categoria === 'proyectos' ? 'Proyectos' : 'Mesas y demás'}</td><td>${r.emitidas} · ${pesos(r.monto_emitido)}</td><td>${r.convertidas} · ${pesos(r.monto_convertido)}${r.emitidas ? ` <span class="gris">(${Math.round(r.convertidas / r.emitidas * 100)}%)</span>` : ''}</td><td>${r.perdidas}</td><td>${r.abiertas}</td></tr>`).join('') || '<tr><td colspan="6" class="gris">Todavía no hay cotizaciones emitidas en la app</td></tr>'}</tbody></table></div></div></section>`; })()}
+    </div>`;
 }
 
 /* ---------- Harold · Clientes y Bandeja ---------- */
@@ -1342,12 +1369,31 @@ async function vClientes() {
   cache.clientesOrden = cache.clientesOrden || 'entrega';
   app.innerHTML = barra('#/clientes') + `<div class="sub"><label>Buscar <input type="search" id="b" style="width:240px" placeholder="nombre, teléfono, correo, empresa"></label>
     <label>Orden <select id="o"><option value="entrega" ${cache.clientesOrden === 'entrega' ? 'selected' : ''}>Última entrega (reciente arriba)</option><option value="compra" ${cache.clientesOrden === 'compra' ? 'selected' : ''}>Última compra</option><option value="nombre" ${cache.clientesOrden === 'nombre' ? 'selected' : ''}>Nombre</option></select></label>
-    <span style="color:var(--gris-3)">${data.length} clientes · la fecha de Última entrega abre la ficha; con ~ es estimada (venía del Excel sin fecha)</span></div><div class="contenido"><div class="tabla-env"><table class="lista"><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th>Comuna</th><th>Pedidos</th><th>Pendientes</th><th>Total comprado</th><th>Última compra</th><th>Última entrega</th><th>Casos</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
+    <span style="color:var(--gris-3)">${data.length} clientes · la fecha de Última entrega abre la ficha; con ~ es estimada (venía del Excel sin fecha)</span>
+    <button class="btn chico" id="b-dup" title="Clientes que parecen repetidos (mismo teléfono o mismo nombre): unirlos deja los pedidos en uno solo">Duplicados</button></div><div class="contenido"><div class="tabla-env"><table class="lista"><thead><tr><th>Nombre</th><th>Tipo</th><th>Teléfono</th><th>Comuna</th><th>Pedidos</th><th>Pendientes</th><th>Total comprado</th><th>Última compra</th><th>Última entrega</th><th>Casos</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
   const pintar = () => { const t = $('#b').value.toLowerCase(); const o = cache.clientesOrden;
     const lista = data.filter(c => !t || [c.nombre, c.telefono, c.email, c.empresa].join(' ').toLowerCase().includes(t)).sort((a, b) => o === 'nombre' ? String(a.nombre).localeCompare(String(b.nombre)) : o === 'compra' ? String(b.ultima_compra || '').localeCompare(String(a.ultima_compra || '')) : String(b.ultima_entrega || '').localeCompare(String(a.ultima_entrega || '')) || String(b.ultima_compra || '').localeCompare(String(a.ultima_compra || '')));
     $('#tb').innerHTML = lista.map(c => `<tr><td class="nw"><strong>${esc(c.nombre)}</strong>${c.empresa && c.empresa !== c.nombre ? ' · ' + esc(c.empresa) : ''}<div class="l2"><a href="#/lista?q=${encodeURIComponent(c.nombre)}" title="Ver todos sus pedidos en la Lista">ver pedidos</a> · <a href="#" data-nuevo-cli="${c.id}" title="Nuevo pedido para este cliente con sus datos ya puestos">nuevo pedido</a>${c.email ? ' · ' + esc(c.email) : ''}</div></td><td>${esc(c.tipo_cliente)}</td><td class="nw">${esc(c.telefono || '')}</td><td>${esc(c.comuna || '')}</td><td>${c.pedidos}</td><td>${c.pendientes ? `<span class="chip inst">${c.pendientes}</span>` : ''}</td><td class="mono">${pesos(c.total_comprado)}</td><td class="nw">${fecha(c.ultima_compra)}</td><td class="nw">${c.ultima_entrega ? `<a href="#/pedido/${c.ultimo_entregado_id}" title="Abrir la ficha del último pedido entregado${c.ultima_entrega_estimada ? ' (fecha estimada: venía del Excel sin fecha de entrega; corrígela en Editar entrega)' : ''}">${c.ultima_entrega_estimada ? '~' : ''}${fecha(c.ultima_entrega)}</a>${c.ultima_entrega_estimada ? '<div class="l2 gris">estimada</div>' : ''}` : '<span class="gris">-</span>'}</td><td class="nw">${casosDe[c.id] ? `<a href="#/casos?cliente=${c.id}">${casosDe[c.id].n}${casosDe[c.id].ab ? ` <span class="chip caso-Abierto">${casosDe[c.id].ab} abierto${casosDe[c.id].ab > 1 ? 's' : ''}</span>` : ''}</a>` : ''}</td></tr>`).join(''); };
   $('#b').oninput = pintar; $('#o').onchange = ev => { cache.clientesOrden = ev.target.value; pintar(); }; pintar();
+  $('#b-dup').onclick = () => modalDuplicados().catch(e => aviso(errorDe(e), true));
   $('#tb').onclick = ev => { const a = ev.target.closest('[data-nuevo-cli]'); if (!a) return; ev.preventDefault(); const c = data.find(x => String(x.id) === a.dataset.nuevoCli); if (c) formPedido({ cliente: c }); };
+}
+/* Tanda 41 (19-oct-2026): clientes duplicados de la migración (ej. Jorge Alcaide 276 y 655). Harold elige cuál conservar; unir_clientes pasa
+   pedidos, cotizaciones y casos, completa datos que faltaban y deja el otro marcado "(duplicado, usar N)". */
+async function modalDuplicados() {
+  const { data, error } = await sb.from('v_cliente_duplicado').select('*').order('pedidos_a', { ascending: false }); if (error) throw error;
+  const filas = (data || []).map((d, i) => `<tr data-i="${i}"><td>${esc(d.motivo)}</td>
+    <td><label style="display:flex;gap:6px;align-items:flex-start"><input type="radio" name="k${i}" value="${d.id_a}" ${d.pedidos_a >= d.pedidos_b ? 'checked' : ''}><span><b>${esc(d.nombre_a)}</b> <span class="gris">#${d.id_a}</span><div class="l2">${d.pedidos_a} pedidos${d.telefono_a ? ' · ' + esc(d.telefono_a) : ''}</div></span></label></td>
+    <td><label style="display:flex;gap:6px;align-items:flex-start"><input type="radio" name="k${i}" value="${d.id_b}" ${d.pedidos_a < d.pedidos_b ? 'checked' : ''}><span><b>${esc(d.nombre_b)}</b> <span class="gris">#${d.id_b}</span><div class="l2">${d.pedidos_b} pedidos${d.telefono_b ? ' · ' + esc(d.telefono_b) : ''}</div></span></label></td>
+    <td><button class="btn chico primario" data-unir="${i}">Unir</button></td></tr>`).join('');
+  const m = modal(`<h2>Posibles clientes duplicados (${(data || []).length})</h2><p class="gris" style="font-size:12px;margin:0">Marca cuál se conserva (por defecto el que tiene más pedidos) y pulsa Unir: los pedidos, cotizaciones y casos del otro pasan al conservado, y el otro queda marcado como duplicado (no se borra). Si son personas distintas con el mismo nombre, no los unas.</p>
+    <div style="overflow:auto;max-height:60vh"><table class="d-tabla"><thead><tr><th>Motivo</th><th>Cliente A</th><th>Cliente B</th><th></th></tr></thead><tbody>${filas || '<tr><td colspan="4" class="gris">No encontré duplicados.</td></tr>'}</tbody></table></div>
+    <div class="acciones"><button class="btn" onclick="cerrarModal()">Cerrar</button></div>`, 'ancha');
+  $$('[data-unir]', m).forEach(b => b.onclick = async () => {
+    const i = Number(b.dataset.unir), d = data[i]; const conservar = Number($(`input[name=k${i}]:checked`, m).value), dup = conservar === d.id_a ? d.id_b : d.id_a;
+    if (!confirm(`¿Unir #${dup} dentro de #${conservar}? Los pedidos de #${dup} pasan a #${conservar}.`)) return;
+    try { const r = await rpc('unir_clientes', { p_conservar: conservar, p_duplicado: dup }); aviso(`Unidos: ${r.pedidos} pedidos, ${r.cotizaciones} cotizaciones, ${r.casos} casos pasaron a #${conservar}`); b.closest('tr').remove(); } catch (e) { aviso(errorDe(e), true); }
+  });
 }
 async function vBandeja() {
   const { data } = await sb.from('v_bandeja').select('*').order('creado_en', { ascending: false });

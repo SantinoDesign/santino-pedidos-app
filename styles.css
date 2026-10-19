@@ -484,3 +484,6 @@ table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila
 .chip.cot-Borrador{background:var(--panel);color:var(--gris)}.chip.cot-Emitida{background:var(--azul-suave);color:var(--azul-osc)}.chip.cot-Enviada{background:var(--azul-claro);color:var(--azul-osc)}.chip.cot-Aceptada{background:var(--verde-fondo);color:var(--verde)}.chip.cot-Rechazada{background:var(--rojo-fondo);color:var(--rojo-txt)}.chip.cot-Vencida{background:var(--ambar);color:var(--ambar-txt)}.chip.cot-Convertida{background:var(--gris);color:#fff}
 .cot-preview{background:#eee;padding:10px;overflow:auto;max-height:75vh}.cot-preview .sdc-doc{box-shadow:0 2px 12px rgba(0,0,0,.15)}
 .modal .caja.ancha .cot-preview{margin:-4px}
+/* seguimiento de cotizaciones (tanda 40) */
+.cot-tabla tr.por-contactar td:first-child{box-shadow:inset 3px 0 0 var(--rojo)}
+.seccion .seg{display:flex;gap:4px}.seccion .seg button{padding:5px 9px;border:1px solid #CCD4D8;border-radius:6px;background:#fff;font-size:12px;cursor:pointer;min-height:30px}.seccion .seg button.on{background:var(--azul);border-color:var(--azul);color:#fff;font-weight:600}
