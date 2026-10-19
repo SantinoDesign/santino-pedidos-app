@@ -360,6 +360,7 @@ async function render() {
     else if (h === '#/ruta') await vRuta();
     else if (h.startsWith('#/compras/proveedor/') && (!esOp || yo.ve_compras)) await vProveedor(Number(h.split('/')[3]));
     else if (h === '#/compras/proveedores' && (!esOp || yo.ve_compras)) await vProveedores();
+    else if (h === '#/compras/insumos' && (!esOp || yo.ve_compras)) await vInsumos();
     else if (h === '#/compras' && (!esOp || yo.ve_compras)) await vCompras();
     else if ((h === '#/cotizador' || h.startsWith('#/cotizador?')) && !esOp) await vCotizaciones();
     else if (h.startsWith('#/trabajadores/') && !esOp) await vTrabajador(Number(h.split('/')[2]));   // pagos a colaboradores (19-oct-2026), solo Harold
@@ -1948,16 +1949,69 @@ const descCompraBase = (prov, x) => {
   return `${x.cantidad} ${nom}${med ? ', ' + med : ''}${x.espesor_mm && !med ? ', ' + x.espesor_mm + ' mm' : ''}${x.tapiz || x.color_silla ? ', ' + [x.tapiz, x.color_silla].filter(Boolean).join(' ') : ''}`;
 };
 const refPedido = x => `[${x.numero} ${nombrePila({ cliente: x.cliente })}]`;
-// Texto de la OC para WhatsApp o correo. {OC} se reemplaza por el número real al crearla (lo hace la base).
-const textoOC = (prov, piezas, codigo = '{OC}', fechaOC = hoyISO()) => {
-  const cab = `Orden de compra ${codigo} · Santino Design · ${fecha(fechaOC, true)}\n`;
-  const lineas = piezas.map((x, i) => `${i + 1}) ${descCompra(prov, x)}  ${refPedido(x)}`).join('\n');
-  const pie = `\nFavor confirmar valor y fecha de entrega citando la ${codigo}.` + (prov && prov.formato === 'vidrio' ? '\nRetiro en taller Lo Blanco 1919, La Pintana.' : '') + ' Gracias.';
-  return cab + lineas + pie;
+/* ---------- Líneas de la OC (paso 3 Compras v2, 19-oct-2026, migración 0058) ----------
+   Harold 19-oct: "en el mensaje de la OC debe dar el detalle de lo pedido bien ordenado como lista y valores a pagar"; "a Erick por mientras
+   ponle el mensaje sin IVA y ponle el abono de 50% y el valor, que le enviamos el comprobante ahora"; "no le pongas la fecha de entrega al
+   cliente"; "sí está bien el código del cliente para hacer seguimiento siempre"; "lo de pedido de la clienta no es necesario, evita info que
+   no sea necesaria"; "debe ser en formato listado, lo de patas debe ser lista para que él lo vea bien, optimizado para que se vea ordenado
+   en WhatsApp"; "para más de 12 sillas ahí le preguntas en la misma OC a Erick cuántos metros". Los asteriscos salen en negrita en WhatsApp. */
+const COLOR_PATA = { NGR: 'negra', BL: 'blanca', NAT: 'natural' };
+const colorTexto = c => c ? (NOMBRE_COLOR[String(c).toUpperCase()] || String(c).toLowerCase().replace(/\./g, ' ')) : '';
+const qty = n => { const v = Number(n); return Number.isInteger(v) ? String(v) : v.toLocaleString('es-CL', { maximumFractionDigits: 2 }); };
+const totalItem = it => it.precio_unitario == null ? null : Math.round(Number(it.cantidad) * it.precio_unitario * (1 + (Number(it.iva_pct) || 0) / 100));
+const netoItem = it => it.precio_unitario == null ? null : Math.round(Number(it.cantidad) * it.precio_unitario);
+// Una línea normalizada a partir de una pieza por pedir (fila de v_compras) más lo propuesto por la base (precio del catálogo, IVA del proveedor)
+const itemDePieza = (x, pr) => ({ linea_id: x.linea_id || x.id, linea_pedido_id: x.linea_id || x.id, pedido_id: x.pedido_id, numero: x.numero, cliente: x.cliente, tipo: x.tipo_linea || x.tipo, pieza_descripcion: x.descripcion, pieza_cantidad: x.cantidad,
+  cantidad: pr && pr.cantidad != null ? pr.cantidad : (x.cantidad || 1), unidad: 'un', precio_unitario: pr && pr.precio_unitario != null ? pr.precio_unitario : null, iva_pct: pr && pr.iva_pct != null ? pr.iva_pct : 19, insumo_id: pr ? pr.insumo_id : null,
+  indicaciones: x.indicaciones, tipo_silla: x.tipo_silla, tapiz: x.tapiz, color_silla: x.color_silla, color_estructura: x.color_estructura, material_cubierta: x.material_cubierta, espesor_mm: x.espesor_mm, largo_cm: x.largo_cm, ancho_cm: x.ancho_cm, alto_cm: x.alto_cm, largo_ext_cm: x.largo_ext_cm, forma: x.forma, nota_acabado: x.nota_acabado, etapa: x.etapa, etapas: x.etapas_de_json || x.etapas, recibida_pieza_en: x.recibida_en, devuelta_en: x.devuelta_en, recepcion_nota: x.recepcion_nota });
+const totalesItems = items => { let neto = 0, total = 0, sin = 0; items.forEach(it => { if (it.precio_unitario == null) { sin++; return; } neto += netoItem(it); total += totalItem(it); }); return { neto, iva: total - neto, total, sin, conIva: items.some(it => it.precio_unitario != null && Number(it.iva_pct) > 0) }; };
+// Título de la línea: "8 sillas Santino", "9 m de Tapiz Eco Cuero Patagonia beige [TAG 26 06]", "1 vidrio templado 12 mm, 240 x 120 cm"
+const tituloItem = (prov, it, sinCant = false) => {
+  const n = Number(it.cantidad); const c = sinCant ? '' : qty(n) + ' ';
+  if (it.descripcion) return `${c}${it.unidad && it.unidad !== 'un' ? it.unidad + ' de ' : ''}${it.descripcion}`;
+  if (!it.linea_pedido_id && (it.insumo_nombre || it.insumo_id)) return `${c}${it.unidad && it.unidad !== 'un' ? it.unidad + ' de ' : ''}${it.insumo_nombre || 'insumo'}${it.color ? ' ' + colorTexto(it.color) : ''}${it.codigo_proveedor ? ' [' + it.codigo_proveedor + ']' : ''}`;
+  if (it.tipo === 'Silla') return `${c}silla${n > 1 ? 's' : ''} ${NOMBRE_SILLA[it.tipo_silla] || it.tipo_silla || ''}`.trim();
+  const base = descCompraBase(prov && prov.formato === 'sillas_aliwen' ? { ...prov, formato: 'generico' } : prov, { ...it, descripcion: it.pieza_descripcion, cantidad: qty(n) });
+  return sinCant ? base.replace(/^\S+\s/, '') : base;
 };
+// Atributos en líneas aparte (lo que Erick necesita ver): pata, tapiz, madera; indicaciones; la pregunta de la tela si son más de 12 sillas
+const atributosItem = (prov, it) => {
+  const a = [];
+  if (prov && prov.formato === 'sillas_aliwen' && it.linea_pedido_id) {
+    a.push('Pata: ' + (it.color_estructura ? (COLOR_PATA[it.color_estructura] || colorTexto(it.color_estructura)) : 'por confirmar'));
+    const col = it.color_silla && !/POR DEFINIR/i.test(it.color_silla) ? colorTexto(it.color_silla) : '';
+    a.push('Tapiz: ' + ([it.tapiz, col].filter(Boolean).join(' ') || 'por confirmar'));
+    a.push('Madera: lenga');
+  } else if (it.linea_pedido_id && (it.tapiz || (it.color_silla && !/POR DEFINIR/i.test(it.color_silla)))) a.push('Tapiz: ' + [it.tapiz, colorTexto(it.color_silla)].filter(Boolean).join(' '));
+  if (it.indicaciones) a.push(it.indicaciones);
+  if (prov && prov.formato === 'sillas_aliwen' && it.tipo === 'Silla' && Number(it.cantidad) > 12) a.push('¿Cuántos metros de tela necesitas para estas sillas?');
+  return a;
+};
+// Texto de la OC para WhatsApp (o correo). {OC} se reemplaza por el número real al crearla (lo hace la base).
+const textoOC = (prov, items, codigo = '{OC}', fechaOC = hoyISO()) => {
+  const t = totalesItems(items || []);
+  const contacto = prov && prov.contacto ? String(prov.contacto).trim().split(/[\s(\/]/)[0] : '';
+  const sillas = prov && prov.formato === 'sillas_aliwen';
+  let s = `*Orden de compra ${codigo}*\nSantino Design · ${fecha(fechaOC, true)}\n\nHola${contacto ? ' ' + contacto : ''}, te pido${sillas ? ' estas sillas Santino' : ''}:\n\n`;
+  (items || []).forEach((it, i) => {
+    s += `*${i + 1}) ${tituloItem(prov, it)}*${it.numero ? ` · ${it.numero} ${nombrePila({ cliente: it.cliente })}` : ''}\n`;
+    atributosItem(prov, it).forEach(x => { s += `- ${x}\n`; });
+    if (it.precio_unitario != null) s += `${qty(it.cantidad)} × ${pesos(it.precio_unitario)} = ${pesos(netoItem(it))}${Number(it.iva_pct) > 0 ? ' neto' : ''}\n`;
+    s += '\n';
+  });
+  if (items && items.length && t.sin === 0) {
+    s += t.conIva ? `Neto: ${pesos(t.neto)}\nIVA 19%: ${pesos(t.iva)}\n*Total: ${pesos(t.total)}*\n` : `*Total: ${pesos(t.total)}*\n`;
+    if (prov && prov.pct_anticipo) { const ab = Math.round(t.total * prov.pct_anticipo / 100); s += `*Abono ${prov.pct_anticipo}%: ${pesos(ab)}* (te enviamos el comprobante ahora)\nSaldo: ${pesos(t.total - ab)}\n`; }
+    s += '\n';
+  }
+  s += `Favor confirmar fecha de ${prov && /despach/i.test(prov.despacho || '') ? 'despacho' : 'entrega'} citando la ${codigo}.` + (prov && prov.formato === 'vidrio' ? '\nRetiro en taller Lo Blanco 1919, La Pintana.' : '') + ' Gracias.';
+  return s;
+};
+const pieTextoOC = (prov, codigo) => textoOC(prov, [], codigo).split('\n\n').pop();
 const waProveedor = (prov, texto) => `https://wa.me/${prov && prov.telefono ? String(prov.telefono).replace(/\D/g, '') : ''}?text=${encodeURIComponent(texto)}`;
 async function cargarProveedores() { if (!cache.proveedores) { const { data } = await sb.from('proveedor').select('*').eq('activo', true).order('nombre'); cache.proveedores = data || []; } return cache.proveedores; }
-const provDe = oc => (cache.proveedores || []).find(p => p.id === oc.proveedor_id) || { id: oc.proveedor_id, nombre: oc.proveedor, telefono: oc.proveedor_telefono, formato: oc.proveedor_formato, contacto: oc.proveedor_contacto };
+const provDe = oc => (cache.proveedores || []).find(p => p.id === oc.proveedor_id) || { id: oc.proveedor_id, nombre: oc.proveedor, telefono: oc.proveedor_telefono, formato: oc.proveedor_formato, contacto: oc.proveedor_contacto, iva_pct: oc.proveedor_iva_pct, pct_anticipo: oc.proveedor_pct_anticipo, despacho: oc.proveedor_despacho };
+async function cargarInsumos(todos = false) { if (!cache.insumos) { try { cache.insumos = (await rpc('insumos_json', { p_todos: !!todos })) || []; } catch (e) { cache.insumos = []; } } return cache.insumos; }
 
 async function vCompras() {
   await cargarModelos(); await cargarProveedores();
@@ -1970,12 +2024,12 @@ async function vCompras() {
   const fila = x => `<tr class="${x.atrasado_prov ? 'atrasado' : ''}"><td><input type="checkbox" data-sel="${x.linea_id}" ${/^Por pedir/.test(x.etapa || '') ? '' : 'disabled'}></td><td class="num"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a>${x.urgente ? ' <span class="chip urgente">URGENTE</span>' : ''}</td><td>${esc(x.cliente)}</td><td>${esc(x.tipo_linea)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''}</td><td>${esc(x.descripcion || '')}${x.tapiz || x.color_silla ? ' · ' + esc([x.tapiz, x.color_silla].filter(Boolean).join(' ')) : ''}</td><td class="nw">${x.largo_cm ? `${num(x.largo_cm)} x ${num(x.ancho_cm)}${x.espesor_mm ? ' · ' + x.espesor_mm + ' mm' : ''}` : ''}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw">${etapaChip({ id: x.linea_id, tipo: x.tipo_linea, etapa: x.etapa, etapas: x.etapas_de_json, area: 'Vidrio/compras', cantidad: x.cantidad, descripcion: x.descripcion }, x.pedido_id)}</td></tr>`;
   const filaOC = oc => `<tr class="fila-oc ${oc.atrasada ? 'atrasado' : ''}" data-oc="${oc.id}" title="Abrir la orden de compra">
     <td class="num"><b>${esc(oc.codigo)}</b></td><td>${esc(oc.proveedor)}</td><td class="nw">${fecha(oc.fecha)}</td><td>${ocChip(oc.estado)}</td>
-    <td>${oc.piezas.map(x => `<div class="l2">${esc(x.numero)} ${esc(nombrePila({ cliente: x.cliente }))} · ${esc(x.tipo)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''} · <span class="${x.etapa === 'Devuelta al proveedor' ? 'rojo' : ''}">${esc(x.etapa)}</span></div>`).join('')}</td>
+    <td>${oc.piezas.map(x => `<div class="l2">${esc(x.numero)} ${esc(nombrePila({ cliente: x.cliente }))} · ${esc(x.tipo)}${x.cantidad > 1 ? ' ×' + x.cantidad : ''} · <span class="${x.etapa === 'Devuelta al proveedor' ? 'rojo' : ''}">${esc(x.etapa)}</span></div>`).join('')}${(oc.items || []).filter(it => !it.linea_pedido_id).map(it => `<div class="l2">${it.numero ? esc(it.numero) + ' ' + esc(nombrePila({ cliente: it.cliente })) + ' · ' : ''}${esc(tituloItem(provDe(oc), it))}${it.recibida_en ? ' · recibida' : ''}</div>`).join('')}</td>
     <td class="nw ${oc.atrasada ? 'rojo' : ''}">${oc.fecha_prometida ? fecha(oc.fecha_prometida, true) : '<span class="gris">sin fecha aún</span>'}${oc.referencia_prov ? `<div class="l2">${esc(oc.referencia_prov)}</div>` : ''}</td>
     ${puedeComprar() ? `<td class="nw mono">${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) : '<span class="gris">-</span>'}</td>` : ''}${puedeVerPagos() ? `<td class="nw mono">${oc.monto_pagado != null ? pesos(oc.monto_pagado) + `<div class="l2">${fecha(oc.fecha_pago)}${oc.medio_pago ? ' · ' + esc(oc.medio_pago) : ''}</div>` : '<span class="gris">-</span>'}</td><td class="nw mono">${saldoOC(oc)}</td>` : ''}
     <td class="nw">${oc.documentos.length ? oc.documentos.map(d => `<span class="chip" title="${esc(d.nombre)}">${esc(abrevDoc(d.tipo))}</span>`).join(' ') : '<span class="gris">-</span>'}</td>
   </tr>`;
-  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><a href="#/compras/proveedores" class="btn chico" title="Ficha, historial, pagos y saldo de cada proveedor">Proveedores</a><span>Arriba, las órdenes de compra; abajo, las piezas por pedir agrupadas por proveedor: marca las de un mismo proveedor y crea la orden (la fecha la da el proveedor después). Lo pedido antes del 13-oct sigue como Pedido, sin OC.</span><span style="margin-left:auto;color:var(--gris-3)">${cache.ocs.length} OC · ${sinOC.length} piezas sin OC</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
+  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><a href="#/compras/proveedores" class="btn chico" title="Ficha, historial, pagos y saldo de cada proveedor">Proveedores</a><a href="#/compras/insumos" class="btn chico" title="Catálogo de lo que se compra sin pasar por una pieza (tela, film, madera) y precios de referencia">Insumos</a>${puedeComprar() ? '<button class="btn chico" id="c-insumos" title="Orden de compra de tela, film, madera u otro insumo que no es una pieza de un pedido">+ Compra de insumos</button>' : ''}<span>Arriba, las órdenes de compra; abajo, las piezas por pedir agrupadas por proveedor: marca las de un mismo proveedor (solo se marcan las que están Por pedir) y crea la orden con cantidades y precios. Lo pedido antes del 13-oct sigue como Pedido, sin OC.</span><span style="margin-left:auto;color:var(--gris-3)">${cache.ocs.length} OC · ${sinOC.length} piezas sin OC</span></div><div class="contenido" style="display:flex;flex-direction:column;gap:14px">
     <section class="seccion"><div class="cab"><h2>Órdenes de compra</h2><label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="c-cerradas" ${verCerradas ? 'checked' : ''}> ver también las cerradas</label></div>
       ${cache.ocs.length ? `<div class="tabla-env"><table class="lista oc-tabla"><thead><tr><th>OC</th><th>Proveedor</th><th>Enviada</th><th>Estado</th><th>Piezas</th><th>Llega</th>${puedeComprar() ? '<th>Cotizó</th>' : ''}${puedeVerPagos() ? '<th>Pagado</th><th>Saldo</th>' : ''}<th>Docs</th></tr></thead><tbody>${cache.ocs.map(filaOC).join('')}</tbody></table></div>` : '<div class="gris">No hay órdenes de compra abiertas.</div>'}
     </section>
@@ -1983,6 +2037,7 @@ async function vCompras() {
       <div class="tabla-env"><table class="lista"><thead><tr><th></th><th>N°</th><th>Cliente</th><th>Pieza</th><th>Descripción</th><th>Medida</th><th>Entrega al cliente</th><th title="Toca para avanzar; mantener para volver">Etapa</th></tr></thead><tbody>${grupos[k].map(fila).join('')}</tbody></table></div></section>`; }).join('') || '<div class="seccion">No hay piezas por comprar sin orden de compra.</div>'}
   </div>`;
   $('#c-cerradas').onchange = ev => { cache.ocCerradas = ev.target.checked; vCompras(); };
+  const bi = $('#c-insumos'); if (bi) bi.onclick = () => formCrearOC([], null);
   activarEtapas(app, () => vCompras());
   $$('tr.fila-oc').forEach(tr => tr.onclick = () => modalOC(Number(tr.dataset.oc)));
   $$('[data-armar]').forEach(b => b.onclick = () => {
@@ -1994,29 +2049,76 @@ async function vCompras() {
 }
 const abrevDoc = t => ({ 'Cotización proveedor': 'COT', 'Comprobante proveedor': 'PAGO', 'Guía proveedor': 'GUÍA', 'Orden de compra': 'OC', 'Cotización': 'COT', 'Comprobante': 'PAGO' }[t] || (t || '').slice(0, 4).toUpperCase());
 
-/* Crear la OC: proveedor, nota y el texto que se va a mandar (con {OC} hasta tener el número) */
-function formCrearOC(piezas, prov0) {
-  const provs = cache.proveedores;
-  modal(`<h2>Nueva orden de compra · ${piezas.length} pieza${piezas.length > 1 ? 's' : ''}</h2>
-    <div class="gris" style="font-size:12px">Se crea con el número correlativo siguiente (desde OC-2000) y sin fecha: la fecha prometida la da el proveedor cuando responda. Después la mandas por WhatsApp, correo o PDF.</div>
-    <label class="campo">Proveedor <select id="c-prov">${provs.map(p => `<option value="${p.id}" ${prov0 && p.id === prov0.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></label>
-    <label class="campo">Texto para el proveedor (edítalo si hace falta; {OC} será el número real) <textarea id="c-texto" class="oc-texto">${esc(textoOC(prov0, piezas))}</textarea></label>
-    <label class="campo">Nota interna (opcional) <input id="c-nota" placeholder="ej. pedir con urgencia, retiro el viernes"></label>
-    <div class="acciones"><button type="button" class="btn" id="c-cancelar">Cancelar</button><button type="button" class="btn primario" id="c-ok">Crear orden de compra</button></div>`);
+/* Crear la OC: proveedor, líneas con cantidad, precio e IVA (propuestas desde el catálogo de insumos), insumos sueltos y el texto que se manda
+   (paso 3, 19-oct-2026). Sin piezas (botón "+ Compra de insumos") es una OC solo de insumos: tela, film, madera. */
+async function formCrearOC(piezas, prov0) {
+  const provs = cache.proveedores; const insumos = await cargarInsumos();
+  let prov = prov0 || provs[0]; let items = [], extras = [], nota = '';
   const ids = piezas.map(x => x.linea_id);
-  $('#c-cancelar').onclick = cerrarModal;
-  $('#c-prov').onchange = () => { const pv = provs.find(p => p.id === Number($('#c-prov').value)); $('#c-texto').value = textoOC(pv, piezas); };
-  $('#c-ok').onclick = async () => { try { const oc = await rpc('crear_orden_compra', { p_linea_ids: ids, p_proveedor_id: Number($('#c-prov').value), p_texto: $('#c-texto').value, p_nota: $('#c-nota').value || null }); cerrarModal(); aviso(`${oc.codigo} creada con ${oc.piezas.length} pieza${oc.piezas.length > 1 ? 's' : ''}: ahora mándala al proveedor`); await vCompras(); modalOC(oc.id, oc); } catch (e) { aviso(errorDe(e), true); } };
+  const pedidosOpc = () => { const m = {}; (cache.compras || []).concat(piezas).forEach(x => { m[x.pedido_id] = [x.numero, x.cliente]; }); return Object.entries(m).map(([id, [numero, cliente]]) => ({ id: Number(id), numero, cliente })).sort((a, b) => String(a.numero).localeCompare(String(b.numero))); };
+  const proponer = async () => { let prop = []; if (ids.length) { try { prop = (await rpc('oc_items_propuestos', { p_linea_ids: ids, p_proveedor_id: prov.id })) || []; } catch (e) { prop = []; } } items = piezas.map(x => itemDePieza(x, prop.find(p => p.linea_id === x.linea_id) || { iva_pct: prov.iva_pct != null ? prov.iva_pct : 19 })); };
+  await proponer();
+  const extraCompleto = e => { const ins = insumos.find(i => i.id === Number(e.insumo_id)) || {}; const pd = pedidosOpc().find(p => p.id === Number(e.pedido_id)); return { ...e, insumo_nombre: ins.nombre, codigo_proveedor: ins.codigo_proveedor, unidad: e.unidad || ins.unidad || 'un', numero: pd ? pd.numero : null, cliente: pd ? pd.cliente : null }; };
+  const todos = () => items.concat(extras.map(extraCompleto));
+  const filaPieza = (it, i) => `<tr><td class="num">${i + 1}</td><td>${esc(tituloItem(prov, it))}<div class="l2">${esc(it.numero)} ${esc(nombrePila({ cliente: it.cliente }))}${atributosItem(prov, it).length ? ' · ' + esc(atributosItem(prov, it).join(' · ')) : ''}</div></td>
+    <td><input type="number" min="0.01" step="0.01" data-it="${i}" data-k="cantidad" value="${it.cantidad}" style="width:72px"></td>
+    <td><input type="number" min="0" step="1" data-it="${i}" data-k="precio_unitario" value="${it.precio_unitario != null ? it.precio_unitario : ''}" placeholder="sin precio" style="width:104px"></td>
+    <td><select data-it="${i}" data-k="iva_pct"><option value="0" ${!Number(it.iva_pct) ? 'selected' : ''}>sin IVA</option><option value="19" ${Number(it.iva_pct) === 19 ? 'selected' : ''}>+19%</option></select></td>
+    <td class="nw mono">${it.precio_unitario != null ? pesos(totalItem(it)) : '<span class="gris">-</span>'}</td><td></td></tr>`;
+  const filaExtra = (e, j) => `<tr><td class="num">${items.length + j + 1}</td><td><select data-ex="${j}" data-k="insumo_id" style="max-width:100%"><option value="">(texto libre)</option>${insumos.map(i => `<option value="${i.id}" ${Number(e.insumo_id) === i.id ? 'selected' : ''}>${esc(i.nombre)}${i.codigo_proveedor ? ' [' + esc(i.codigo_proveedor) + ']' : ''} · ${esc(i.unidad)}${i.precio_neto_ref ? ' · ' + pesos(i.precio_neto_ref) : ''}${i.proveedor ? ' · ' + esc(i.proveedor) : ''}</option>`).join('')}</select>
+      <input data-ex="${j}" data-k="descripcion" value="${esc(e.descripcion || '')}" placeholder="descripción (texto libre, o para precisar el insumo)" style="width:100%;margin-top:4px">
+      <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap"><input data-ex="${j}" data-k="color" value="${esc(e.color || '')}" placeholder="color (BEIGE)" style="width:110px"><select data-ex="${j}" data-k="pedido_id" title="A qué pedido cae el costo"><option value="">sin pedido</option>${pedidosOpc().map(p => `<option value="${p.id}" ${Number(e.pedido_id) === p.id ? 'selected' : ''}>${esc(p.numero)} ${esc(nombrePila({ cliente: p.cliente }))}</option>`).join('')}</select><input data-ex="${j}" data-k="indicaciones" value="${esc(e.indicaciones || '')}" placeholder="indicaciones" style="flex:1;min-width:120px"></div></td>
+    <td><input type="number" min="0.01" step="0.01" data-ex="${j}" data-k="cantidad" value="${e.cantidad}" style="width:72px"><div class="l2">${esc(extraCompleto(e).unidad)}</div></td>
+    <td><input type="number" min="0" step="1" data-ex="${j}" data-k="precio_unitario" value="${e.precio_unitario != null ? e.precio_unitario : ''}" placeholder="sin precio" style="width:104px"></td>
+    <td><select data-ex="${j}" data-k="iva_pct"><option value="0" ${!Number(e.iva_pct) ? 'selected' : ''}>sin IVA</option><option value="19" ${Number(e.iva_pct) === 19 ? 'selected' : ''}>+19%</option></select></td>
+    <td class="nw mono">${e.precio_unitario != null ? pesos(totalItem(e)) : '<span class="gris">-</span>'}</td><td><button type="button" class="btn chico" data-quitar="${j}" title="Quitar esta línea">×</button></td></tr>`;
+  const render = () => {
+    const lista = todos(); const t = totalesItems(lista);
+    modal(`<h2>Nueva orden de compra${piezas.length ? ` · ${piezas.length} pieza${piezas.length > 1 ? 's' : ''}` : ' · insumos'}</h2>
+      <div class="gris" style="font-size:12px">Se crea con el número correlativo siguiente (desde OC-2000) y sin fecha: la fecha la da el proveedor cuando responda. Las líneas traen el precio de referencia del catálogo de insumos; corrígelo si el proveedor cobra otro. El texto se rearma con cada cambio: edítalo al final si hace falta.</div>
+      <label class="campo">Proveedor <select id="c-prov">${provs.map(p => `<option value="${p.id}" ${p.id === prov.id ? 'selected' : ''}>${esc(p.nombre)}${p.iva_pct ? '' : ' (sin IVA)'}${p.pct_anticipo ? ' · abono ' + p.pct_anticipo + '%' : ''}</option>`).join('')}</select></label>
+      <div class="tabla-env"><table class="d-tabla oc-lineas"><thead><tr><th>N°</th><th>Línea</th><th>Cant.</th><th>Precio unit.</th><th>IVA</th><th>Total</th><th></th></tr></thead><tbody>${items.map(filaPieza).join('')}${extras.map(filaExtra).join('')}</tbody></table></div>
+      <div class="acciones" style="justify-content:space-between;align-items:center"><button type="button" class="btn chico" id="c-mas">+ Insumo o línea libre</button><div class="mono" style="font-size:13px">${t.sin ? `<span class="gris">${t.sin} línea${t.sin > 1 ? 's' : ''} sin precio</span> · ` : ''}${t.conIva ? `neto ${pesos(t.neto)} · IVA ${pesos(t.iva)} · ` : ''}<b>Total ${pesos(t.total)}</b>${prov.pct_anticipo && !t.sin && lista.length ? ` · abono ${prov.pct_anticipo}% ${pesos(Math.round(t.total * prov.pct_anticipo / 100))}` : ''}</div></div>
+      <label class="campo">Texto para el proveedor ({OC} será el número real) <textarea id="c-texto" class="oc-texto" style="min-height:260px">${esc(textoOC(prov, lista))}</textarea></label>
+      <label class="campo">Nota interna (opcional) <input id="c-nota" value="${esc(nota)}" placeholder="ej. pedir con urgencia, retiro el viernes"></label>
+      <div class="acciones"><button type="button" class="btn" id="c-cancelar">Cancelar</button><button type="button" class="btn primario" id="c-ok">Crear orden de compra</button></div>`, 'ancha');
+    const guardarNota = () => { nota = $('#c-nota').value; };
+    $('#c-cancelar').onclick = cerrarModal;
+    $('#c-prov').onchange = async () => { guardarNota(); prov = provs.find(p => p.id === Number($('#c-prov').value)); await proponer(); extras.forEach(e => { e.iva_pct = prov.iva_pct != null ? prov.iva_pct : 19; }); render(); };
+    $$('[data-it]', $('#modal')).forEach(el => el.onchange = () => { guardarNota(); const it = items[Number(el.dataset.it)]; it[el.dataset.k] = el.value === '' ? null : Number(el.value); render(); });
+    $$('[data-ex]', $('#modal')).forEach(el => el.onchange = () => { guardarNota(); const e = extras[Number(el.dataset.ex)]; const k = el.dataset.k;
+      if (k === 'insumo_id') { e.insumo_id = el.value || null; const ins = insumos.find(i => i.id === Number(el.value)); if (ins) { e.unidad = ins.unidad; if (e.precio_unitario == null || e.precioAuto) { e.precio_unitario = ins.precio_neto_ref; e.precioAuto = true; } } }
+      else if (['cantidad', 'precio_unitario', 'iva_pct', 'pedido_id'].includes(k)) { e[k] = el.value === '' ? null : Number(el.value); if (k === 'precio_unitario') e.precioAuto = false; }
+      else e[k] = el.value; render(); });
+    $$('[data-quitar]', $('#modal')).forEach(b => b.onclick = () => { guardarNota(); extras.splice(Number(b.dataset.quitar), 1); render(); });
+    $('#c-mas').onclick = () => { guardarNota(); extras.push({ insumo_id: null, descripcion: '', cantidad: 1, unidad: 'un', precio_unitario: null, iva_pct: prov.iva_pct != null ? prov.iva_pct : 19, color: '', pedido_id: null, indicaciones: '' }); render(); };
+    $('#c-ok').onclick = async () => {
+      const p_items = items.map(it => ({ linea_id: it.linea_id, cantidad: it.cantidad, precio_unitario: it.precio_unitario, iva_pct: it.iva_pct, insumo_id: it.insumo_id }))
+        .concat(extras.map(e => ({ insumo_id: e.insumo_id || null, descripcion: e.descripcion || null, cantidad: e.cantidad, unidad: extraCompleto(e).unidad, precio_unitario: e.precio_unitario, iva_pct: e.iva_pct, color: e.color || null, pedido_id: e.pedido_id || null, indicaciones: e.indicaciones || null })));
+      if (!p_items.length) return aviso('Agrega al menos una línea', true);
+      if (extras.some(e => !e.insumo_id && !(e.descripcion || '').trim())) return aviso('Cada línea libre necesita un insumo del catálogo o una descripción', true);
+      try { const oc = await rpc('crear_orden_compra', { p_linea_ids: ids, p_proveedor_id: prov.id, p_texto: $('#c-texto').value, p_nota: $('#c-nota').value || null, p_items }); cerrarModal(); const n = (oc.items || []).length; aviso(`${oc.codigo} creada con ${n} línea${n > 1 ? 's' : ''}: ahora mándala al proveedor`); await vCompras(); modalOC(oc.id, oc); } catch (e) { aviso(errorDe(e), true); } };
+  };
+  render();
 }
 
-/* La orden de compra: todo lo que se hace con ella en una sola ventana (Harold: una acción se hace desde donde uno está) */
+/* La orden de compra: todo lo que se hace con ella en una sola ventana (Harold: una acción se hace desde donde uno está).
+   Desde el paso 3 (19-oct) muestra sus LÍNEAS con cantidad, precio e IVA; el total sale de las líneas salvo que se registre lo que cotizó el proveedor. */
 async function modalOC(id, ocDado) {
   await cargarProveedores();
   const oc = ocDado || await rpc('orden_compra_json', { p_id: id }); if (!oc) return aviso('No se pudo abrir la orden de compra', true);
-  const prov = provDe(oc); const pc = puedeComprar(); const esOp = yo.rol === 'operacion';
-  const recibibles = oc.piezas.filter(x => /^(Pedid|Recibid|Devuelta)/.test(x.etapa || ''));
-  const pz = x => `<tr><td>${etapaChip({ ...x, tipo: x.tipo, etapas: x.etapas }, x.pedido_id)}</td><td><a href="#/pedido/${x.pedido_id}" onclick="cerrarModal()">${esc(x.numero)}</a> ${esc(nombrePila({ cliente: x.cliente }))}</td><td>${esc(descCompra(prov, x))}</td><td class="nw">${fecha(x.fecha_entrega)}</td><td class="nw">${x.etapa === 'Devuelta al proveedor' ? `<span class="rojo">devuelta ${fecha(x.devuelta_en)}</span>` : x.recibida_en ? `recibida ${fecha(x.recibida_en)}` : ''}${x.recepcion_nota ? `<div class="l2">${esc(x.recepcion_nota)}</div>` : ''}</td></tr>`;
+  const prov = provDe(oc); const pc = puedeComprar(); const esOp = yo.rol === 'operacion'; const editable = pc && oc.estado !== 'Cerrada';
+  const items = oc.items || (oc.piezas || []).map(x => itemDePieza(x, null)); const t = totalesItems(items);
+  const recibibles = (oc.piezas || []).filter(x => /^(Pedid|Recibid|Devuelta)/.test(x.etapa || ''));
+  const filaIt = it => `<tr><td>${it.linea_pedido_id ? etapaChip({ id: it.linea_pedido_id, tipo: it.tipo, etapa: it.etapa, etapas: it.etapas, area: 'Vidrio/compras', cantidad: it.pieza_cantidad, descripcion: it.pieza_descripcion }, it.pedido_id) : '<span class="chip">insumo</span>'}</td>
+    <td>${it.numero ? `<a href="#/pedido/${it.pedido_id}" onclick="cerrarModal()">${esc(it.numero)}</a> ${esc(nombrePila({ cliente: it.cliente }))}` : '<span class="gris">-</span>'}</td>
+    <td>${esc(tituloItem(prov, it))}${atributosItem(prov, it).length ? `<div class="l2">${esc(atributosItem(prov, it).join(' · '))}</div>` : ''}</td>
+    <td class="nw">${qty(it.cantidad)}${it.unidad && it.unidad !== 'un' ? ' ' + esc(it.unidad) : ''}</td>
+    ${pc ? `<td class="nw mono">${it.precio_unitario != null ? pesos(it.precio_unitario) + (Number(it.iva_pct) ? `<div class="l2">+${it.iva_pct}% IVA</div>` : '') : '<span class="gris">sin precio</span>'}</td><td class="nw mono">${it.precio_unitario != null ? pesos(totalItem(it)) : '<span class="gris">-</span>'}</td>` : ''}
+    <td class="nw">${it.linea_pedido_id ? (it.etapa === 'Devuelta al proveedor' ? `<span class="rojo">devuelta ${fecha(it.devuelta_en)}</span>` : it.recibida_pieza_en ? `recibida ${fecha(it.recibida_pieza_en)}` : '') + (it.recepcion_nota ? `<div class="l2">${esc(it.recepcion_nota)}</div>` : '') : it.recibida_en ? `recibida ${fecha(it.recibida_en)}` : ''}</td>
+    ${editable ? `<td class="nw"><button type="button" class="btn chico" data-edit-it="${it.id}" title="Cantidad, precio, IVA, indicaciones">✎</button>${!it.linea_pedido_id ? ` <button type="button" class="btn chico" data-del-it="${it.id}" title="Borrar esta línea">×</button>` : ''}</td>` : ''}</tr>`;
   const doc = d => `<div class="doc"><span>${esc(d.nombre)}<div class="tipo">${esc(d.tipo)} · ${esc(d.subido_por)} · ${fecha(d.subido_en)}</div></span><span>${d.storage_path ? `<button class="btn chico" data-ver="${esc(d.storage_path)}">Ver</button>` : d.url ? `<a class="btn chico" href="${esc(d.url)}" target="_blank">Abrir</a>` : ''}</span></div>`;
+  const totalLineas = oc.total != null && !oc.lineas_sin_precio ? oc.total : (t.sin === 0 && items.length ? t.total : null);
   modal(`<div class="cab"><h2>${esc(oc.codigo)} · <a href="#/compras/proveedor/${oc.proveedor_id}" onclick="cerrarModal()" title="Ficha del proveedor: historial, pagos y saldo">${esc(oc.proveedor)}</a> ${ocChip(oc.estado)}${oc.atrasada ? ' <span class="chip atrasado">ATRASADA</span>' : ''}</h2><button type="button" class="btn chico" id="oc-x">Cerrar ventana</button></div>
     <div class="gris" style="font-size:12px">Enviada el ${fecha(oc.fecha, true)} por ${esc(oc.creado_por)}${prov.contacto ? ' · ' + esc(prov.contacto) : ''}${prov.telefono ? ' · ' + esc(prov.telefono) : ''}${oc.nota ? ' · nota: ' + esc(oc.nota) : ''}</div>
     <div class="campos" style="align-items:end">
@@ -2024,12 +2126,14 @@ async function modalOC(id, ocDado) {
       <label class="campo">Referencia del proveedor (cotización, pedido, guía) <input id="oc-ref" value="${esc(oc.referencia_prov || '')}" ${pc ? '' : 'disabled'}></label>
       ${pc ? '<button type="button" class="btn chico" id="oc-guardar" style="margin-bottom:2px">Guardar</button>' : ''}
     </div>
-    <table class="d-tabla"><thead><tr><th>Etapa</th><th>Pedido</th><th>Pieza</th><th>Entrega cliente</th><th>Recepción</th></tr></thead><tbody>${oc.piezas.map(pz).join('')}</tbody></table>
-    ${pc || puedeVerPagos() ? `<div class="oc-dinero">${pc ? `<div><b>Cotización del proveedor:</b> ${oc.monto_cotizado != null ? pesos(oc.monto_cotizado) + (oc.proveedor_con_iva === false ? ' <span class="gris">(neto)</span>' : '') : '<span class="gris">aún no cotiza</span>'} <button type="button" class="btn chico" id="oc-cot">${oc.monto_cotizado != null ? 'Corregir' : 'Registrar cotización'}</button></div>` : ''}
-      ${puedeVerPagos() ? `<div><b>Pagos:</b> ${(oc.pagos || []).length ? (oc.pagos || []).map(g => `<span class="chip pago" title="${esc([g.tipo, g.medio_pago, cuentaNombre(g.cuenta_origen) !== '-' ? cuentaNombre(g.cuenta_origen) : '', g.referencia, g.registrado_por].filter(Boolean).join(' · '))}">${pesos(g.monto_aplicado)} · ${fecha(g.fecha)}${g.comprobante_path ? ` <button type="button" class="btn chico" data-ver="${esc(g.comprobante_path)}">ver</button>` : g.comprobante_url ? ` <a href="${esc(g.comprobante_url)}" target="_blank">ver</a>` : ''}</span>`).join(' ') + ` = <b>${pesos(oc.monto_pagado || 0)}</b>` : '<span class="gris">sin pagar</span>'}${oc.saldo != null ? ` · saldo ${saldoOC(oc)}` : ''} <button type="button" class="btn chico" id="oc-pago">Registrar pago</button></div>` : ''}</div>` : ''}
+    <table class="d-tabla"><thead><tr><th>Etapa</th><th>Pedido</th><th>Línea</th><th>Cant.</th>${pc ? '<th>Precio unit.</th><th>Total</th>' : ''}<th>Recepción</th>${editable ? '<th></th>' : ''}</tr></thead><tbody>${items.map(filaIt).join('')}</tbody>
+      ${pc && items.length ? `<tfoot><tr><td colspan="4" style="text-align:right">${t.sin ? `<span class="gris">${t.sin} línea${t.sin > 1 ? 's' : ''} sin precio</span>` : t.conIva ? `neto ${pesos(t.neto)} · IVA ${pesos(t.iva)} · <b>Total</b>` : '<b>Total</b>'}</td><td></td><td class="nw mono"><b>${t.sin ? '-' : pesos(t.total)}</b></td><td colspan="2"></td></tr></tfoot>` : ''}</table>
+    ${editable ? `<div class="acciones" style="justify-content:flex-start;margin-top:4px"><button type="button" class="btn chico" id="oc-mas">+ Línea (insumo o texto libre)</button></div>` : ''}
+    ${pc || puedeVerPagos() ? `<div class="oc-dinero">${pc ? `<div><b>Cotización del proveedor:</b> ${oc.monto_origen === 'proveedor' && oc.monto_cotizado != null ? pesos(oc.monto_cotizado) + (totalLineas != null && oc.monto_cotizado !== totalLineas ? ` <span class="rojo" title="difiere del total de las líneas">≠ líneas ${pesos(totalLineas)}</span>` : '') : (totalLineas != null ? `<span class="gris">se usa el total de las líneas, ${pesos(totalLineas)}</span>` : '<span class="gris">aún no cotiza y faltan precios en las líneas</span>')} <button type="button" class="btn chico" id="oc-cot">${oc.monto_origen === 'proveedor' ? 'Corregir' : 'Registrar lo que cotizó'}</button></div>` : ''}
+      ${puedeVerPagos() ? `<div><b>Pagos:</b> ${(oc.pagos || []).length ? (oc.pagos || []).map(g => `<span class="chip pago" title="${esc([g.tipo, g.medio_pago, cuentaNombre(g.cuenta_origen) !== '-' ? cuentaNombre(g.cuenta_origen) : '', g.referencia, g.registrado_por].filter(Boolean).join(' · '))}">${pesos(g.monto_aplicado)} · ${fecha(g.fecha)}${g.comprobante_path ? ` <button type="button" class="btn chico" data-ver="${esc(g.comprobante_path)}">ver</button>` : g.comprobante_url ? ` <a href="${esc(g.comprobante_url)}" target="_blank">ver</a>` : ''}</span>`).join(' ') + ` = <b>${pesos(oc.monto_pagado || 0)}</b>` : '<span class="gris">sin pagar</span>'}${oc.saldo != null ? ` · saldo ${saldoOC(oc)}` : ''}${prov.pct_anticipo && oc.monto_cotizado && !(oc.pagos || []).length ? ` · <span class="gris">abono ${prov.pct_anticipo}% = ${pesos(Math.round(oc.monto_cotizado * prov.pct_anticipo / 100))}</span>` : ''} <button type="button" class="btn chico" id="oc-pago">Registrar pago</button></div>` : ''}</div>` : ''}
     <div><div class="cab"><h2 style="font-size:14px">Documentos (${oc.documentos.length})</h2>${pc || esOp ? '<button type="button" class="btn chico" id="oc-adj">Adjuntar</button>' : ''}</div><div class="docs">${oc.documentos.map(doc).join('') || '<div class="gris" style="font-size:12px">Nada adjunto aún: cotización del proveedor, comprobante de pago, guía del proveedor tachada.</div>'}</div></div>
-    <details ${oc.estado === 'Enviada' ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">Texto enviado al proveedor</summary><textarea id="oc-texto" class="oc-texto" ${pc ? '' : 'readonly'}>${esc(oc.texto_enviado || textoOC(prov, oc.piezas, oc.codigo, oc.fecha))}</textarea>
-      <div class="acciones" style="justify-content:flex-start"><button type="button" class="btn" id="oc-copiar">Copiar</button><button type="button" class="btn" id="oc-wa">WhatsApp${prov.telefono ? '' : ' (elige el chat)'}</button><button type="button" class="btn" id="oc-pdf">PDF${navigator.canShare ? ' · compartir' : ''}</button></div></details>
+    <details ${oc.estado === 'Enviada' ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">Texto enviado al proveedor</summary><textarea id="oc-texto" class="oc-texto" style="min-height:240px" ${pc ? '' : 'readonly'}>${esc(oc.texto_enviado || textoOC(prov, items, oc.codigo, oc.fecha))}</textarea>
+      <div class="acciones" style="justify-content:flex-start"><button type="button" class="btn" id="oc-copiar">Copiar</button><button type="button" class="btn" id="oc-wa">WhatsApp${prov.telefono ? '' : ' (elige el chat)'}</button><button type="button" class="btn" id="oc-pdf">PDF${navigator.canShare ? ' · compartir' : ''}</button>${pc ? '<button type="button" class="btn chico" id="oc-rearmar" title="Vuelve a armar el texto desde las líneas (cantidades, precios, abono)">Rearmar desde las líneas</button>' : ''}</div></details>
     <div class="acciones">
       ${recibibles.length ? `<button type="button" class="btn primario" id="oc-recibir">Recibir / devolver piezas</button>` : ''}
       ${pc && oc.estado !== 'Cerrada' ? `<button type="button" class="btn" id="oc-cerrar" title="Cerrarla a mano (se cierra sola cuando todas las piezas quedan embaladas)">Cerrar OC</button>` : ''}
@@ -2040,11 +2144,15 @@ async function modalOC(id, ocDado) {
   on('#oc-x', cerrarModal);
   activarEtapas($('#modal'), () => refrescar());
   $$('[data-ver]', $('#modal')).forEach(b => b.onclick = async () => { const { data, error } = await sb.storage.from('documentos').createSignedUrl(b.dataset.ver, 3600); if (error) return aviso(errorDe(error), true); window.open(data.signedUrl, '_blank'); });
+  $$('[data-edit-it]', $('#modal')).forEach(b => b.onclick = () => formEditarItem(items.find(it => it.id === Number(b.dataset.editIt)), oc, refrescar));
+  $$('[data-del-it]', $('#modal')).forEach(b => b.onclick = async () => { if (!confirm('¿Borrar esta línea de la OC?')) return; try { await rpc('borrar_oc_item', { p_item_id: Number(b.dataset.delIt) }); aviso('Línea borrada'); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+  on('#oc-mas', () => formAgregarItem(oc, refrescar));
   // Guardar queda como "Guardado ✓" y deshabilitado mientras lo escrito sea igual a lo guardado (Harold 13-oct: "si ya está guardada debe quedar marcado sin poder guardar de nuevo")
   const estadoGuardar = () => { const b = $('#oc-guardar'); if (!b) return; const igual = ($('#oc-fecha').value || '') === (oc.fecha_prometida || '') && ($('#oc-ref').value.trim() || '') === (oc.referencia_prov || ''); b.disabled = igual; b.textContent = igual ? 'Guardado ✓' : 'Guardar'; b.classList.toggle('primario', !igual); };
   estadoGuardar(); ['#oc-fecha', '#oc-ref'].forEach(s => { const el = $(s); if (el) el.oninput = el.onchange = estadoGuardar; });
   on('#oc-guardar', async () => { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { fecha_prometida: $('#oc-fecha').value || '', referencia_prov: $('#oc-ref').value || '' } }); aviso('Guardado (queda en el historial de cada pedido)'); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
-  const guardarTexto = async () => { if (!pc) return; const t = $('#oc-texto').value; if (t !== (oc.texto_enviado || '')) { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { texto_enviado: t } }); oc.texto_enviado = t; } catch (e) { } } };
+  const guardarTexto = async () => { if (!pc) return; const tx = $('#oc-texto').value; if (tx !== (oc.texto_enviado || '')) { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { texto_enviado: tx } }); oc.texto_enviado = tx; } catch (e) { } } };
+  on('#oc-rearmar', async () => { $('#oc-texto').value = textoOC(prov, items, oc.codigo, oc.fecha); await guardarTexto(); aviso('Texto rearmado desde las líneas y guardado'); });
   on('#oc-copiar', async () => { await guardarTexto(); try { await navigator.clipboard.writeText($('#oc-texto').value); aviso('Texto copiado: pégalo en WhatsApp o en el correo'); } catch (e) { aviso('No se pudo copiar: selecciona el texto y cópialo', true); } });
   on('#oc-wa', async () => { await guardarTexto(); window.open(waProveedor(prov, $('#oc-texto').value), '_blank'); });
   on('#oc-pdf', async () => { await guardarTexto(); try { const r = await pdfOC(oc, prov); if (r) aviso(r); } catch (e) { aviso(errorDe(e), true); } });
@@ -2054,6 +2162,39 @@ async function modalOC(id, ocDado) {
   on('#oc-recibir', () => formRecibir(recibibles.map(x => ({ ...x, oc })), oc, refrescar));
   on('#oc-cerrar', async () => { if (!confirm(`¿Cerrar la ${oc.codigo}? Se cierra sola cuando todas las piezas quedan embaladas; ciérrala a mano solo si ya no llegará nada más.`)) return; try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { estado: 'Cerrada' } }); aviso(`${oc.codigo} cerrada`); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
   on('#oc-reabrir', async () => { try { await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { estado: 'Enviada' } }); await rpc('actualizar_orden_compra', { p_oc_id: oc.id, p_cambios: { texto_enviado: oc.texto_enviado || '' } }); aviso(`${oc.codigo} reabierta`); refrescar(); } catch (e) { aviso(errorDe(e), true); } });
+}
+/* Editar una línea de la OC: cantidad, precio, IVA, indicaciones (y descripción y color si no es una pieza del pedido) */
+function formEditarItem(it, oc, despues) {
+  if (!it) return;
+  modal(`<h2>Línea ${it.orden || ''} · ${esc(oc.codigo)}</h2><div class="gris" style="font-size:12px">${esc(tituloItem(provDe(oc), it))}${it.numero ? ' · ' + esc(it.numero) + ' ' + esc(nombrePila({ cliente: it.cliente })) : ''}</div><form id="f"><div class="campos">
+    <label class="campo">Cantidad <input name="cantidad" type="number" min="0.01" step="0.01" value="${it.cantidad}" required></label>
+    <label class="campo">Unidad <input name="unidad" value="${esc(it.unidad || 'un')}" placeholder="un, m, m2, plancha"></label>
+    <label class="campo">Precio unitario ($) <input name="precio_unitario" type="number" min="0" step="1" value="${it.precio_unitario != null ? it.precio_unitario : ''}" placeholder="sin precio"></label>
+    <label class="campo">IVA <select name="iva_pct"><option value="0" ${!Number(it.iva_pct) ? 'selected' : ''}>sin IVA (precio final)</option><option value="19" ${Number(it.iva_pct) === 19 ? 'selected' : ''}>+19% sobre el neto</option></select></label>
+    ${!it.linea_pedido_id ? `<label class="campo">Descripción <input name="descripcion" value="${esc(it.descripcion || '')}"></label><label class="campo">Color (código) <input name="color" value="${esc(it.color || '')}" placeholder="BEIGE"></label>` : ''}
+    <label class="campo" style="grid-column:1/-1">Indicaciones para el proveedor <input name="indicaciones" value="${esc(it.indicaciones || '')}"></label></div>
+    <div class="acciones"><button type="button" class="btn" id="e-cancelar">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#e-cancelar').onclick = () => despues();
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const c = {}; for (const [k, v] of f.entries()) c[k] = v; try { await rpc('editar_oc_item', { p_item_id: it.id, p_cambios: c }); aviso('Línea guardada: el total de la OC se recalculó'); despues(); } catch (e) { aviso(errorDe(e), true); } };
+}
+/* Agregar una línea a una OC existente: insumo del catálogo o texto libre, con el pedido al que cae el costo */
+async function formAgregarItem(oc, despues) {
+  const insumos = await cargarInsumos(); const prov = provDe(oc);
+  const pedidos = {}; (oc.items || []).forEach(it => { if (it.pedido_id) pedidos[it.pedido_id] = [it.numero, it.cliente]; }); (cache.compras || []).forEach(x => { pedidos[x.pedido_id] = [x.numero, x.cliente]; });
+  modal(`<h2>Nueva línea · ${esc(oc.codigo)}</h2><form id="f"><div class="campos">
+    <label class="campo">Insumo del catálogo <select name="insumo_id" id="a-ins"><option value="">(texto libre)</option>${insumos.map(i => `<option value="${i.id}" data-precio="${i.precio_neto_ref != null ? i.precio_neto_ref : ''}" data-unidad="${esc(i.unidad)}">${esc(i.nombre)}${i.codigo_proveedor ? ' [' + esc(i.codigo_proveedor) + ']' : ''} · ${esc(i.unidad)}${i.precio_neto_ref ? ' · ' + pesos(i.precio_neto_ref) : ''}</option>`).join('')}</select></label>
+    <label class="campo">Descripción (texto libre o para precisar) <input name="descripcion"></label>
+    <label class="campo">Cantidad <input name="cantidad" type="number" min="0.01" step="0.01" value="1" required></label>
+    <label class="campo">Unidad <input name="unidad" id="a-unidad" value="un"></label>
+    <label class="campo">Precio unitario ($) <input name="precio_unitario" id="a-precio" type="number" min="0" step="1" placeholder="sin precio"></label>
+    <label class="campo">IVA <select name="iva_pct"><option value="0" ${!Number(prov.iva_pct) ? 'selected' : ''}>sin IVA (precio final)</option><option value="19" ${Number(prov.iva_pct) === 19 ? 'selected' : ''}>+19% sobre el neto</option></select></label>
+    <label class="campo">Color (código) <input name="color" placeholder="BEIGE"></label>
+    <label class="campo">A qué pedido cae el costo <select name="pedido_id"><option value="">sin pedido</option>${Object.entries(pedidos).sort((a, b) => String(a[1][0]).localeCompare(String(b[1][0]))).map(([id, [n, c]]) => `<option value="${id}">${esc(n)} ${esc(nombrePila({ cliente: c }))}</option>`).join('')}</select></label>
+    <label class="campo" style="grid-column:1/-1">Indicaciones para el proveedor <input name="indicaciones"></label></div>
+    <div class="acciones"><button type="button" class="btn" id="a-cancelar">Cancelar</button><button class="btn primario">Agregar</button></div></form>`);
+  $('#a-ins').onchange = ev => { const o = ev.target.selectedOptions[0]; if (o && o.dataset.unidad) $('#a-unidad').value = o.dataset.unidad; if (o && o.dataset.precio) $('#a-precio').value = o.dataset.precio; };
+  $('#a-cancelar').onclick = () => despues();
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const c = {}; for (const [k, v] of f.entries()) c[k] = v; if (!c.insumo_id && !(c.descripcion || '').trim()) return aviso('Elige un insumo o escribe una descripción', true); try { await rpc('agregar_oc_item', { p_oc_id: oc.id, p_item: c }); aviso('Línea agregada'); despues(); } catch (e) { aviso(errorDe(e), true); } };
 }
 /* Subir un archivo a la OC (carpeta compras/<id>/ del bucket) y registrarlo como documento */
 async function subirDocOC(oc, tipo, archivo, nombre, url) {
@@ -2065,7 +2206,8 @@ async function subirDocOC(oc, tipo, archivo, nombre, url) {
 }
 function formCotizacionOC(oc, despues) {
   modal(`<h2>Cotización del proveedor · ${esc(oc.codigo)}</h2><form id="f"><div class="campos">
-    <label class="campo">Monto cotizado ($, con IVA) <input name="monto" type="number" min="0" step="1" value="${oc.monto_cotizado != null ? oc.monto_cotizado : ''}" required></label>
+    <div class="gris" style="font-size:12px;grid-column:1/-1">Solo si lo que cotizó el proveedor difiere del total de las líneas${oc.total != null ? ' (' + pesos(oc.total) + ')' : ''}: este monto manda sobre las líneas. Déjalo vacío para volver al total de las líneas.</div>
+    <label class="campo">Monto cotizado por el proveedor ($, total a pagar) <input name="monto" type="number" min="0" step="1" value="${oc.monto_origen === 'proveedor' && oc.monto_cotizado != null ? oc.monto_cotizado : ''}"></label>
     <label class="campo">N° de cotización o referencia <input name="ref" value="${esc(oc.referencia_prov || '')}"></label>
     <label class="campo">Fecha prometida (si ya la dio) <input name="fecha" type="date" value="${oc.fecha_prometida || ''}"></label>
     <label class="campo">Archivo de la cotización (PDF o foto) <input name="archivo" type="file" accept="application/pdf,image/*"></label></div>
@@ -2075,6 +2217,36 @@ function formCotizacionOC(oc, despues) {
     const a = f.get('archivo'); if (a && a.size) await subirDocOC(oc, 'Cotización proveedor', a, `Cotización ${oc.codigo} ${oc.proveedor}`);
     aviso('Cotización registrada'); cerrarModal(); despues(); } catch (e) { aviso(errorDe(e), true); } };
 }
+/* ---------- Catálogo de insumos (Compras v2 paso 3, 19-oct-2026): tela, film, madera y lo demás que se compra sin ser pieza de un pedido ----------
+   Harold edita; quien compra lo ve. El precio de referencia es el que la OC propone (neto si el proveedor agrega IVA, final si no). */
+const CATEGORIAS_INSUMO = ['tela', 'silla', 'sofá', 'vidrio', 'piedra', 'madera', 'cubierta', 'perfil', 'pintura', 'embalaje', 'herraje', 'servicio', 'otro'];
+async function vInsumos() {
+  cache.insumos = null; const lista = await cargarInsumos(true); await cargarProveedores();
+  const admin = yo.rol === 'admin';
+  const fila = i => `<tr class="${i.activo ? '' : 'inactivo'} ${admin ? 'fila-prov' : ''}" data-ins="${i.id}" ${admin ? 'title="Editar este insumo"' : ''}><td class="nw"><b>${esc(i.codigo)}</b>${i.activo ? '' : ' <span class="chip">inactivo</span>'}</td><td>${esc(i.nombre)}${i.codigo_proveedor ? ` <span class="gris">[${esc(i.codigo_proveedor)}]</span>` : ''}${i.tiene_color ? ' <span class="chip">color por línea</span>' : ''}${i.nota ? `<div class="l2">${esc(i.nota)}</div>` : ''}</td><td>${esc(i.categoria)}</td><td>${esc(i.unidad)}</td><td>${esc(i.proveedor || '')}</td><td class="nw mono">${i.precio_neto_ref != null ? pesos(i.precio_neto_ref) : '<span class="gris">-</span>'}${i.precio_ref_fecha ? `<div class="l2">${fecha(i.precio_ref_fecha)}</div>` : ''}</td></tr>`;
+  app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><a href="#/compras" class="btn chico">← Compras</a><span>Catálogo de lo que se compra: con el precio de referencia la orden de compra propone el precio de cada línea. Tela, film y madera se piden desde Compras con "+ Compra de insumos".</span>${admin ? '<button class="btn chico primario" id="i-nuevo" style="margin-left:auto">+ Insumo</button>' : ''}</div>
+    <div class="contenido"><section class="seccion"><div class="tabla-env"><table class="lista"><thead><tr><th>Código</th><th>Insumo</th><th>Categoría</th><th>Unidad</th><th>Proveedor habitual</th><th>Precio ref.</th></tr></thead><tbody>${lista.map(fila).join('') || '<tr><td colspan="6" class="gris">Sin insumos todavía.</td></tr>'}</tbody></table></div>
+      <div class="gris" style="font-size:12px;margin-top:8px">Precio de referencia: neto si el proveedor agrega IVA en la OC (Fabrics), final si no (Aliwen). El precio real de cada compra queda en la línea de la OC; el de referencia se corrige aquí cuando cambia.</div></section></div>`;
+  if (admin) { $$('tr[data-ins]').forEach(tr => tr.onclick = () => formInsumo(lista.find(i => i.id === Number(tr.dataset.ins)), vInsumos)); const b = $('#i-nuevo'); if (b) b.onclick = () => formInsumo(null, vInsumos); }
+}
+function formInsumo(i, despues) {
+  const v = k => esc(i && i[k] != null ? i[k] : ''); const provs = cache.proveedores || [];
+  modal(`<h2>${i ? 'Editar insumo · ' + esc(i.codigo) : 'Nuevo insumo'}</h2><form id="f"><div class="campos">
+    <label class="campo">Código (estilo de la casa) <input name="codigo" value="${v('codigo')}" placeholder="TELA.PATAGONIA" required></label>
+    <label class="campo">Nombre <input name="nombre" value="${v('nombre')}" placeholder="Tapiz Eco Cuero Patagonia" required></label>
+    <label class="campo">Categoría <select name="categoria">${CATEGORIAS_INSUMO.map(c => `<option ${(i ? i.categoria : 'otro') === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <label class="campo">Unidad <select name="unidad">${['un', 'm', 'm2', 'plancha', 'kg', 'rollo', 'servicio'].map(u => `<option ${(i ? i.unidad : 'un') === u ? 'selected' : ''}>${u}</option>`).join('')}</select></label>
+    <label class="campo">Proveedor habitual <select name="proveedor_habitual_id"><option value="">(ninguno)</option>${provs.map(p => `<option value="${p.id}" ${i && i.proveedor_habitual_id === p.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></label>
+    <label class="campo">Código del proveedor <input name="codigo_proveedor" value="${v('codigo_proveedor')}" placeholder="TAG 26 06"></label>
+    <label class="campo">Precio de referencia ($) <input name="precio_neto_ref" type="number" min="0" step="1" value="${v('precio_neto_ref')}"></label>
+    <label class="campo">Color por línea <select name="tiene_color"><option value="true" ${i && i.tiene_color ? 'selected' : ''}>Sí (el color se indica al pedir)</option><option value="false" ${!i || !i.tiene_color ? 'selected' : ''}>No</option></select></label>
+    ${i ? `<label class="campo">Activo <select name="activo"><option value="true" ${i.activo ? 'selected' : ''}>Sí</option><option value="false" ${!i.activo ? 'selected' : ''}>No (ya no se compra)</option></select></label>` : ''}
+    <label class="campo" style="grid-column:1/-1">Nota <textarea name="nota" rows="3">${v('nota')}</textarea></label></div>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">${i ? 'Guardar' : 'Crear insumo'}</button></div></form>`, 'ancha');
+  $('#f').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const c = {}; for (const [k, val] of f.entries()) c[k] = val; c.tiene_color = c.tiene_color === 'true'; if (c.activo != null) c.activo = c.activo === 'true';
+    try { await rpc('editar_insumo', { p_id: i ? i.id : null, p_datos: c }); cache.insumos = null; aviso(i ? 'Insumo guardado' : 'Insumo creado'); cerrarModal(); despues(); } catch (e) { aviso(errorDe(e), true); } };
+}
+
 /* ---------- Proveedores y pagos (Compras v2 pasos 1 y 2, 16-oct-2026; ARQUITECTURA_COMPRAS_v2.md) ----------
    Harold: "necesito un lugar donde ver el historial de pedidos que se le hizo a cada proveedor" y "los abonos y saldos que tengo con proveedores".
    Un pago puede cubrir varias OC y una OC puede recibir varios pagos (anticipo y saldo). Lo pagado de la OC se deriva de los pagos.
@@ -2128,6 +2300,7 @@ async function vProveedor(id) {
   let acum = 0;
   const filaMov = m => { acum += (m.cargo || 0) - (m.abono || 0); return `<tr class="${m.oc_id ? 'fila-oc' : ''}" ${m.oc_id ? `data-oc="${m.oc_id}"` : ''}><td class="nw">${fecha(m.fecha)}</td><td>${esc(m.texto)}${m.estado ? ' ' + ocChip(m.estado) : ''}${m.sinCot ? ' <span class="chip">sin cotización</span>' : ''}${m.ref ? `<div class="l2">${esc(m.ref)}</div>` : ''}</td><td class="nw mono">${m.cargo != null ? pesos(m.cargo) : ''}</td><td class="nw mono">${m.abono != null ? pesos(m.abono) : ''}</td><td class="nw mono ${acum > 0 ? 'rojo' : acum < 0 ? 'verde-txt' : ''}">${pesos(acum)}</td><td class="nw">${m.pago ? (m.pago.comprobante_path ? `<button class="btn chico" data-ver="${esc(m.pago.comprobante_path)}">Ver</button>` : m.pago.comprobante_url ? `<a class="btn chico" href="${esc(m.pago.comprobante_url)}" target="_blank">Abrir</a>` : '') + (admin ? ` <button class="btn chico" data-borrar-pago="${m.pago.id}" title="Borrar este pago (si se registró mal)">Borrar</button>` : '') : ''}</td></tr>`; };
   const filaOC = o => `<tr class="fila-oc ${o.atrasada ? 'atrasado' : ''}" data-oc="${o.id}" title="Abrir la orden de compra"><td class="num"><b>${esc(o.codigo)}</b></td><td class="nw">${fecha(o.fecha)}</td><td>${ocChip(o.estado)}</td><td>${esc(o.piezas_resumen || '')}</td><td class="nw ${o.atrasada ? 'rojo' : ''}">${o.fecha_prometida ? fecha(o.fecha_prometida, true) : '<span class="gris">sin fecha</span>'}${o.referencia_prov ? `<div class="l2">${esc(o.referencia_prov)}</div>` : ''}</td>${pc ? `<td class="nw mono">${o.monto_cotizado != null ? pesos(o.monto_cotizado) : '<span class="gris">-</span>'}</td>` : ''}${pv ? `<td class="nw mono">${o.monto_pagado != null ? pesos(o.monto_pagado) : '<span class="gris">-</span>'}</td><td class="nw mono">${saldoOC(o)}</td>` : ''}</tr>`;
+  const filaIt = x => `<tr><td class="nw">${fecha(x.fecha)}</td><td class="nw"><a href="#" data-oc="${x.oc_id}">OC-${x.oc_numero}</a> ${ocChip(x.estado_oc)}</td><td class="nw">${x.numero ? `<a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a> ${esc(nombrePila({ cliente: x.cliente }))}` : '<span class="gris">-</span>'}</td><td>${esc(tituloItem(p, x))}${atributosItem(p, x).length ? `<div class="l2">${esc(atributosItem(p, x).join(' · '))}</div>` : ''}</td><td class="nw">${qty(x.cantidad)}${x.unidad && x.unidad !== 'un' ? ' ' + esc(x.unidad) : ''}</td>${pc ? `<td class="nw mono">${x.precio_unitario != null ? pesos(x.precio_unitario) + (Number(x.iva_pct) ? ' <span class="gris">+IVA</span>' : '') : '<span class="gris">-</span>'}</td><td class="nw mono">${x.total != null ? pesos(x.total) : '<span class="gris">-</span>'}</td>` : ''}<td class="nw">${x.devuelta_en ? `<span class="rojo">devuelta ${fecha(x.devuelta_en)}</span>` : x.recibida_en ? `recibida ${fecha(x.recibida_en)}` : esc(x.etapa || '')}</td></tr>`;
   const filaPz = x => `<tr><td class="nw">${x.fecha_pedido ? fecha(x.fecha_pedido) : '-'}</td><td class="nw"><a href="#/pedido/${x.pedido_id}">${esc(x.numero)}</a> ${esc(nombrePila({ cliente: x.cliente }))}</td><td>${esc(descCompra(p, { ...x, tipo_linea: x.tipo }))}</td><td class="nw">${esc(x.etapa || '')}${x.devuelta_en ? `<div class="l2 rojo">devuelta ${fecha(x.devuelta_en)}${x.recepcion_nota ? ' · ' + esc(x.recepcion_nota) : ''}</div>` : x.recibida_en ? `<div class="l2">recibida ${fecha(x.recibida_en)}</div>` : ''}</td><td class="nw">${x.oc_numero ? `<a href="#" data-oc="${x.oc_id}">OC-${x.oc_numero}</a>` : '<span class="gris">sin OC</span>'}</td></tr>`;
   app.innerHTML = barra('#/compras') + `<div class="sub no-imprimir"><a href="#/compras/proveedores" class="btn chico">← Proveedores</a><span><b>${esc(p.nombre)}</b> · ${esc(p.que_vende || '')}</span>
       <span style="margin-left:auto;display:flex;gap:8px">${pv ? '<button class="btn chico primario" id="pv-pago">Registrar pago</button>' : ''}${admin ? '<button class="btn chico" id="pv-editar">Editar</button>' : ''}</span></div>
@@ -2135,7 +2308,7 @@ async function vProveedor(id) {
       <section class="seccion"><div class="cab"><h2>${esc(p.nombre)}${p.activo ? '' : ' <span class="chip">inactivo</span>'}${p.categoria ? ` <span class="chip">${esc(p.categoria)}</span>` : ''}</h2></div>
         <div class="datos">${dato('Contacto', esc(p.contacto))}${dato('Teléfono', waTel(p.telefono))}${dato('Correo', p.correo ? `<a href="mailto:${esc(p.correo)}">${esc(p.correo)}</a>` : '')}${dato('RUT', esc(p.rut))}${dato('Dirección', esc(p.direccion))}${dato('Forma de pago', esc(p.forma_pago))}
           ${dato('Condición', [p.pct_anticipo != null ? p.pct_anticipo + '% para empezar' : '', p.pct_contra_entrega != null ? p.pct_contra_entrega + '% contra entrega' : '', p.plazo_dias ? p.plazo_dias + ' días' : ''].filter(Boolean).join(' · '))}
-          ${dato('Precios', ivaTxt(p))}${dato('Despacho', esc(p.despacho))}${dato('Cuenta bancaria', esc(p.cuenta_bancaria))}${dato('Formato del pedido', esc(p.formato))}${dato('Nota', esc(p.nota))}</div></section>
+          ${dato('Precios', ivaTxt(p))}${dato('IVA en la OC', p.iva_pct != null ? (Number(p.iva_pct) ? '+' + p.iva_pct + '% sobre el neto' : 'sin IVA (precio final)') : '')}${dato('Despacho', esc(p.despacho))}${dato('Cuenta bancaria', esc(p.cuenta_bancaria))}${dato('Formato del pedido', esc(p.formato))}${dato('Nota', esc(p.nota))}</div></section>
       <div class="kpis">
         <div class="kpi"><b>OC abiertas</b><span>${c.oc_abiertas || 0}</span>${c.oc_sin_cotizar ? `<small>${c.oc_sin_cotizar} sin cotización</small>` : ''}</div>
         <div class="kpi"><b>Última compra</b><span>${c.ultima_compra ? fecha(c.ultima_compra) : '-'}</span></div>
@@ -2147,8 +2320,10 @@ async function vProveedor(id) {
         ${movs.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Detalle</th><th>Cargo</th><th>Abono</th><th>Saldo</th><th></th></tr></thead><tbody>${movs.map(filaMov).join('')}</tbody></table></div>` : '<div class="gris">Sin movimientos todavía.</div>'}</section>` : ''}
       <section class="seccion"><div class="cab"><h2>Órdenes de compra (${(p.ocs || []).length})</h2></div>
         ${(p.ocs || []).length ? `<div class="tabla-env"><table class="lista oc-tabla"><thead><tr><th>OC</th><th>Enviada</th><th>Estado</th><th>Piezas</th><th>Llega</th>${pc ? '<th>Cotizó</th>' : ''}${pv ? '<th>Pagado</th><th>Saldo</th>' : ''}</tr></thead><tbody>${p.ocs.map(filaOC).join('')}</tbody></table></div>` : '<div class="gris">Todavía no se le ha hecho ninguna orden de compra desde la app.</div>'}</section>
-      <section class="seccion"><div class="cab"><h2>Historial de piezas compradas (${(p.piezas || []).length})</h2></div>
-        ${(p.piezas || []).length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Pedida</th><th>Pedido</th><th>Pieza</th><th>Etapa</th><th>OC</th></tr></thead><tbody>${p.piezas.map(filaPz).join('')}</tbody></table></div>` : '<div class="gris">Nada comprado a este proveedor desde la app.</div>'}</section>
+      <section class="seccion"><div class="cab"><h2>Historial de compras (${(p.items || []).length} línea${(p.items || []).length === 1 ? '' : 's'})</h2><span class="gris" style="font-size:12px">cada línea de cada OC, con cantidad y precio: lo que se le ha comprado y a cuánto</span></div>
+        ${(p.items || []).length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>OC</th><th>Pedido</th><th>Línea</th><th>Cant.</th>${pc ? '<th>Precio unit.</th><th>Total</th>' : ''}<th>Estado</th></tr></thead><tbody>${p.items.map(filaIt).join('')}</tbody></table></div>` : '<div class="gris">Nada comprado a este proveedor desde la app (las compras anteriores al 13-oct-2026 están en Proveedores.xlsx).</div>'}</section>
+      ${(p.piezas || []).some(x => !x.oc_id) ? `<section class="seccion"><div class="cab"><h2>Piezas pedidas sin OC (${p.piezas.filter(x => !x.oc_id).length})</h2><span class="gris" style="font-size:12px">pedidas antes del 13-oct o anotadas a mano</span></div>
+        <div class="tabla-env"><table class="lista"><thead><tr><th>Pedida</th><th>Pedido</th><th>Pieza</th><th>Etapa</th><th>OC</th></tr></thead><tbody>${p.piezas.filter(x => !x.oc_id).map(filaPz).join('')}</tbody></table></div></section>` : ''}
     </div>`;
   const refrescar = () => vProveedor(id);
   $$('tr.fila-oc, a[data-oc]').forEach(el => el.onclick = ev => { ev.preventDefault(); modalOC(Number(el.dataset.oc)); });
@@ -2276,13 +2451,24 @@ async function pdfOC(oc, prov) {
   const y2 = bloque(M + A / 2 + 4, 'Proveedor', [['Nombre', prov.nombre], ['Contacto', prov.contacto], ['Teléfono', prov.telefono], ['Dirección', prov.direccion], ['Referencia', oc.referencia_prov]]);
   y = Math.max(y1, y2) + 4;
   doc.setFontSize(7); doc.setTextColor(0, 129, 166); doc.text('DETALLE', M, y); y += 3;
-  const cols = [[M, 10, 'N°'], [M + 10, 14, 'Cant.'], [M + 24, A - 24 - 34, 'Descripción'], [W - M - 34, 34, 'Pedido']];
+  const items = oc.items || (oc.piezas || []).map(x => itemDePieza(x, null)); const tt = totalesItems(items); const conPrecio = puedeComprar() && items.length > 0 && tt.sin === 0;
+  const cols = conPrecio ? [[M, 8, 'N°'], [M + 8, 18, 'Cant.'], [M + 26, A - 26 - 30 - 26 - 28, 'Descripción'], [W - M - 84, 30, 'Pedido'], [W - M - 54, 26, 'Precio'], [W - M - 28, 28, 'Total']] : [[M, 10, 'N°'], [M + 10, 16, 'Cant.'], [M + 26, A - 26 - 34, 'Descripción'], [W - M - 34, 34, 'Pedido']];
   doc.setFillColor(230, 243, 247); doc.rect(M, y, A, 7, 'F'); doc.setFontSize(8.5); doc.setTextColor(40); cols.forEach(([x, w, t]) => doc.text(t, x + 2, y + 4.8)); y += 7;
   doc.setFontSize(9); doc.setDrawColor(221, 227, 230); doc.setLineWidth(0.2);
-  oc.piezas.forEach((x, i) => { const d = doc.splitTextToSize(descCompra(prov, x), cols[2][1] - 4); const h = Math.max(7, d.length * 4.4 + 3); if (y + h > 250) { doc.addPage(); y = 20; }
-    doc.setTextColor(40); doc.text(String(i + 1), cols[0][0] + 2, y + 4.8); doc.text(String(x.cantidad), cols[1][0] + 2, y + 4.8); doc.text(d, cols[2][0] + 2, y + 4.8); doc.setTextColor(120); doc.text(refPedido(x).replace(/[\[\]]/g, ''), cols[3][0] + 2, y + 4.8); y += h; doc.line(M, y, W - M, y); });
+  items.forEach((it, i) => { const txt = [tituloItem(prov, it, true)].concat(atributosItem(prov, it)).join('\n'); const d = doc.splitTextToSize(txt, cols[2][1] - 4); const h = Math.max(7, d.length * 4.4 + 3); if (y + h > 240) { doc.addPage(); y = 20; }
+    doc.setTextColor(40); doc.text(String(i + 1), cols[0][0] + 2, y + 4.8); doc.text(qty(it.cantidad) + (it.unidad && it.unidad !== 'un' ? ' ' + it.unidad : ''), cols[1][0] + 2, y + 4.8); doc.text(d, cols[2][0] + 2, y + 4.8);
+    doc.setTextColor(120); doc.text(it.numero ? `${it.numero} ${nombrePila({ cliente: it.cliente })}` : '', cols[3][0] + 2, y + 4.8);
+    if (conPrecio) { doc.setTextColor(40); doc.text(pesos(it.precio_unitario) + (Number(it.iva_pct) ? ' +IVA' : ''), cols[4][0] + cols[4][1] - 2, y + 4.8, { align: 'right' }); doc.text(pesos(totalItem(it)), cols[5][0] + cols[5][1] - 2, y + 4.8, { align: 'right' }); }
+    y += h; doc.line(M, y, W - M, y); });
+  if (conPrecio) {
+    y += 3; const linea = (k, v, negrita) => { doc.setFont('helvetica', negrita ? 'bold' : 'normal'); doc.setTextColor(40); doc.text(k, W - M - 60, y + 4.8, { align: 'right' }); doc.text(v, W - M - 2, y + 4.8, { align: 'right' }); y += 5.5; };
+    if (tt.conIva) { linea('Neto', pesos(tt.neto)); linea('IVA 19%', pesos(tt.iva)); }
+    linea('Total', pesos(tt.total), true);
+    if (prov.pct_anticipo) { const ab = Math.round(tt.total * prov.pct_anticipo / 100); linea(`Abono ${prov.pct_anticipo}%`, pesos(ab)); linea('Saldo', pesos(tt.total - ab)); }
+    doc.setFont('helvetica', 'normal');
+  }
   y += 8; doc.setFontSize(9); doc.setTextColor(40);
-  const pie = doc.splitTextToSize(`Favor confirmar valor y fecha de entrega citando la ${oc.codigo}.` + (prov.formato === 'vidrio' ? ' Retiro en taller Lo Blanco 1919, La Pintana.' : '') + (oc.nota ? '' : ''), A); doc.text(pie, M, y); y += pie.length * 4.6 + 4;
+  const pie = doc.splitTextToSize(pieTextoOC(prov, oc.codigo), A); doc.text(pie, M, y); y += pie.length * 4.6 + 4;
   doc.setFontSize(7.5); doc.setTextColor(140); doc.text(`${EMISOR.empresa} · RUT ${EMISOR.rut} · ${EMISOR.email} · ${EMISOR.telefono}`, W / 2, 268, { align: 'center' });
   const blob = doc.output('blob'); const nombre = `${oc.codigo}_${(prov.nombre || '').replace(/[^\w]+/g, '_')}.pdf`;
   if (puedeComprar() && !(oc.documentos || []).some(d => d.tipo === 'Orden de compra')) { try { await subirDocOC(oc, 'Orden de compra', new File([blob], nombre, { type: 'application/pdf' }), nombre); oc.documentos = [...(oc.documentos || []), { tipo: 'Orden de compra' }]; } catch (e) { } }
