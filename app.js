@@ -342,7 +342,7 @@ window.addEventListener('hashchange', () => { if (yo) render(); });
 function barra(activa) {
   const links = yo.rol === 'operacion'
     ? [['#/taller', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ...(yo.ve_compras ? [['#/compras', 'Compras']] : [])]
-    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/cotizador', 'Cotizador'], ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
+    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/cotizador', 'Cotizador'], ...(esHarold() ? [['#/trabajadores', 'Trabajadores']] : []), ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
   return `<div class="barra"><a class="marca" href="${links[0][0]}" title="Santino Design · Pedidos"><img src="logo.png" alt="Santino Design" class="logo-barra"></a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
 }
 async function render() {
@@ -362,6 +362,8 @@ async function render() {
     else if (h === '#/compras/proveedores' && (!esOp || yo.ve_compras)) await vProveedores();
     else if (h === '#/compras' && (!esOp || yo.ve_compras)) await vCompras();
     else if ((h === '#/cotizador' || h.startsWith('#/cotizador?')) && !esOp) await vCotizaciones();
+    else if (h.startsWith('#/trabajadores/') && !esOp) await vTrabajador(Number(h.split('/')[2]));   // pagos a colaboradores (19-oct-2026), solo Harold
+    else if (h === '#/trabajadores' && !esOp) await vTrabajadores();
     else if (h.startsWith('#/cotizacion/') && !esOp) await vCotizacion(h.split('/')[2]);
     else if (h === '#/odt') await vOdt();
     else if (h === '#/imprimir-listado' && !esOp) await vImprimirListado();
