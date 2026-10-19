@@ -634,7 +634,7 @@ function abrirDetalleFila(tr) {
   const esOp = yo.rol === 'operacion';
   // Despliegue v2 (Harold 13-oct): 4 bloques para trabajar sin entrar a la ficha: Pedido · Cliente y entrega · Pago · Piezas (tabla con las
   // mismas columnas de la ODT; el nombre de la pieza abre Editar). La ficha queda para historial, documentos y guías.
-  const estadosPosibles = esOp ? [...new Set([p.estado, 'EN FABRICACIÓN', 'LISTO EN TALLER', 'DESPACHO PROGRAMADO', 'ENTREGADO'])] : ESTADOS;
+  const estadosPosibles = esOp ? [...new Set([p.estado, 'EN FABRICACIÓN', 'LISTO EN TALLER', 'DESPACHO PROGRAMADO'])] : ESTADOS;   // Harold 19-oct: operación entrega solo por Entregar o deslizando (W3146 quedó ENTREGADO por un toque aquí)
   const tel = p.cliente_telefono;
   const saldo = esOp ? p.saldo_por_cobrar : p.saldo;
   const fe = p.fecha_comprometida || p.fecha_estimada;
@@ -687,6 +687,7 @@ function abrirDetalleFila(tr) {
   se.onclick = ev => ev.stopPropagation();
   se.onchange = async () => {
     const antes = p.estado, nuevo = se.value;
+    if (nuevo === 'ENTREGADO' && !confirmarEntregaAnticipada(p)) { se.value = antes; return; }
     try { await rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: nuevo }); p.estado = nuevo; aviso(`${p.numero}: ${nuevo}`); anotarCambio(`estado de ${p.numero} (volver a ${antes})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: antes })); reabrir(); }
     catch (e) { se.value = antes; aviso(errorDe(e), true); }
   };
@@ -966,7 +967,7 @@ async function vFicha(id) {
   on('#b-entregar', () => formEntregar(p, recargar));
   on('#b-wa-saldo', () => abrirWaSaldo(p));
   if (!esOp) {
-    $('#s-estado').onchange = async ev => { try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: ev.target.value }); aviso('Estado: ' + ev.target.value); anotarCambio(`estado de ${p.numero} (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); } catch (e) { aviso(errorDe(e), true); } recargar(); };
+    $('#s-estado').onchange = async ev => { if (ev.target.value === 'ENTREGADO' && !confirmarEntregaAnticipada(p)) { ev.target.value = p.estado; return; } try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: ev.target.value }); aviso('Estado: ' + ev.target.value); anotarCambio(`estado de ${p.numero} (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); } catch (e) { aviso(errorDe(e), true); } recargar(); };
     $('#s-tipo').onchange = async ev => { const nuevo = ev.target.value, antes = p.tipo_pedido; const { error } = await sb.from('pedido').update({ tipo_pedido: nuevo }).eq('id', id); aviso(error ? errorDe(error) : 'Tipo de pedido: ' + nuevo, !!error); if (!error) { anotarCambio(`tipo de ${p.numero} (volver a ${antes})`, () => sb.from('pedido').update({ tipo_pedido: antes }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); } };
     $('#c-urgente').onchange = async ev => { const nuevo = ev.target.checked; const { error } = await sb.from('pedido').update({ urgente: nuevo }).eq('id', id); aviso(error ? errorDe(error) : (nuevo ? 'Marcado urgente' : 'Ya no es urgente'), !!error); if (!error) anotarCambio(`urgente de ${p.numero}`, () => sb.from('pedido').update({ urgente: !nuevo }).eq('id', id).then(r => { if (r.error) throw r.error; })); };
     $('#i-comp').onchange = async ev => { const { error } = await sb.from('pedido').update({ fecha_comprometida: ev.target.value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Fecha comprometida guardada (queda en el historial)', !!error); if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: p.fecha_comprometida }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); };
@@ -1059,6 +1060,12 @@ function formSubir(p, despues) {
 }
 /* Entrega con confirmación del saldo (Harold 14-oct, desde la tablet): si hay saldo, se confirma ahí mismo si se cobró o no;
    un solo paso: cobro (abono con medio y cuenta) más ENTREGADO, con foto opcional. Lo usan el deslizar de la Lista, el despliegue y la ficha. */
+/* Harold 19-oct-2026: W3146 quedó ENTREGADO el 16-oct, tres días antes de la entrega confirmada (toque en el menú Estado de la tablet).
+   Marcar ENTREGADO con fecha comprometida futura pide confirmación por todos los caminos (Entregar, deslizar, menú Estado de Harold). */
+function confirmarEntregaAnticipada(p) {
+  const f = p.fecha_comprometida || p.fecha_estimada; if (!f || String(f).slice(0, 10) <= hoyISO()) return true;
+  return confirm(`${p.numero}: la entrega está programada para el ${fecha(String(f).slice(0, 10), true)}, no para hoy. ¿Seguro que ya se entregó?`);
+}
 async function formEntregar(p, despues) {
   await cargarModelos();
   const saldo = Number(p.saldo_por_cobrar ?? p.saldo ?? 0);
@@ -1071,7 +1078,7 @@ async function formEntregar(p, despues) {
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">${saldo > 0 ? 'Aceptar y marcar ENTREGADO' : 'Marcar ENTREGADO'}</button></div></form>`);
   $$('input[name=cobro]').forEach(r => r.onchange = () => { const c = $('#e-cobro'); if (c) c.style.display = $('input[name=cobro]:checked').value === 'si' ? '' : 'none'; });
   $('#f').onsubmit = async ev => {
-    ev.preventDefault(); const f = new FormData(ev.target); const foto = f.get('foto'); let url = null;
+    ev.preventDefault(); if (!confirmarEntregaAnticipada(p)) return; const f = new FormData(ev.target); const foto = f.get('foto'); let url = null;
     const cobra = saldo > 0 && f.get('cobro') === 'si';
     try {
       if (foto && foto.size) { const path = `entregas/${p.id}_${Date.now()}.jpg`; const { error } = await sb.storage.from('documentos').upload(path, foto, { contentType: foto.type || 'image/jpeg' }); if (error) throw error; url = path; }
@@ -1093,6 +1100,7 @@ function activarDeslizarEntrega() {
       if (['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado)) return aviso(`${p.numero} ya está ${p.estado.toLowerCase()}`);
       // Harold 14-oct: la ventana solo cuando hay saldo pendiente; sin saldo, el deslizar entrega directo (con Deshacer)
       if (Number(p.saldo_por_cobrar ?? p.saldo ?? 0) > 0) return formEntregar(p, () => vLista());
+      if (!confirmarEntregaAnticipada(p)) return;
       (async () => { try { await rpc('entregar_pedido', { p_pedido_id: p.id, p_cobro: 0 }); aviso(`${p.numero} entregado ✓ (pagado)`); anotarCambio(`${p.numero} entregado (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: p.id, p_estado: p.estado })); vLista(); } catch (e) { aviso(errorDe(e), true); } })(); };
     tr.addEventListener('touchend', fin); tr.addEventListener('touchcancel', fin);
     // Mac (Harold 14-oct, "es clic izquierdo"): clic izquierdo y arrastrar la fila hacia la derecha = entregar. El arrastre de una fila
