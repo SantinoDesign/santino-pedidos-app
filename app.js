@@ -173,6 +173,10 @@ const AREAS_TALLER = ['Carpintería', 'Soldadura', 'Armado muebles', 'Vidrio/com
 const TIPOS_LINEA = ['Mesa', 'Base', 'Cubierta', 'Silla', 'Banca', 'Mueble', 'Servicio', 'Repuesto', 'Embalaje', 'Barniz'];
 /* Tipo de mueble de la pieza (Harold 20-oct, Pablo Vergara W3148): con modelo ESPECIAL se muestra "<tipo> a medida", nunca "ESPECIAL" ni "solo bases" */
 const TIPOS_MUEBLE = ['Mesa de comedor', 'Mesa de centro', 'Mesa lateral', 'Mesa de bar', 'Mesa de terraza', 'Escritorio', 'Consola', 'Velador', 'Banca', 'Pedestal', 'Rack TV', 'Closet', 'Cocina', 'Mueble de baño', 'Repisa', 'Otro mueble'];
+/* Madera y espesor en Editar pieza (Harold 20-oct): espesores sacados de los usados en los pedidos reales, por grupo de material; "Otro…" para un valor distinto */
+const GRUPOS_MATERIAL = [['Madera', ['LENGA', 'PINO', 'ROB.US', 'ROB.HUALLE', 'ENCINA', 'HAYA', 'CARVALLO', 'PINO OREGON']], ['Tablero', ['ENCHAPADO', 'MDF', 'MELAMINA']], ['Vidrio y piedra', ['V.T', 'V.C', 'TRAVERTINO', 'CUARZO', 'NEOLITH']], ['Otro', ['METAL', 'RATAN']]];
+const ESPESORES = { Madera: [18, 20, 22, 27, 32, 34, 35, 40, 50], Tablero: [15, 18], Vidrio: [12, 15, 19], Piedra: [20, 30, 40] };
+const espesoresDe = m => { m = String(m || '').toUpperCase(); return ['V.T', 'V.C'].includes(m) ? ESPESORES.Vidrio : ['TRAVERTINO', 'CUARZO', 'NEOLITH'].includes(m) ? ESPESORES.Piedra : ['ENCHAPADO', 'MDF', 'MELAMINA'].includes(m) ? ESPESORES.Tablero : ESPESORES.Madera; };
 const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_base || 'ESPECIAL') === 'ESPECIAL' ? x.tipo_mueble + ' a medida' : '';
 /* Detalle de una pieza a medida para la ODT y la ficha (Harold 20-oct: "en lista, pero detallar en ODT; esos siempre van con plano la mayoría de las veces"):
    la descripción sin medidas ("Especial en base a Origen", "Extensible redonda") y la marca de plano: "con plano" si el pedido tiene planos, "¿plano?" en rojo si no. En la Lista va solo el nombre corto. */
@@ -233,6 +237,13 @@ function formEditarPieza(lineaId, despues) {
   const modelosOp = Object.entries(cache.modelosNombre || {}).filter(([c]) => !['CROSS', 'S.SANTINO', 'WIND', 'WISH'].includes(c)).sort((a, b) => a[1].localeCompare(b[1], 'es'));
   if (modActual && modActual !== 'ESPECIAL' && !modelosOp.some(([c]) => c === modActual)) modelosOp.push([modActual, modActual]);
   const tiposMueble = x.tipo_mueble && !TIPOS_MUEBLE.includes(x.tipo_mueble) ? [...TIPOS_MUEBLE, x.tipo_mueble] : TIPOS_MUEBLE;
+  // Madera: la base guarda material_base; cubierta, mesa, mueble y banca guardan material_cubierta (Harold 20-oct)
+  const matActual = (x.tipo === 'Base' ? x.material_base || x.material_cubierta : x.material_cubierta || x.material_base) || '';
+  const codsMat = Object.keys((cache.codigos || {}).material || {});
+  const gruposMat = GRUPOS_MATERIAL.map(([g, l]) => [g, l.filter(c => codsMat.includes(c) || c === matActual)]).concat([['Otros', codsMat.filter(c => !GRUPOS_MATERIAL.some(([, l]) => l.includes(c)))]]).filter(([, l]) => l.length);
+  if (matActual && !gruposMat.some(([, l]) => l.includes(matActual))) gruposMat.push(['Actual', [matActual]]);
+  const nomMat = c => { const n = ((cache.codigos || {}).material || {})[c] ? cache.codigos.material[c].nombre : c; return n.charAt(0).toUpperCase() + n.slice(1); };
+  const opcEsp = (m, actual) => { const l = [...espesoresDe(m)]; if (actual && !l.includes(Number(actual))) l.push(Number(actual)); l.sort((a, b) => a - b); return `<option value="">-</option>${l.map(v => `<option value="${v}" ${Number(actual) === v ? 'selected' : ''}>${v} mm</option>`).join('')}<option value="otro">Otro…</option>`; };
   modal(`<h2>Editar pieza · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pz"><div class="campos">
     ${esOp ? '' : `<label class="campo">Tipo de pieza <select name="tipo_linea">${op(TIPOS_LINEA, x.tipo)}</select></label>
     <label class="campo">Cantidad <input name="cantidad" inputmode="numeric" value="${x.cantidad || 1}" style="width:70px"></label>
@@ -246,13 +257,20 @@ function formEditarPieza(lineaId, despues) {
     <label class="campo">Largo cm <input name="largo_cm" inputmode="decimal" value="${nv(x.largo_cm)}"></label>
     <label class="campo">Ancho cm <input name="ancho_cm" inputmode="decimal" value="${nv(x.ancho_cm)}"></label>
     <label class="campo">Alto cm <input name="alto_cm" inputmode="decimal" value="${nv(x.alto_cm)}"></label>
-    <label class="campo">Espesor mm ${x.tipo === 'Cubierta' ? '(de la cubierta)' : x.tipo === 'Base' ? '(de la pata o tablero de la base)' : '(del tablero del mueble)'} <input name="espesor_mm" inputmode="decimal" value="${nv(x.espesor_mm)}"></label>
+    ${conModelo ? `<label class="campo">Madera / material <select name="material"><option value="">Por definir</option>${gruposMat.map(([g, l]) => `<optgroup label="${esc(g)}">${l.map(c => `<option value="${esc(c)}" ${c === matActual ? 'selected' : ''}>${esc(nomMat(c))}</option>`).join('')}</optgroup>`).join('')}</select></label>` : ''}
+    <label class="campo">Espesor ${x.tipo === 'Cubierta' ? '(de la cubierta)' : x.tipo === 'Base' ? '(de la pata o tablero de la base)' : '(del tablero del mueble)'} <select name="espesor_mm">${opcEsp(matActual, x.espesor_mm)}</select></label>
     <label class="campo">Forma <select name="forma"><option value="">-</option>${op(['RECT', 'CUA', 'CIRC', 'OVAL'], x.forma)}</select></label></div>`}
     ${x.tipo === 'Silla' || x.tipo === 'Banca' ? `<div class="campos"><label class="campo">Modelo de silla <input name="tipo_silla" value="${esc(x.tipo_silla || '')}" placeholder="TULIP, WISH, CROSS, S.SANTINO" ${esOp ? 'disabled' : ''}></label><label class="campo">Tapiz (material) <input name="tapiz" value="${esc(x.tapiz || '')}" placeholder="Cueromix, Velvet, Lino"></label><label class="campo">Color silla o del tapiz <input name="color_silla" value="${esc(x.color_silla || '')}" placeholder="NGR, BL, BEIGE"></label></div>` : ''}
     <label class="campo" style="display:block;margin-top:8px">Medidas escritas para el maestro (manda sobre largo × ancho × alto; ej. "cruz arriba 40, cruz abajo 60, alto 71" o "Plano por definir") <input name="medida_texto" style="width:100%" value="${esc(x.medida_texto || '')}"></label>
     <label class="campo" style="display:block;margin-top:8px">Indicaciones del maestro (requerimientos especiales: radio, bisel, cabezales, plano impreso, madera clara...) <textarea name="indicaciones" rows="2" style="width:100%">${esc(x.indicaciones || '')}</textarea></label>
     <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Barniz: madera, pintado o lacado, encina. Pintura: metal. Sin acabado: sin barniz, melamina, tapicería. Lo comprado a proveedor solo se pide, se recibe y se embala. Medidas de una base: largo × ancho × alto. Un mueble de un solo cuerpo (cajón, velador, repisa) es UNA pieza; si tiene cubierta y base que se hacen por separado, se ingresa como Mesa (se divide sola) o se agregan las dos piezas desde la ficha.</p>
     <div class="acciones">${esOp ? '' : '<button type="button" class="btn borde" id="b-borrar-pz" style="margin-right:auto;color:var(--rojo-txt)">Borrar pieza</button>'}<button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  const selMat = $('#f-pz [name=material]'), selEsp = $('#f-pz [name=espesor_mm]');
+  if (selEsp) {
+    if (selMat) selMat.onchange = () => { const v = selEsp.value; selEsp.innerHTML = opcEsp(selMat.value, v === 'otro' ? '' : v); };
+    selEsp.onchange = () => { if (selEsp.value !== 'otro') return; const v = (prompt('Espesor en mm') || '').replace(',', '.').trim();
+      selEsp.innerHTML = opcEsp(selMat ? selMat.value : matActual, Number(v) > 0 ? v : x.espesor_mm); };
+  }
   $('#f-pz').onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target);
     const cambios = esOp
@@ -265,6 +283,11 @@ function formEditarPieza(lineaId, despues) {
       if ((f.get('tipo_mueble') || '') !== (x.tipo_mueble || '')) cambios.tipo_mueble = f.get('tipo_mueble');
     }
     if (!esOp && f.has('cantidad') && Number(f.get('cantidad')) !== (x.cantidad || 1)) cambios.cantidad = f.get('cantidad').trim();
+    if (!esOp && f.has('material') && (f.get('material') || '') !== matActual) {
+      const m = f.get('material');
+      if (x.tipo === 'Base') cambios.material_base = m;
+      else { cambios.material_cubierta = m; if (aMedidaTxt(x) && ['Mesa', 'Mueble', 'Banca'].includes(x.tipo)) cambios.material_base = m; }  // pieza a medida de un solo cuerpo: misma madera en la columna Base de la Lista
+    }
     try { const r = await rpc('editar_pieza', { p_linea_id: lineaId, p_cambios: cambios }); actualizarPiezas(r); aviso('Pieza guardada'); cerrarModal(); despues && despues(r); } catch (e) { aviso(errorDe(e), true); }
   };
   if (!esOp) $('#b-borrar-pz').onclick = async () => {
