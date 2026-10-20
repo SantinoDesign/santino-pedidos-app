@@ -91,7 +91,7 @@ function rasgos(p) {
   // pedido solo de sillas = código de la silla (WISH, CROSS, S.SANTINO), aunque se repita en la columna Sillas.
   let modeloTxt = modelos.join(' + ');
   const sinMedidas = t => (t || '').replace(/\d+([.,]\d+)?\s*[xX×]\s*\d+([.,]\d+)?(\s*[xX×]\s*\d+([.,]\d+)?)?\s*(cm)?/g, '').replace(/\b(cm|diam|radio)\b/gi, '').replace(/[·,\s]+/g, ' ').trim();
-  if (modeloTxt === 'ESPECIAL' || modeloTxt === 'ESPECIAL + ESPECIAL') modeloTxt = cub.tipo === 'Banca' ? 'BANCA ESPECIAL' : cub.tipo === 'Mueble' ? 'MUEBLE ESPECIAL' : 'ESPECIAL';  // sin redundar: material, medidas y tono van en sus columnas (Harold 12-oct)
+  if (modeloTxt === 'ESPECIAL' || modeloTxt === 'ESPECIAL + ESPECIAL') modeloTxt = aMedidaTxt(cub) || aMedidaTxt(base) || (cub.tipo === 'Banca' ? 'BANCA ESPECIAL' : cub.tipo === 'Mueble' ? 'MUEBLE ESPECIAL' : 'ESPECIAL');  // sin redundar: material, medidas y tono van en sus columnas (Harold 12-oct)
   else if (cub.tipo === 'Banca' && !modeloTxt) modeloTxt = 'BANCA';
   if (!modeloTxt && !cub.tipo && sil) modeloTxt = sil.tipo_silla || 'Sillas';
   if (!modeloTxt) modeloTxt = sinMedidas(cub.descripcion).slice(0, 28);
@@ -171,6 +171,9 @@ function activarEtapas(raiz, despues) {
 const ACABADOS = ['Barniz', 'Pintura', 'Sin acabado'];
 const AREAS_TALLER = ['Carpintería', 'Soldadura', 'Armado muebles', 'Vidrio/compras', 'Barniz'];
 const TIPOS_LINEA = ['Mesa', 'Base', 'Cubierta', 'Silla', 'Banca', 'Mueble', 'Servicio', 'Repuesto', 'Embalaje', 'Barniz'];
+/* Tipo de mueble de la pieza (Harold 20-oct, Pablo Vergara W3148): con modelo ESPECIAL se muestra "<tipo> a medida", nunca "ESPECIAL" ni "solo bases" */
+const TIPOS_MUEBLE = ['Mesa de comedor', 'Mesa de centro', 'Mesa lateral', 'Mesa de bar', 'Mesa de terraza', 'Escritorio', 'Consola', 'Velador', 'Banca', 'Rack TV', 'Closet', 'Cocina', 'Mueble de baño', 'Repisa', 'Otro mueble'];
+const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_base || 'ESPECIAL') === 'ESPECIAL' ? x.tipo_mueble + ' a medida' : '';
 function acabadoHtml(x) {
   if (!x.area) return '';
   if (x.area === 'Vidrio/compras') return '<span class="gris">sin acabado (se compra)</span>';
@@ -213,8 +216,16 @@ function formEditarPieza(lineaId, despues) {
   const esOp = yo.rol === 'operacion';
   const op = (lista, actual) => lista.map(v => `<option ${v === actual ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const nv = v => v == null ? '' : String(Number(v));
+  // Modelo de catálogo o "A medida" (ESPECIAL) más el tipo de mueble (Harold 20-oct, Pablo Vergara W3148); no aplica a sillas ni servicios
+  const conModelo = !['Silla', 'Servicio', 'Embalaje', 'Barniz'].includes(x.tipo);
+  const modActual = (x.tipo === 'Base' ? x.modelo_base || x.modelo_cubierta : x.modelo_cubierta || x.modelo_base) || '';
+  const modelosOp = Object.entries(cache.modelosNombre || {}).filter(([c]) => !['CROSS', 'S.SANTINO', 'WIND', 'WISH'].includes(c)).sort((a, b) => a[1].localeCompare(b[1], 'es'));
+  if (modActual && modActual !== 'ESPECIAL' && !modelosOp.some(([c]) => c === modActual)) modelosOp.push([modActual, modActual]);
+  const tiposMueble = x.tipo_mueble && !TIPOS_MUEBLE.includes(x.tipo_mueble) ? [...TIPOS_MUEBLE, x.tipo_mueble] : TIPOS_MUEBLE;
   modal(`<h2>Editar pieza · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pz"><div class="campos">
     ${esOp ? '' : `<label class="campo">Tipo de pieza <select name="tipo_linea">${op(TIPOS_LINEA, x.tipo)}</select></label>
+    ${conModelo ? `<label class="campo">Modelo <select name="modelo"><option value="">(sin modelo)</option><option value="ESPECIAL" ${modActual === 'ESPECIAL' ? 'selected' : ''}>A medida</option>${modelosOp.map(([c, n]) => `<option value="${esc(c)}" ${c === modActual ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+    <label class="campo">Tipo de mueble <select name="tipo_mueble"><option value="">(sin definir)</option>${op(tiposMueble, x.tipo_mueble)}</select></label>` : ''}
     <label class="campo">Descripción <input name="descripcion" value="${esc(x.descripcion || '')}"></label>
     <label class="campo">Dónde se hace <select name="area_taller"><option value="">(no pasa por el taller)</option>${AREAS_TALLER.map(a => `<option value="${esc(a)}" ${a === x.area ? 'selected' : ''}>${esc(a === 'Vidrio/compras' ? 'Compra a proveedor (vidrio, sillas, sofás)' : a)}</option>`).join('')}</select></label>`}
     <label class="campo">Acabado <select name="acabado"><option value="">Por definir</option>${op(ACABADOS, x.acabado)}</select></label>
@@ -236,6 +247,11 @@ function formEditarPieza(lineaId, despues) {
       ? { acabado: f.get('acabado') || null, fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto'), ...(f.has('tapiz') ? { tapiz: f.get('tapiz'), color_silla: f.get('color_silla') } : {}) }
       : { tipo_linea: f.get('tipo_linea'), descripcion: f.get('descripcion'), area_taller: f.get('area_taller') || null, acabado: f.get('area_taller') === 'Vidrio/compras' ? null : (f.get('acabado') || null),
           fecha_taller: f.get('fecha_taller') || null, indicaciones: f.get('indicaciones'), medida_texto: f.get('medida_texto'), ...(f.has('tapiz') ? { tipo_silla: f.get('tipo_silla'), tapiz: f.get('tapiz'), color_silla: f.get('color_silla') } : {}), largo_cm: f.get('largo_cm').replace(',', '.'), ancho_cm: f.get('ancho_cm').replace(',', '.'), alto_cm: f.get('alto_cm').replace(',', '.'), espesor_mm: f.get('espesor_mm').replace(',', '.'), forma: f.get('forma') || null };
+    if (!esOp && f.has('modelo')) {
+      const m = f.get('modelo');
+      if (m !== modActual) Object.assign(cambios, x.tipo === 'Base' ? { modelo_base: m } : { modelo_cubierta: m, modelo_base: m });
+      if ((f.get('tipo_mueble') || '') !== (x.tipo_mueble || '')) cambios.tipo_mueble = f.get('tipo_mueble');
+    }
     try { const r = await rpc('editar_pieza', { p_linea_id: lineaId, p_cambios: cambios }); actualizarPiezas(r); aviso('Pieza guardada'); cerrarModal(); despues && despues(r); } catch (e) { aviso(errorDe(e), true); }
   };
   if (!esOp) $('#b-borrar-pz').onclick = async () => {
@@ -604,7 +620,7 @@ function pintarLista() {
 function tablaPiezasHtml(p, esOp) {
   const piezas = (p.piezas || []).filter(x => x.area);
   const med = x => x.medida_texto ? (/por definir|pendiente/i.test(x.medida_texto) ? `<span class="falta-dato">${esc(x.medida_texto)}</span>` : esc(x.medida_texto)) : medidaTxt(x) ? esc(medidaTxt(x, ' × ')) + ' cm' : /\.(MOS|LIN)\./.test(x.color || '') ? 'Estándar ' + esc(x.color) : x.area === 'Carpintería' ? '<span class="falta-dato">por definir</span>' : '';
-  const nombrePz = x => x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
+  const nombrePz = x => aMedidaTxt(x) ? (['Base', 'Cubierta'].includes(x.tipo) ? x.tipo + ' de ' + aMedidaTxt(x).toLowerCase() : aMedidaTxt(x)) : x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
   const madera = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base); return (m ? esc(codMaterial(m)) : (x.tipo === 'Silla' ? '' : '-')) + (x.espesor_mm ? `<div class="l2">${num(x.espesor_mm)} mm</div>` : (x.area === 'Carpintería' && !/espesor/i.test(x.indicaciones || '') ? '<div class="l2 falta-dato">esp.?</div>' : '')); };
   const term = x => x.tipo === 'Silla' || x.tipo === 'Banca' ? [x.tapiz ? x.tapiz + (x.color_silla ? ' ' + x.color_silla : '') : (x.color_silla ? 'tapiz ' + x.color_silla : ''), x.color ? 'pata ' + x.color : ''].filter(Boolean).join(' · ') || '<span class="falta-dato">tapiz por definir</span>' : esc([x.tipo === 'Base' || !x.tono ? x.color : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · '));
   const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${ocLineaPieza(x)}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td>${esOp ? `<td class="gris">${esc(x.indicaciones || '')}</td>` : `<td class="gris ind-edit" data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro">${esc(x.indicaciones || '') || '<span class="falta-dato">agregar…</span>'}</td>`}</tr>`;
@@ -740,7 +756,7 @@ function mensajeDespacho(p) {
 // Formato exacto de la skill mensajes-saldo-pendiente v1.2
 function mensajeSaldo(p, abonos) {
   const pz = p.piezas || []; const cub = pz.find(x => ['Cubierta', 'Mesa', 'Mueble'].includes(x.tipo)) || {}; const sil = pz.find(x => x.tipo === 'Silla' || x.tipo === 'Banca');
-  const modelo = NOMBRE_MODELO[cub.modelo_cubierta] || NOMBRE_MODELO[(pz.find(x => x.tipo === 'Base') || {}).modelo_base] || cub.modelo_cubierta || cub.descripcion || '';
+  const modelo = aMedidaTxt(cub) || NOMBRE_MODELO[cub.modelo_cubierta] || NOMBRE_MODELO[(pz.find(x => x.tipo === 'Base') || {}).modelo_base] || cub.modelo_cubierta || cub.descripcion || '';
   const L = [`${nombrePila(p)}, te dejamos por acá el detalle de tu pedido con el saldo pendiente.`, ''];
   L.push(`${modelo}${cub.personas ? ' ' + cub.personas + ' personas' : ''}`.trim());
   const det = [cub.material_cubierta ? `${nombreMaterial(cub.material_cubierta)}${cub.espesor_mm ? ' ' + cub.espesor_mm + 'mm' : ''}` : null, cub.largo_cm ? `${num(cub.largo_cm)} x ${num(cub.ancho_cm)}${cub.alto_cm ? ' x ' + num(cub.alto_cm) : ''} cm` : null, cub.color ? (NOMBRE_COLOR[cub.color] || cub.color) : null, cub.tono ? (/^\d$/.test(cub.tono) ? 'barniz ' + ({ 1: 'natural', 2: '2 manos', 4: '4 manos' }[cub.tono] || 'tono ' + cub.tono) : 'barniz ' + (NOMBRE_COLOR[cub.tono] || cub.tono)) : null].filter(Boolean);
@@ -1577,7 +1593,8 @@ async function vOdt() {
   const esMedida = t => /^\s*[\dØ]/.test(t) || /\d\s*[x×]\s*\d/.test(t) || /\bcm\b|\bmm\b/.test(t);
   const nombrePieza = x => {
     const mod = x.tipo === 'Base' ? (x.modelo_base || x.modelo_cubierta) : (x.modelo_cubierta || x.modelo_base);
-    // ESPECIAL no dice nada al maestro: se usa la descripción corta ("Especial en base a Origen", Harold 13-oct)
+    // ESPECIAL no dice nada al maestro: se usa el tipo de mueble ("Mesa de centro a medida", Harold 20-oct) o la descripción corta ("Especial en base a Origen", Harold 13-oct)
+    if (aMedidaTxt(x)) return ['Base', 'Cubierta'].includes(x.tipo) ? x.tipo + ' de ' + aMedidaTxt(x).toLowerCase() : aMedidaTxt(x);
     if (!['Mueble', 'Banca', 'Servicio', 'Repuesto', 'Barniz'].includes(x.tipo) && mod && mod !== 'ESPECIAL') return nombreModelo(mod) || mod;
     const partes = (x.descripcion || '').split(/\s·\s|:\s|,\s/).map(t => t.trim()).filter(t => t && !esMedida(t));
     return partes[0] || nombreModelo(x.modelo_cubierta || x.modelo_base) || '-';
