@@ -172,8 +172,19 @@ const ACABADOS = ['Barniz', 'Pintura', 'Sin acabado'];
 const AREAS_TALLER = ['Carpintería', 'Soldadura', 'Armado muebles', 'Vidrio/compras', 'Barniz'];
 const TIPOS_LINEA = ['Mesa', 'Base', 'Cubierta', 'Silla', 'Banca', 'Mueble', 'Servicio', 'Repuesto', 'Embalaje', 'Barniz'];
 /* Tipo de mueble de la pieza (Harold 20-oct, Pablo Vergara W3148): con modelo ESPECIAL se muestra "<tipo> a medida", nunca "ESPECIAL" ni "solo bases" */
-const TIPOS_MUEBLE = ['Mesa de comedor', 'Mesa de centro', 'Mesa lateral', 'Mesa de bar', 'Mesa de terraza', 'Escritorio', 'Consola', 'Velador', 'Banca', 'Rack TV', 'Closet', 'Cocina', 'Mueble de baño', 'Repisa', 'Otro mueble'];
+const TIPOS_MUEBLE = ['Mesa de comedor', 'Mesa de centro', 'Mesa lateral', 'Mesa de bar', 'Mesa de terraza', 'Escritorio', 'Consola', 'Velador', 'Banca', 'Pedestal', 'Rack TV', 'Closet', 'Cocina', 'Mueble de baño', 'Repisa', 'Otro mueble'];
 const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_base || 'ESPECIAL') === 'ESPECIAL' ? x.tipo_mueble + ' a medida' : '';
+/* Detalle de una pieza a medida para la ODT y la ficha (Harold 20-oct: "en lista, pero detallar en ODT; esos siempre van con plano la mayoría de las veces"):
+   la descripción sin medidas ("Especial en base a Origen", "Extensible redonda") y la marca de plano: "con plano" si el pedido tiene planos, "¿plano?" en rojo si no. En la Lista va solo el nombre corto. */
+function detalleAMedidaHtml(x, p) {
+  if (!aMedidaTxt(x)) return '';
+  let d = (x.descripcion || '').replace(/\d+([.,]\d+)?\s*[xX×]\s*\d+([.,]\d+)?(\s*[xX×]\s*\d+([.,]\d+)?)?\s*(cm)?/g, '').replace(/^[\s·,]+|[\s·,]+$/g, '').trim();
+  if (x.tipo === 'Base') d = d.replace(/^base\s+/i, '');
+  if (d) d = d.charAt(0).toUpperCase() + d.slice(1);
+  if (d && aMedidaTxt(x).toLowerCase().includes(d.toLowerCase())) d = '';
+  const plano = p && p.planos ? 'con plano' + (p.planos > 1 ? ' (' + p.planos + ')' : '') : '<span class="falta-dato">¿plano?</span>';
+  return [d ? esc(d) : '', plano].filter(Boolean).join(' · ');
+}
 function acabadoHtml(x) {
   if (!x.area) return '';
   if (x.area === 'Vidrio/compras') return '<span class="gris">sin acabado (se compra)</span>';
@@ -224,6 +235,7 @@ function formEditarPieza(lineaId, despues) {
   const tiposMueble = x.tipo_mueble && !TIPOS_MUEBLE.includes(x.tipo_mueble) ? [...TIPOS_MUEBLE, x.tipo_mueble] : TIPOS_MUEBLE;
   modal(`<h2>Editar pieza · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pz"><div class="campos">
     ${esOp ? '' : `<label class="campo">Tipo de pieza <select name="tipo_linea">${op(TIPOS_LINEA, x.tipo)}</select></label>
+    <label class="campo">Cantidad <input name="cantidad" inputmode="numeric" value="${x.cantidad || 1}" style="width:70px"></label>
     ${conModelo ? `<label class="campo">Modelo <select name="modelo"><option value="">(sin modelo)</option><option value="ESPECIAL" ${modActual === 'ESPECIAL' ? 'selected' : ''}>A medida</option>${modelosOp.map(([c, n]) => `<option value="${esc(c)}" ${c === modActual ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
     <label class="campo">Tipo de mueble <select name="tipo_mueble"><option value="">(sin definir)</option>${op(tiposMueble, x.tipo_mueble)}</select></label>` : ''}
     <label class="campo">Descripción <input name="descripcion" value="${esc(x.descripcion || '')}"></label>
@@ -252,6 +264,7 @@ function formEditarPieza(lineaId, despues) {
       if (m !== modActual) Object.assign(cambios, x.tipo === 'Base' ? { modelo_base: m } : { modelo_cubierta: m, modelo_base: m });
       if ((f.get('tipo_mueble') || '') !== (x.tipo_mueble || '')) cambios.tipo_mueble = f.get('tipo_mueble');
     }
+    if (!esOp && f.has('cantidad') && Number(f.get('cantidad')) !== (x.cantidad || 1)) cambios.cantidad = f.get('cantidad').trim();
     try { const r = await rpc('editar_pieza', { p_linea_id: lineaId, p_cambios: cambios }); actualizarPiezas(r); aviso('Pieza guardada'); cerrarModal(); despues && despues(r); } catch (e) { aviso(errorDe(e), true); }
   };
   if (!esOp) $('#b-borrar-pz').onclick = async () => {
@@ -623,7 +636,7 @@ function tablaPiezasHtml(p, esOp) {
   const nombrePz = x => aMedidaTxt(x) ? (['Base', 'Cubierta'].includes(x.tipo) ? x.tipo + ' de ' + aMedidaTxt(x).toLowerCase() : aMedidaTxt(x)) : x.tipo === 'Base' ? 'Base ' + (nombreModelo(x.modelo_base) || '') : x.tipo === 'Cubierta' ? (nombreModelo(x.modelo_cubierta) || 'Cubierta') : x.tipo === 'Silla' ? `${x.cantidad} sillas ${NOMBRE_SILLA[x.tipo_silla] || x.tipo_silla || '(modelo por definir)'}` : x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0];
   const madera = x => { const m = x.tipo === 'Base' ? x.material_base : (x.material_cubierta || x.material_base); return (m ? esc(codMaterial(m)) : (x.tipo === 'Silla' ? '' : '-')) + (x.espesor_mm ? `<div class="l2">${num(x.espesor_mm)} mm</div>` : (x.area === 'Carpintería' && !/espesor/i.test(x.indicaciones || '') ? '<div class="l2 falta-dato">esp.?</div>' : '')); };
   const term = x => x.tipo === 'Silla' || x.tipo === 'Banca' ? [x.tapiz ? x.tapiz + (x.color_silla ? ' ' + x.color_silla : '') : (x.color_silla ? 'tapiz ' + x.color_silla : ''), x.color ? 'pata ' + x.color : ''].filter(Boolean).join(' · ') || '<span class="falta-dato">tapiz por definir</span>' : esc([x.tipo === 'Base' || !x.tono ? x.color : tonoTxt(x.tono), x.nota_acabado].filter(Boolean).join(' · '));
-  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${ocLineaPieza(x)}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td>${esOp ? `<td class="gris">${esc(x.indicaciones || '')}</td>` : `<td class="gris ind-edit" data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro">${esc(x.indicaciones || '') || '<span class="falta-dato">agregar…</span>'}</td>`}</tr>`;
+  const filaPz = x => `<tr><td>${etapaChip(x, p.id)}</td><td><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza">${esc(nombrePz(x))}</a>${aMedidaTxt(x) ? `<div class="l2">${detalleAMedidaHtml(x, p)}</div>` : ''}${ocLineaPieza(x)}</td><td>${madera(x)}</td><td class="nw">${med(x)}</td><td>${term(x)}</td><td>${x.area === 'Vidrio/compras' ? '<span class="gris">no aplica</span>' : acabadoHtml(x)}</td><td><input type="date" class="f-taller" value="${x.fecha_taller || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro"></td>${esOp ? `<td class="gris">${esc(x.indicaciones || '')}</td>` : `<td class="gris ind-edit" data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro">${esc(x.indicaciones || '') || '<span class="falta-dato">agregar…</span>'}</td>`}</tr>`;
   return piezas.length ? `<table class="d-tabla"><thead><tr><th>Etapa</th><th>Pieza</th><th>Madera</th><th>Medidas L × A × Al</th><th>Term.</th><th>Acabado</th><th>Fecha maestro</th><th>Indicaciones</th></tr></thead><tbody>${piezas.map(filaPz).join('')}</tbody></table>` : '<div class="gris">Sin piezas de taller</div>';
 }
 function activarFechaMaestro(raiz, p, despues) {
@@ -1606,7 +1619,7 @@ async function vOdt() {
     const fab = area && x.etapa === etapa, tarde = (x.fecha_taller || '9999') < hoyI || (!x.fecha_taller && p.atrasado);
     const ind = [x.indicaciones].filter(Boolean);
     return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}">${filaFecha(x, p)}<td class="num">${esc(p.numero)}</td><td class="cli"><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza (medidas, formato, indicaciones, fecha para el maestro)">${esc(p.cliente)}</a></td>
-    <td class="pieza"><strong>${esc(nombrePieza(x))}</strong><div class="l2">${esc(x.tipo)}</div></td>
+    <td class="pieza"><strong>${esc(nombrePieza(x))}</strong><div class="l2">${detalleAMedidaHtml(x, p) || esc(x.tipo)}</div></td>
     <td class="madera">${maderaHtml(x)}</td><td class="medidas">${tamanoHtml(x, p)}</td><td class="forma">${esc(formatoTxt(x))}</td><td class="ctd">${x.cantidad || 1}</td><td class="term">${esc(terminacion(x))}</td><td class="indic${esOp ? '' : ' ind-edit'}" ${esOp ? '' : `data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro"`}>${ind.map(esc).join(' · ')}</td>
     <td class="estado no-imprimir">${conChip ? etapaChip(x, p.id) : esc(x.etapa)}</td><td class="hecho solo-impresion caja-ok"></td><td class="rev solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
   const hoy = new Date();
