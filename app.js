@@ -173,6 +173,9 @@ function activarEtapas(raiz, despues) {
    Sin dato queda "por definir" en rojo y la pieza no se puede embalar: nunca se supone. */
 const ACABADOS = ['Barniz', 'Pintura', 'Sin acabado'];
 const AREAS_TALLER = ['Carpintería', 'Soldadura', 'Armado muebles', 'Vidrio/compras', 'Barniz'];
+/* Cómo se graba una mesa (Harold 20-oct, Pablo Vergara W3148): la pieza la define cómo se fabrica. Cubierta y base por separado = 2 piezas;
+   un solo cuerpo ensamblado del mismo espesor = 1 pieza Mueble con su tipo de mueble (Mesa de centro). Elegir Mesa la divide en cubierta + base. */
+const TXT_TIPO_PIEZA = { Mesa: 'Mesa (se divide en cubierta + base)', Mueble: 'Mueble o pieza única (un solo cuerpo)' };
 const TIPOS_LINEA = ['Mesa', 'Base', 'Cubierta', 'Silla', 'Banca', 'Mueble', 'Servicio', 'Repuesto', 'Embalaje', 'Barniz'];
 /* Tipo de mueble de la pieza (Harold 20-oct, Pablo Vergara W3148): con modelo ESPECIAL se muestra "<tipo> a medida", nunca "ESPECIAL" ni "solo bases" */
 const TIPOS_MUEBLE = ['Mesa de comedor', 'Mesa de centro', 'Mesa lateral', 'Mesa de bar', 'Mesa de terraza', 'Escritorio', 'Consola', 'Velador', 'Banca', 'Pedestal', 'Rack TV', 'Closet', 'Cocina', 'Mueble de baño', 'Repisa', 'Otro mueble'];
@@ -248,7 +251,7 @@ function formEditarPieza(lineaId, despues) {
   const nomMat = c => { const n = ((cache.codigos || {}).material || {})[c] ? cache.codigos.material[c].nombre : c; return n.charAt(0).toUpperCase() + n.slice(1); };
   const opcEsp = (m, actual) => { const l = [...espesoresDe(m)]; if (actual && !l.includes(Number(actual))) l.push(Number(actual)); l.sort((a, b) => a - b); return `<option value="">-</option>${l.map(v => `<option value="${v}" ${Number(actual) === v ? 'selected' : ''}>${v} mm</option>`).join('')}<option value="otro">Otro…</option>`; };
   modal(`<h2>Editar pieza · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pz"><div class="campos">
-    ${esOp ? '' : `<label class="campo">Tipo de pieza <select name="tipo_linea">${op(TIPOS_LINEA, x.tipo)}</select></label>
+    ${esOp ? '' : `<label class="campo">Tipo de pieza <select name="tipo_linea">${TIPOS_LINEA.map(v => `<option value="${v}" ${v === x.tipo ? 'selected' : ''}>${esc(TXT_TIPO_PIEZA[v] || v)}</option>`).join('')}</select></label>
     <label class="campo">Cantidad <input name="cantidad" inputmode="numeric" value="${x.cantidad || 1}" style="width:70px"></label>
     ${conModelo ? `<label class="campo">Modelo <select name="modelo"><option value="">(sin modelo)</option><option value="ESPECIAL" ${modActual === 'ESPECIAL' ? 'selected' : ''}>A medida</option>${modelosOp.map(([c, n]) => `<option value="${esc(c)}" ${c === modActual ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
     <label class="campo">Tipo de mueble <select name="tipo_mueble"><option value="">(sin definir)</option>${op(tiposMueble, x.tipo_mueble)}</select></label>` : ''}
@@ -266,7 +269,7 @@ function formEditarPieza(lineaId, despues) {
     ${x.tipo === 'Silla' || x.tipo === 'Banca' ? `<div class="campos"><label class="campo">Modelo de silla <input name="tipo_silla" value="${esc(x.tipo_silla || '')}" placeholder="TULIP, WISH, CROSS, S.SANTINO" ${esOp ? 'disabled' : ''}></label><label class="campo">Tapiz (material) <input name="tapiz" value="${esc(x.tapiz || '')}" placeholder="Cueromix, Velvet, Lino"></label><label class="campo">Color silla o del tapiz <input name="color_silla" value="${esc(x.color_silla || '')}" placeholder="NGR, BL, BEIGE"></label></div>` : ''}
     <label class="campo" style="display:block;margin-top:8px">Medidas escritas para el maestro (manda sobre largo × ancho × alto; ej. "cruz arriba 40, cruz abajo 60, alto 71" o "Plano por definir") <input name="medida_texto" style="width:100%" value="${esc(x.medida_texto || '')}"></label>
     <label class="campo" style="display:block;margin-top:8px">Indicaciones del maestro (requerimientos especiales: radio, bisel, cabezales, plano impreso, madera clara...) <textarea name="indicaciones" rows="2" style="width:100%">${esc(x.indicaciones || '')}</textarea></label>
-    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Barniz: madera, pintado o lacado, encina. Pintura: metal. Sin acabado: sin barniz, melamina, tapicería. Lo comprado a proveedor solo se pide, se recibe y se embala. Medidas de una base: largo × ancho × alto. Un mueble de un solo cuerpo (cajón, velador, repisa) es UNA pieza; si tiene cubierta y base que se hacen por separado, se ingresa como Mesa (se divide sola) o se agregan las dos piezas desde la ficha.</p>
+    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Barniz: madera, pintado o lacado, encina. Pintura: metal. Sin acabado: sin barniz, melamina, tapicería. Lo comprado a proveedor solo se pide, se recibe y se embala. Medidas de una base: largo × ancho × alto. Un mueble de un solo cuerpo (cajón, velador, repisa, o una mesa ensamblada en una sola pieza del mismo espesor) es UNA pieza: Mueble o pieza única, con su tipo de mueble. Si la cubierta y la base se hacen por separado, elige Mesa (se divide sola en cubierta + base) o agrega las dos piezas desde la ficha.</p>
     <div class="acciones">${esOp ? '' : '<button type="button" class="btn borde" id="b-borrar-pz" style="margin-right:auto;color:var(--rojo-txt)">Borrar pieza</button>'}<button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   const selMat = $('#f-pz [name=material]'), selEsp = $('#f-pz [name=espesor_mm]');
   if (selEsp) {
