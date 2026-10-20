@@ -18,6 +18,9 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => s == null ? '' : String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pesos = n => n == null ? '' : '$' + Math.round(n).toLocaleString('es-CL');
+/* Proyectos (tipo Proyecto, los P2x): Alexis no ve total, abonos ni saldo (Harold 20-oct, Sofía Zegers y Sara Cerda); la base los entrega vacíos y aquí se dice quién los lleva */
+const sinMontos = p => p && p.tipo_pedido === 'Proyecto' && p.total == null;
+const TXT_SIN_MONTOS = 'lo lleva Harold';
 const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const MESES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const DIAS = ['dom','lun','mar','mié','jue','vie','sáb'];
@@ -177,7 +180,7 @@ const TIPOS_MUEBLE = ['Mesa de comedor', 'Mesa de centro', 'Mesa lateral', 'Mesa
 const GRUPOS_MATERIAL = [['Madera', ['LENGA', 'PINO', 'ROB.US', 'ROB.HUALLE', 'ENCINA', 'HAYA', 'CARVALLO', 'PINO OREGON']], ['Tablero', ['ENCHAPADO', 'MDF', 'MELAMINA']], ['Vidrio y piedra', ['V.T', 'V.C', 'TRAVERTINO', 'CUARZO', 'NEOLITH']], ['Otro', ['METAL', 'RATAN']]];
 const ESPESORES = { Madera: [18, 20, 22, 27, 32, 34, 35, 40, 50], Tablero: [15, 18], Vidrio: [12, 15, 19], Piedra: [20, 30, 40] };
 const espesoresDe = m => { m = String(m || '').toUpperCase(); return ['V.T', 'V.C'].includes(m) ? ESPESORES.Vidrio : ['TRAVERTINO', 'CUARZO', 'NEOLITH'].includes(m) ? ESPESORES.Piedra : ['ENCHAPADO', 'MDF', 'MELAMINA'].includes(m) ? ESPESORES.Tablero : ESPESORES.Madera; };
-const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_base || 'ESPECIAL') === 'ESPECIAL' ? x.tipo_mueble + ' a medida' : '';
+const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_base || 'ESPECIAL') === 'ESPECIAL' ? x.tipo_mueble + (x.largo_ext_cm || /extensible/i.test(x.descripcion || '') ? ' extensible' : '') + ' a medida' : '';  // Harold 20-oct: Ignacio W3137 es una mesa de comedor extensible
 /* Detalle de una pieza a medida para la ODT y la ficha (Harold 20-oct: "en lista, pero detallar en ODT; esos siempre van con plano la mayoría de las veces"):
    la descripción sin medidas ("Especial en base a Origen", "Extensible redonda") y la marca de plano: "con plano" si el pedido tiene planos, "¿plano?" en rojo si no. En la Lista va solo el nombre corto. */
 function detalleAMedidaHtml(x, p) {
@@ -617,7 +620,7 @@ function pintarLista() {
       <td class="c-sillas">${celdaSil}</td>
       ${mp ? `<td class="c-ent fecha-mov" data-mov-id="${mp.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(mp)}</td>` : `<td class="c-ent fecha-ent" data-id="${p.id}" title="${esOp ? 'Clic para proponer una fecha de entrega (Harold la acepta)' : 'Clic para cambiar la fecha de entrega'}">${ent}</td>`}
       <td class="c-com">${dos(p.comuna || (p.tipo_entrega === 'Retiro en taller' ? 'Taller' : ''), envio).replace('<div class="l1">-</div>', '<div class="l1 falta-dato">¿comuna?</div>')}</td>
-      ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}<td class="c-saldo mono ${sal(p) > 0 ? 'rojo' : ''}">${sal(p) > 0 ? pesos(sal(p)) : '<span class="gris">pagado</span>'}</td></tr>`;
+      ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}<td class="c-saldo mono ${sal(p) > 0 ? 'rojo' : ''}">${sinMontos(p) ? `<span class="gris">${TXT_SIN_MONTOS}</span>` : sal(p) > 0 ? pesos(sal(p)) : '<span class="gris">pagado</span>'}</td></tr>`;
   }).join('');
   $('#tabla').innerHTML = `<table class="lista v2 ${celdas ? 'b' : ''}"><colgroup>${cab.map(([c]) => `<col class="c-${c}">`).join('')}</colgroup><thead><tr>${cab.map(([c, t, tt]) => `<th class="c-${c}" title="${esc(tt)}">${t}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody></table>`;
   $$('#tabla a.ficha-num').forEach(a => a.onclick = ev => ev.stopPropagation());
@@ -717,10 +720,10 @@ function abrirDetalleFila(tr) {
       ${p.nota_entrega ? `<div class="d-fila"><span>Nota</span><b>${esc(p.nota_entrega)}</b></div>` : ''}
     </section>
     ${`<section class="d-bloque d-dinero"><h4>Pago</h4>
-      <div class="d-fila"><span>Total</span><b class="mono">${pesos(p.total)}</b></div>
+      ${sinMontos(p) ? `<div class="d-fila"><span>Pagos</span><b class="gris">${TXT_SIN_MONTOS}</b></div>` : `<div class="d-fila"><span>Total</span><b class="mono">${pesos(p.total)}</b></div>
       <div class="d-fila"><span>Abonado</span><b class="mono">${pesos(p.abonado)}</b> ${pctAbono(p)}</div>
-      <div class="d-fila"><span>Saldo</span><b class="mono ${saldo > 0 ? 'rojo' : ''}">${saldo > 0 ? pesos(saldo) : 'pagado'}</b>${saldo > 0 ? ' <span class="chip saldo">COBRAR AL ENTREGAR</span>' : ''}${saldo > 0 && tel && !esOp ? ` <a href="#/pedido/${p.id}" title="El mensaje de saldo se arma en la ficha">mensaje de saldo</a>` : ''}</div>
-      ${p.grupo && p.grupo.n > 1 ? `<div class="d-fila"><span>Unidos</span><b>${p.grupo.numeros.map(esc).join(' · ')}</b></div><div class="d-fila"><span>Saldo grupo</span><b class="mono ${p.grupo.saldo > 0 ? 'rojo' : ''}">${p.grupo.saldo > 0 ? pesos(p.grupo.saldo) : p.grupo.saldo < 0 ? pesos(-p.grupo.saldo) + ' a favor' : 'pagado'}</b></div>` : ''}
+      <div class="d-fila"><span>Saldo</span><b class="mono ${saldo > 0 ? 'rojo' : ''}">${saldo > 0 ? pesos(saldo) : 'pagado'}</b>${saldo > 0 ? ' <span class="chip saldo">COBRAR AL ENTREGAR</span>' : ''}${saldo > 0 && tel && !esOp ? ` <a href="#/pedido/${p.id}" title="El mensaje de saldo se arma en la ficha">mensaje de saldo</a>` : ''}</div>`}
+      ${p.grupo && p.grupo.n > 1 ? `<div class="d-fila"><span>Unidos</span><b>${p.grupo.numeros.map(esc).join(' · ')}</b></div><div class="d-fila"><span>Saldo grupo</span><b class="mono ${p.grupo.saldo > 0 ? 'rojo' : ''}">${p.grupo.saldo == null ? `<span class="gris">${TXT_SIN_MONTOS}</span>` : p.grupo.saldo > 0 ? pesos(p.grupo.saldo) : p.grupo.saldo < 0 ? pesos(-p.grupo.saldo) + ' a favor' : 'pagado'}</b></div>` : ''}
       ${esOp ? '' : `<div class="d-fila"><span>Documento</span><b>${esc(p.documento_tributario || '-')}${p.documento_numero ? ' ' + esc(p.documento_numero) : ''}</b></div>`}
     </section>`}
     <section class="d-bloque d-piezas"><h4>Piezas (${piezas.length}) <small class="gris">toca el chip para avanzar · mantener para volver · toca el nombre para editar</small></h4>
@@ -958,13 +961,13 @@ async function vFicha(id) {
         </div>
       </section>
       ${movimientosHtml(p, esOp)}
-      ${`<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px">${esOp ? '' : '<button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button>'}<button class="btn chico borde" id="b-abono">+ Registrar ${esOp ? 'cobro' : 'abono'}</button></span></div>
+      ${sinMontos(p) ? `<section class="seccion"><div class="cab"><h2>Pagos</h2></div><div class="gris">Proyecto: total, abonos y saldo ${TXT_SIN_MONTOS}.</div></section>` : `<section class="seccion"><div class="cab"><h2>Pagos</h2><span style="display:flex;gap:6px">${esOp ? '' : '<button class="btn chico" id="b-precios" title="Corregir venta, despacho, instalación o embalaje">Editar precios</button>'}<button class="btn chico borde" id="b-abono">+ Registrar ${esOp ? 'cobro' : 'abono'}</button></span></div>
         <div class="cifras">${esOp ? `<div class="cifra"><div>Total</div><div>${pesos(p.total)}</div></div>` : `<div class="cifra"><div>Venta</div><div>${pesos(p.precio_venta)}</div></div><div class="cifra"><div>Despacho + instalación</div><div>${pesos(p.precio_despacho + p.precio_instalacion + p.precio_embalaje)}</div></div>`}<div class="cifra"><div>Abonado</div><div>${pesos(p.abonado)} ${pctAbono(p)}</div></div><div class="cifra"><div>Saldo${esOp ? ' por cobrar' : ' (calculado)'}</div><div style="color:${(p.saldo ?? p.saldo_por_cobrar) > 0 ? 'var(--ambar-txt)' : 'var(--verde)'}">${pesos(p.saldo ?? p.saldo_por_cobrar)}</div></div>${esOp ? '' : `<div class="cifra" id="cifra-margen" title="Fase 6: costo manual, de la cotización o del motor; clic para fijar el costo a mano"><div>Costo est. · margen</div><div class="gris" style="font-size:14px">calculando…</div></div>`}</div>
         ${grupoHtml(p, esOp)}
         ${abonos.length ? `<div class="tabla-env"><table class="lista"><thead><tr><th>Fecha</th><th>Monto</th><th>Medio</th><th>Cuenta</th><th>Referencia</th><th>Comprobante</th><th>Registró</th></tr></thead><tbody>${abonos.map(a => `<tr><td class="nw">${fecha(a.fecha)}</td><td class="mono">${pesos(a.monto)}</td><td>${esc(a.medio_pago)}</td><td>${esc(cuentaNombre(a.cuenta))}</td><td>${esc(a.referencia || '')}</td><td>${a.comprobante_url ? `<a href="${esc(a.comprobante_url)}" target="_blank">ver</a>` : '-'}</td><td>${esc(a.registrado_por)}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--gris-3);font-size:13px">Sin abonos todavía</div>'}
         ${esOp ? '' : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>`}
-      </section>
-      ${esOp && !(casos || []).length ? '' : casosFichaHtml(casos || [], esOp)}
+      </section>`}
+      ${`${esOp && !(casos || []).length ? '' : casosFichaHtml(casos || [], esOp)}
       <section class="seccion"><div class="cab"><h2>Guías de despacho</h2><button class="btn chico borde" id="b-guia">+ Nueva guía de despacho</button></div>
         ${(guias || []).length ? `<div class="docs">${guias.map(g => `<div class="doc"><span>Guía N° ${g.numero}${g.anulada ? ' (anulada)' : ''}<div class="tipo">${fecha(g.fecha)} · ${g.bultos} bulto${g.bultos > 1 ? 's' : ''} · ${esc(g.modalidad)} · ${esc(g.estado_pago)} · ${esc(g.emitida_por)}</div></span><a class="btn chico" href="#/guia/${g.id}">Ver / imprimir</a></div>`).join('')}</div>` : '<div style="color:var(--gris-3);font-size:13px">Sin guías emitidas. El correlativo sigue en la base (siguiente: el que muestre el formulario).</div>'}
       </section>
@@ -2438,6 +2441,7 @@ function formProveedor(p, despues) {
     <label class="campo">IVA en la OC <select name="iva_pct"><option value="19" ${!p || Number(p.iva_pct) === 19 || p.iva_pct == null ? 'selected' : ''}>+19% sobre el neto (cotiza neto y factura)</option><option value="0" ${p && Number(p.iva_pct) === 0 ? 'selected' : ''}>Sin IVA (precio final: trae IVA incluido o no factura)</option></select></label>
     <label class="campo">Despacho <input name="despacho" value="${v('despacho')}" placeholder="ej. Despachan gratis, Solo retiro"></label>
     <label class="campo">Cuenta bancaria <input name="cuenta_bancaria" value="${v('cuenta_bancaria')}" placeholder="banco, tipo, número, RUT, correo"></label>
+    <label class="campo">Espesores de vidrio que se le piden (mm) <input name="espesores_vidrio" value="${esc(p && p.espesores_vidrio ? p.espesores_vidrio.join(', ') : '')}" placeholder="ej. 12 o 15, 19 (solo vidrierías)" title="Compras sugiere este proveedor para las cubiertas de vidrio de estos espesores (Harold 20-oct: 12 mm Templaglass, 15 mm Agliati)"></label>
     <label class="campo">Formato del texto de la OC <select name="formato">${[['generico', 'Genérico (cantidad, descripción, medidas)'], ['vidrio', 'Vidrio (tipo, espesor, medidas, forma)'], ['sillas_aliwen', 'Sillas Aliwen (pata, tapiz, madera)']].map(([k, t]) => `<option value="${k}" ${(p ? p.formato : 'generico') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     ${p ? `<label class="campo">Activo <select name="activo"><option value="true" ${p.activo ? 'selected' : ''}>Sí</option><option value="false" ${!p.activo ? 'selected' : ''}>No (ya no se le compra)</option></select></label>` : ''}
     <label class="campo" style="grid-column:1/-1">Nota (precios acordados, cómo pedir, horarios) <textarea name="nota" rows="3">${v('nota')}</textarea></label></div>
