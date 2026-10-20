@@ -186,7 +186,7 @@ const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_bas
 function detalleAMedidaHtml(x, p) {
   if (!aMedidaTxt(x)) return '';
   let d = (x.descripcion || '').replace(/\d+([.,]\d+)?\s*[xX×]\s*\d+([.,]\d+)?(\s*[xX×]\s*\d+([.,]\d+)?)?\s*(cm)?/g, '').replace(/^[\s·,]+|[\s·,]+$/g, '').trim();
-  if (x.tipo === 'Base') d = d.replace(/^base\s+/i, '');
+  d = d.replace(/^(base|cubierta)\s+(de\s+)?/i, '');  // "Cubierta mesa de centro a medida" no repite el nombre
   if (d) d = d.charAt(0).toUpperCase() + d.slice(1);
   if (d && aMedidaTxt(x).toLowerCase().includes(d.toLowerCase())) d = '';
   const plano = p && p.planos ? 'con plano' + (p.planos > 1 ? ' (' + p.planos + ')' : '') : '<span class="falta-dato">¿plano?</span>';
