@@ -402,8 +402,8 @@ async function activar2FA() {
 window.addEventListener('hashchange', () => { if (yo) render(); });
 function barra(activa) {
   const links = yo.rol === 'operacion'
-    ? [['#/taller', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ...(yo.ve_compras ? [['#/compras', 'Compras']] : [])]
-    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/tablero', 'Tablero'], ['#/compras', 'Compras'], ['#/cotizador', 'Cotizador'], ...(esHarold() ? [['#/trabajadores', 'Trabajadores']] : []), ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
+    ? [['#/taller', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/solicitudes', 'Por comprar'], ...(yo.ve_compras ? [['#/compras', 'Compras']] : [])]
+    : [['#/lista', 'Lista'], ['#/odt', 'ODT'], ['#/ruta', 'Ruta'], ['#/tablero', 'Tablero'], ['#/solicitudes', 'Por comprar'], ['#/compras', 'Compras'], ['#/cotizador', 'Cotizador'], ...(esHarold() ? [['#/trabajadores', 'Trabajadores']] : []), ['#/panel', 'Panel'], ['#/clientes', 'Clientes'], ['#/casos', 'Casos'], ['#/bandeja', 'Bandeja']];
   return `<div class="barra"><a class="marca" href="${links[0][0]}" title="Santino Design · Pedidos"><img src="logo.png" alt="Santino Design" class="logo-barra"></a><nav class="nav">${links.map(([h, t]) => `<a href="${h}" class="${activa === h ? 'activo' : ''}">${t}</a>`).join('')}</nav><div class="espacio"></div><span id="extra-barra" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></span><button class="avatar" id="btn-salir" title="${esc(yo.nombre)} · salir">${esc(yo.nombre[0])}</button></div>`;
 }
 async function render() {
@@ -419,6 +419,7 @@ async function render() {
     else if (h.startsWith('#/casos')) await vCasos();
     else if (h === '#/bandeja' && !esOp) await vBandeja();
     else if (h === '#/ruta') await vRuta();
+    else if (h === '#/solicitudes') await vSolicitudes();   // solicitudes de compra en mesón (21-oct-2026), Harold y Alexis
     else if (h.startsWith('#/compras/proveedor/') && (!esOp || yo.ve_compras)) await vProveedor(Number(h.split('/')[3]));
     else if (h === '#/compras/proveedores' && (!esOp || yo.ve_compras)) await vProveedores();
     else if (h === '#/compras/insumos' && (!esOp || yo.ve_compras)) await vInsumos();

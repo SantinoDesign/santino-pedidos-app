@@ -510,3 +510,17 @@ table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila
   #visor-plano .vp-paginas img{width:100%;max-width:none;max-height:208mm;object-fit:contain;margin:0;box-shadow:none;break-after:page;page-break-after:always}
   #visor-plano .vp-paginas img:last-child{break-after:auto;page-break-after:auto}
 }
+
+/* Solicitudes de compra (21-oct-2026): casillas grandes para la tablet de Alexis */
+.sol .sol-acciones{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.sol-cat{font-size:14px;margin:12px 0 4px;color:var(--azul-osc)}
+.sol-tabla td{vertical-align:middle}
+.sol-grupo td{background:var(--azul-suave);font-size:12px;padding:5px 8px}
+.sol-check{width:44px;text-align:center}.sol-check input{width:26px;height:26px;cursor:pointer;accent-color:var(--verde)}
+.sol-cant{width:110px}
+.sol-item.comprado td{color:var(--gris-3)}.sol-item.comprado .sol-cant b,.sol-item.comprado td:nth-child(3){text-decoration:line-through}
+.sol-item.comprado .l2{text-decoration:none}
+.sol-item.descartado td{opacity:.55}
+.sol-cerrada{opacity:.75}
+.chip.verde{background:var(--verde-fondo);color:var(--verde)}.chip.ambar{background:var(--ambar);color:var(--ambar-txt)}.ambar-txt{color:var(--ambar-txt)}
+.sol-linea{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.sol-linea input,.sol-linea select{min-height:34px}
