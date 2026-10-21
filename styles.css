@@ -524,3 +524,9 @@ table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila
 .sol-cerrada{opacity:.75}
 .chip.verde{background:var(--verde-fondo);color:var(--verde)}.chip.ambar{background:var(--ambar);color:var(--ambar-txt)}.ambar-txt{color:var(--ambar-txt)}
 .sol-linea{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.sol-linea input,.sol-linea select{min-height:34px}
+
+.sol-total td{background:#fff}.sol-total.comprado td{color:var(--gris-3)}.sol-total.comprado td:nth-child(2) b,.sol-total.comprado td:nth-child(3) > b{text-decoration:line-through}
+.sol-desglose td{background:var(--fondo);font-size:12px}.sol-desglose td:first-child{padding-left:14px}.sol-desglose .sol-check input{width:20px;height:20px}
+.sol-hoja{background:#fff;border:1px solid var(--linea);border-radius:6px;padding:18px;margin-bottom:16px}.sol-hoja-cab{display:flex;gap:14px;align-items:center;margin-bottom:12px}
+.sol-firma{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-top:36px;font-size:13px}
+@media print{.sol-hoja{border:none;margin:0;padding:0;page-break-after:always}.sol-hoja:last-child{page-break-after:auto}}
