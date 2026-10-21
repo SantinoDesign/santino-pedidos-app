@@ -2384,7 +2384,7 @@ function formCotizacionOC(oc, despues) {
 }
 /* ---------- Catálogo de insumos (Compras v2 paso 3, 19-oct-2026): tela, film, madera y lo demás que se compra sin ser pieza de un pedido ----------
    Harold edita; quien compra lo ve. El precio de referencia es el que la OC propone (neto si el proveedor agrega IVA, final si no). */
-const CATEGORIAS_INSUMO = ['tela', 'silla', 'sofá', 'vidrio', 'piedra', 'madera', 'cubierta', 'perfil', 'pintura', 'embalaje', 'herraje', 'servicio', 'otro'];
+const CATEGORIAS_INSUMO = ['tela', 'silla', 'sofá', 'vidrio', 'piedra', 'madera', 'cubierta', 'perfil', 'pintura', 'embalaje', 'herraje', 'iluminacion', 'tablero', 'tapacanto', 'servicio', 'otro'];
 async function vInsumos() {
   cache.insumos = null; const lista = await cargarInsumos(true); await cargarProveedores();
   const admin = yo.rol === 'admin';

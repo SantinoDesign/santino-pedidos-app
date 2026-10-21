@@ -7,7 +7,7 @@
    Se carga antes de app.js y usa sus utilidades (sb, $, $$, esc, aviso, modal, rpc, fecha, pesos, num, barra…) en tiempo de ejecución. */
 'use strict';
 
-const CATEGORIAS_SOLICITUD = ['Herrajes y ferretería', 'Planchas y tapacantos', 'Madera', 'Barniz y pintura', 'Embalaje', 'Telas', 'Otros'];
+const CATEGORIAS_SOLICITUD = ['Herrajes y ferretería', 'Planchas y tapacantos', 'Iluminación', 'Madera', 'Barniz y pintura', 'Embalaje', 'Telas', 'Otros'];
 const UNIDADES_SOLICITUD = ['un', 'par', 'bolsa', 'caja', 'plancha', 'm', 'm2', 'rollo', 'kg', 'galón', 'litro', 'pulgada'];
 
 async function vSolicitudes() {
@@ -114,7 +114,7 @@ async function formSolicitud(s) {
 // Agregar varias líneas de una vez; el nombre sugiere unidad y categoría (catálogo de insumos y lo ya pedido antes)
 async function formItems(s) {
   const sug = await sugerenciasSolicitud();
-  const opciones = [...sug.insumos.map(i => ({ d: i.nombre, u: i.unidad, c: ({ herraje: 'Herrajes y ferretería', madera: 'Madera', pintura: 'Barniz y pintura', embalaje: 'Embalaje', tela: 'Telas', tablero: 'Planchas y tapacantos', tapacanto: 'Planchas y tapacantos' })[i.categoria] || 'Otros' })),
+  const opciones = [...sug.insumos.map(i => ({ d: i.nombre, u: i.unidad, c: ({ herraje: 'Herrajes y ferretería', madera: 'Madera', pintura: 'Barniz y pintura', embalaje: 'Embalaje', tela: 'Telas', tablero: 'Planchas y tapacantos', tapacanto: 'Planchas y tapacantos', iluminacion: 'Iluminación' })[i.categoria] || 'Otros' })),
     ...sug.historial.map(h => ({ d: h.descripcion, u: h.unidad, c: h.categoria }))];
   const porNombre = {}; opciones.forEach(o => { if (!porNombre[o.d.toLowerCase()]) porNombre[o.d.toLowerCase()] = o; });
   const ultimoProy = (s.items[s.items.length - 1] || {}).pedido_id || '';
