@@ -192,7 +192,7 @@ function detalleAMedidaHtml(x, p) {
   d = d.replace(/^(base|cubierta)\s+(de\s+)?/i, '');  // "Cubierta mesa de centro a medida" no repite el nombre
   if (d) d = d.charAt(0).toUpperCase() + d.slice(1);
   if (d && aMedidaTxt(x).toLowerCase().includes(d.toLowerCase())) d = '';
-  const plano = p && p.planos ? 'con plano' + (p.planos > 1 ? ' (' + p.planos + ')' : '') : '<span class="falta-dato">¿plano?</span>';
+  const plano = p && p.planos ? `<a class="cli-edit" data-abrir-plano="${p.id}" title="Abrir el plano para imprimirlo">con plano${p.planos > 1 ? ' (' + p.planos + ')' : ''}</a>` : '<span class="falta-dato">¿plano?</span>';
   return [d ? esc(d) : '', plano].filter(Boolean).join(' · ');
 }
 function acabadoHtml(x) {
@@ -828,6 +828,20 @@ async function abrirWa(url) {
   else window.open(url, '_blank');
 }
 document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('a[href^="https://wa.me/"]'); if (!a) return; ev.preventDefault(); ev.stopPropagation(); abrirWa(a.href); }, true);
+/* Plano desde la ODT y la ficha (Harold 20-oct-2026: "que Alexis lo imprima directo desde la ODT para el carpintero"): "con plano" abre el PDF más reciente del pedido en otra pestaña */
+document.addEventListener('click', async ev => {
+  const a = ev.target.closest && ev.target.closest('[data-abrir-plano]'); if (!a) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const w = window.open('', '_blank');
+  try {
+    const { data: docs, error } = await sb.from('documento').select('storage_path,url').eq('pedido_id', Number(a.dataset.abrirPlano)).eq('tipo', 'Plano').order('subido_en', { ascending: false }).limit(1);
+    if (error) throw error;
+    const d = (docs || [])[0]; if (!d) throw new Error('Este pedido no tiene plano cargado');
+    let href = d.url;
+    if (d.storage_path) { const r = await sb.storage.from('documentos').createSignedUrl(d.storage_path, 3600); if (r.error) throw r.error; href = r.data.signedUrl; }
+    if (w) w.location.href = href; else window.open(href, '_blank');
+  } catch (e) { if (w) w.close(); aviso(errorDe(e), true); }
+}, true);
 function waLink(p, tipo) { return `https://wa.me/${telWa(p)}?text=${encodeURIComponent(tipo === 'despacho' ? mensajeDespacho(p) : `Hola ${nombrePila(p)}, te escribe Harold de Santino Design por tu pedido ${p.numero}.`)}`; }
 async function abrirWaSaldo(p) {
   const { data: abonos } = await sb.from('abono').select('monto').eq('pedido_id', p.id).order('fecha');
