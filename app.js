@@ -186,14 +186,16 @@ const espesoresDe = m => { m = String(m || '').toUpperCase(); return ['V.T', 'V.
 const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_base || 'ESPECIAL') === 'ESPECIAL' ? x.tipo_mueble + (x.largo_ext_cm || /extensible/i.test(x.descripcion || '') ? ' extensible' : '') + ' a medida' : '';  // Harold 20-oct: Ignacio W3137 es una mesa de comedor extensible
 /* Detalle de una pieza a medida para la ODT y la ficha (Harold 20-oct: "en lista, pero detallar en ODT; esos siempre van con plano la mayoría de las veces"):
    la descripción sin medidas ("Especial en base a Origen", "Extensible redonda") y la marca de plano: "con plano" si el pedido tiene planos, "¿plano?" en rojo si no. En la Lista va solo el nombre corto. */
+/* Enlace al plano (Harold 20-oct: "algo mejor hecho, quizás PLANOS OK con formato de link, subrayado"): mayúscula, negrita y subrayado */
+const planoLinkHtml = p => p && p.planos ? `<a class="plano-ok" data-abrir-plano="${p.id}" title="Abrir el plano para imprimirlo">${p.planos > 1 ? 'PLANOS' : 'PLANO'} OK${p.planos > 1 ? ' (' + p.planos + ')' : ''}</a>` : '';
 function detalleAMedidaHtml(x, p) {
   // Harold 20-oct: la pieza de un proyecto (ej. P26-018 Ulriksen, sin tipo de mueble) también muestra el enlace al plano si el pedido lo tiene
-  if (!aMedidaTxt(x)) return p && p.planos ? `<a class="cli-edit" data-abrir-plano="${p.id}" title="Abrir el plano para imprimirlo">con plano${p.planos > 1 ? ' (' + p.planos + ')' : ''}</a>` : '';
+  if (!aMedidaTxt(x)) return planoLinkHtml(p);
   let d = (x.descripcion || '').replace(/\d+([.,]\d+)?\s*[xX×]\s*\d+([.,]\d+)?(\s*[xX×]\s*\d+([.,]\d+)?)?\s*(cm)?/g, '').replace(/^[\s·,]+|[\s·,]+$/g, '').trim();
   d = d.replace(/^(base|cubierta)\s+(de\s+)?/i, '');  // "Cubierta mesa de centro a medida" no repite el nombre
   if (d) d = d.charAt(0).toUpperCase() + d.slice(1);
   if (d && aMedidaTxt(x).toLowerCase().includes(d.toLowerCase())) d = '';
-  const plano = p && p.planos ? `<a class="cli-edit" data-abrir-plano="${p.id}" title="Abrir el plano para imprimirlo">con plano${p.planos > 1 ? ' (' + p.planos + ')' : ''}</a>` : '<span class="falta-dato">¿plano?</span>';
+  const plano = p && p.planos ? planoLinkHtml(p) : '<span class="falta-dato">¿plano?</span>';
   return [d ? esc(d) : '', plano].filter(Boolean).join(' · ');
 }
 function acabadoHtml(x) {

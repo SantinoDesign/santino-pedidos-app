@@ -490,3 +490,6 @@ table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila
 
 /* 19-oct-2026 (paso 3 Compras): la caja del modal es flex en columna con max-height; sin esto la tabla de líneas de la OC se encoge a la cabecera cuando el texto es largo */
 .modal .caja .tabla-env{flex:none}
+
+/* Enlace al plano en la ODT y la ficha (Harold 20-oct-2026) */
+.plano-ok { font-weight: 700; letter-spacing: .3px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; color: inherit; }
