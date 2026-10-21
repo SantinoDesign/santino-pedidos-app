@@ -831,19 +831,75 @@ async function abrirWa(url) {
   else window.open(url, '_blank');
 }
 document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('a[href^="https://wa.me/"]'); if (!a) return; ev.preventDefault(); ev.stopPropagation(); abrirWa(a.href); }, true);
-/* Plano desde la ODT y la ficha (Harold 20-oct-2026: "que Alexis lo imprima directo desde la ODT para el carpintero"): "con plano" abre el PDF más reciente del pedido en otra pestaña */
+/* Plano desde la ODT y la ficha (Harold 20-oct-2026: "que Alexis lo imprima directo desde la ODT para el carpintero").
+   21-oct-2026 (Harold: en la tablet el PDF abría en otra pestaña sin opción de imprimir): visor DENTRO de la app con botón Imprimir.
+   Cada hoja del PDF se dibuja con pdf.js como imagen y se imprime con window.print() (igual que la ODT); si pdf.js no carga, se abre el PDF como antes. */
+let pdfjsListo = null;
+function cargarPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (pdfjsListo) return pdfjsListo;
+  const base = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/';
+  return pdfjsListo = new Promise((ok, mal) => {
+    const sc = document.createElement('script'); sc.src = base + 'pdf.min.js';
+    sc.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = base + 'pdf.worker.min.js'; ok(window.pdfjsLib); };
+    sc.onerror = () => { pdfjsListo = null; mal(new Error('No se pudo cargar el visor de planos')); };
+    document.head.appendChild(sc);
+  });
+}
+async function blobDePlano(d) {
+  if (d.storage_path) { const r = await sb.storage.from('documentos').download(d.storage_path); if (r.error) throw r.error; return r.data; }
+  const r = await fetch(d.url); if (!r.ok) throw new Error('No se pudo abrir el plano'); return await r.blob();
+}
+async function abrirVisorPlanos(pedidoId) {
+  const { data: docs, error } = await sb.from('documento').select('nombre,storage_path,url,subido_en').eq('pedido_id', pedidoId).eq('tipo', 'Plano').order('subido_en', { ascending: false });
+  if (error) throw error;
+  if (!(docs || []).length) throw new Error('Este pedido no tiene plano cargado');
+  const pdfjs = await cargarPdfJs();
+  const v = document.createElement('div'); v.id = 'visor-plano';
+  v.innerHTML = `<div class="vp-barra"><div class="vp-tabs">${docs.map((d, i) => `<button type="button" class="btn chico${i ? '' : ' primario'}" data-i="${i}">${esc(d.nombre.replace(/^Planos? de producción · /, ''))}</button>`).join('')}</div>
+    <span class="vp-esp"></span><button type="button" class="btn primario" id="vp-imp">Imprimir</button><button type="button" class="btn" id="vp-desc">Descargar PDF</button><button type="button" class="btn" id="vp-x">Cerrar</button></div>
+    <div class="vp-paginas"><div class="vp-msg">Preparando el plano…</div></div>`;
+  document.body.appendChild(v);
+  const urls = []; let blobActual = null, nombreActual = '', turno = 0;
+  const cerrar = () => { urls.forEach(u => URL.revokeObjectURL(u)); v.remove(); };
+  async function mostrar(i) {
+    const mio = ++turno; const cont = $('.vp-paginas', v); cont.innerHTML = '<div class="vp-msg">Preparando el plano…</div>';
+    $$('.vp-tabs button', v).forEach(b => b.classList.toggle('primario', Number(b.dataset.i) === i));
+    try {
+      const blob = await blobDePlano(docs[i]); if (mio !== turno) return;
+      blobActual = blob; nombreActual = docs[i].nombre;
+      const pdf = await pdfjs.getDocument({ data: await blob.arrayBuffer() }).promise;
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const pag = await pdf.getPage(n); const vp0 = pag.getViewport({ scale: 1 });
+        const vp = pag.getViewport({ scale: 2000 / vp0.width }); const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+        await pag.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        const jpg = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88)); c.width = c.height = 0;
+        if (mio !== turno) return;
+        const u = URL.createObjectURL(jpg); urls.push(u); if (n === 1) cont.innerHTML = '';
+        cont.insertAdjacentHTML('beforeend', `<img src="${u}" alt="Hoja ${n} de ${pdf.numPages}">`);
+      }
+    } catch (e) { if (mio === turno) $('.vp-paginas', v).innerHTML = `<div class="vp-msg">No se pudo mostrar el plano: ${esc(errorDe(e))}</div>`; }
+  }
+  $$('.vp-tabs button', v).forEach(b => b.onclick = () => mostrar(Number(b.dataset.i)));
+  $('#vp-x', v).onclick = cerrar;
+  $('#vp-imp', v).onclick = () => window.print();
+  $('#vp-desc', v).onclick = () => { if (!blobActual) return; const u = URL.createObjectURL(blobActual); const a = document.createElement('a'); a.href = u; a.download = nombreActual.replace(/[^\w.\-· ]/g, '_') + '.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); };
+  mostrar(0);
+}
 document.addEventListener('click', async ev => {
   const a = ev.target.closest && ev.target.closest('[data-abrir-plano]'); if (!a) return;
   ev.preventDefault(); ev.stopPropagation();
-  const w = window.open('', '_blank');
-  try {
-    const { data: docs, error } = await sb.from('documento').select('storage_path,url').eq('pedido_id', Number(a.dataset.abrirPlano)).eq('tipo', 'Plano').order('subido_en', { ascending: false }).limit(1);
-    if (error) throw error;
-    const d = (docs || [])[0]; if (!d) throw new Error('Este pedido no tiene plano cargado');
-    let href = d.url;
-    if (d.storage_path) { const r = await sb.storage.from('documentos').createSignedUrl(d.storage_path, 3600); if (r.error) throw r.error; href = r.data.signedUrl; }
-    if (w) w.location.href = href; else window.open(href, '_blank');
-  } catch (e) { if (w) w.close(); aviso(errorDe(e), true); }
+  const id = Number(a.dataset.abrirPlano);
+  try { await abrirVisorPlanos(id); }
+  catch (e) {
+    // Respaldo: el PDF más reciente en otra pestaña, como antes
+    try {
+      const { data: docs, error } = await sb.from('documento').select('storage_path,url').eq('pedido_id', id).eq('tipo', 'Plano').order('subido_en', { ascending: false }).limit(1);
+      if (error) throw error; const d = (docs || [])[0]; if (!d) throw new Error('Este pedido no tiene plano cargado');
+      let href = d.url; if (d.storage_path) { const r = await sb.storage.from('documentos').createSignedUrl(d.storage_path, 3600); if (r.error) throw r.error; href = r.data.signedUrl; }
+      window.open(href, '_blank');
+    } catch (e2) { aviso(errorDe(e2), true); }
+  }
 }, true);
 function waLink(p, tipo) { return `https://wa.me/${telWa(p)}?text=${encodeURIComponent(tipo === 'despacho' ? mensajeDespacho(p) : `Hola ${nombrePila(p)}, te escribe Harold de Santino Design por tu pedido ${p.numero}.`)}`; }
 async function abrirWaSaldo(p) {

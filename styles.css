@@ -493,3 +493,20 @@ table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila
 
 /* Enlace al plano en la ODT y la ficha (Harold 20-oct-2026) */
 .plano-ok { font-weight: 700; letter-spacing: .3px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; color: inherit; }
+
+/* Visor de planos dentro de la app, con botón Imprimir (Harold 21-oct-2026: en la tablet de Alexis el PDF abría fuera de la app sin opción de imprimir) */
+#visor-plano{position:fixed;inset:0;z-index:9999;background:#E9E9E9;display:flex;flex-direction:column}
+#visor-plano .vp-barra{display:flex;gap:8px;align-items:center;padding:8px 12px;background:#fff;border-bottom:1px solid #ccc;flex-wrap:wrap}
+#visor-plano .vp-tabs{display:flex;gap:6px;flex-wrap:wrap}#visor-plano .vp-esp{flex:1}
+#visor-plano .vp-paginas{flex:1;overflow:auto;padding:12px;-webkit-overflow-scrolling:touch}
+#visor-plano .vp-paginas img{display:block;width:100%;max-width:1200px;height:auto;margin:0 auto 12px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+#visor-plano .vp-msg{padding:40px;text-align:center;color:#444}
+@media print{
+  @page{size:A4 landscape;margin:0}
+  body>*:not(#visor-plano){display:none!important}
+  #visor-plano{position:static;display:block;background:#fff}
+  #visor-plano .vp-barra{display:none!important}
+  #visor-plano .vp-paginas{overflow:visible;padding:0}
+  #visor-plano .vp-paginas img{width:100%;max-width:none;max-height:208mm;object-fit:contain;margin:0;box-shadow:none;break-after:page;page-break-after:always}
+  #visor-plano .vp-paginas img:last-child{break-after:auto;page-break-after:auto}
+}
