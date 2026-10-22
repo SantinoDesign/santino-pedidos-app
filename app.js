@@ -717,6 +717,7 @@ function abrirDetalleFila(tr) {
         ${!esOp && p.estado === 'DESPACHO PROGRAMADO' ? (p.despacho_confirmado_en ? '<span class="chip ok">CLIENTE CONFIRMÓ</span>' : `<span class="chip saldo">POR CONFIRMAR</span><a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WSP despacho</a><button class="btn chico primario" data-confirmar="${p.id}">Cliente confirmó</button>`) : ''}
         ${p.estado !== 'DESPACHO PROGRAMADO' ? `<span class="prog-desp"><input type="date" data-prog-fecha="${p.id}" value="${p.despacho_propuesto || p.fecha_comprometida || ''}" title="Día de entrega acordado con el cliente"><button class="btn chico primario" data-programar="${p.id}" title="Deja el pedido en DESPACHO PROGRAMADO con esa fecha: entra a la Ruta de ese día">Programar despacho</button></span>` : ''}
         ${esOp ? '' : `<button class="btn chico borde" data-urgente="${p.id}">${p.urgente ? 'Quitar urgente' : 'Urgente'}</button>`}
+        ${['LISTO EN TALLER', 'DESPACHO PROGRAMADO', 'ENTREGADO'].includes(p.estado) && !(esOp && p.tipo_pedido === 'Proyecto') ? `<button class="btn chico borde" data-guia-lista="${p.id}" title="Emite la guía o abre la que ya existe, para imprimir o enviar">Guía de despacho</button>` : ''}
         <a class="btn chico" href="#/pedido/${p.id}">Abrir ficha${p.planos ? ` · planos (${p.planos})` : ''}</a>
       </div>
     </section>
@@ -761,6 +762,9 @@ function abrirDetalleFila(tr) {
   const bp = $('[data-prop]', d); if (bp) bp.onclick = async () => { const f = $('[data-fecha]', d).value; if (!f) return aviso('Elige la fecha', true); try { await rpc('proponer_despacho', { p_pedido_id: p.id, p_fecha: f }); aviso('Propuesta enviada a Harold'); vLista(); } catch (e) { aviso(errorDe(e), true); } };
   const be = $('[data-entregar]', d); if (be) be.onclick = () => formEntregar(p, () => vLista());
   activarProgramar(d, p, () => vLista());
+  /* Guía desde la Lista (Harold 22-oct: "no veo dónde sale para la guía de despacho"): abre la última guía vigente o el formulario para emitirla. */
+  const bg = $('[data-guia-lista]', d); if (bg) bg.onclick = async () => { const { data: gs, error } = await sb.from('guia_despacho').select('id, anulada').eq('pedido_id', p.id).order('numero', { ascending: false }); if (error) return aviso(errorDe(error), true);
+    const g = (gs || []).find(x => !x.anulada); if (g) location.hash = '#/guia/' + g.id; else formGuia(p); };
   const bu = $('[data-urgente]', d); if (bu) bu.onclick = async () => { const v = !p.urgente; const { error } = await sb.from('pedido').update({ urgente: v }).eq('id', p.id); if (error) return aviso(errorDe(error), true); p.urgente = v; aviso(v ? 'Marcado urgente' : 'Ya no es urgente'); anotarCambio(`urgente de ${p.numero}`, async () => { await sb.from('pedido').update({ urgente: !v }).eq('id', p.id); p.urgente = !v; }); reabrir(); };
 }
 const CUENTA_SANTINO = 'Santino Design SpA\nRUT 77.551.022-6\nBanco Santander\nCuenta Corriente 87727157\nhola@santinodesign.cl';

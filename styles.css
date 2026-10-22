@@ -360,6 +360,8 @@ table.lista.v2 .celda-pieza.lista .l2,.celda-pieza.lista .l2,.celda-pieza.lista 
 .menu-mas{position:relative;display:inline-block}
 .menu-lista{display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--linea);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:240px;z-index:8;padding:6px 0;flex-direction:column}
 .menu-lista.abierto{display:flex}
+/* Harold 22-oct (captura): el menú Más de la Lista abría hacia la izquierda y quedaba cortado fuera de la pantalla */
+#m-mas{left:0;right:auto}
 .menu-lista>button,.menu-lista>a{display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;color:var(--gris);font-size:13px;text-decoration:none;cursor:pointer}
 .menu-lista>button:hover,.menu-lista>a:hover{background:var(--azul-suave)}
 .desp2{display:grid;grid-template-columns:250px minmax(0,1fr) 230px;gap:12px;align-items:start}
