@@ -2107,6 +2107,12 @@ function textoGuia(g) {
   const d = g.destinatario || {}; const destino = [d.comuna, d.region && !/metropolitana/i.test(d.region) && d.region !== d.comuna ? d.region : ''].filter(Boolean).join(', ');
   return `Hola don René, le envío la guía de despacho N° ${g.numero} de Santino Design: ${g.bultos} bulto${g.bultos > 1 ? 's' : ''} para ${d.nombre || ''}${destino ? ', ' + destino : ''}. Gracias`;
 }
+async function guiaPng(blob) {
+  const pdfjs = await cargarPdfJs(); const pdf = await pdfjs.getDocument({ data: await blob.arrayBuffer() }).promise; const pag = await pdf.getPage(1);
+  const vp = pag.getViewport({ scale: 2.2 }); const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
+  const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); await pag.render({ canvasContext: cx, viewport: vp }).promise;
+  return await new Promise((ok, mal) => cv.toBlob(b => b ? ok(b) : mal(new Error('No se pudo armar la imagen')), 'image/png'));
+}
 async function contactoPullman() {
   const { data } = await sb.from('proveedor').select('nombre, telefono, correo, contactos').eq('nombre', 'Pullman Cargo').maybeSingle();
   const c = data && (data.contactos || [])[0] || {};
@@ -2120,15 +2126,22 @@ async function enviarGuia(g, archivo) {
     try { await navigator.share({ files: [file], title: 'Guía N° ' + g.numero, text: texto }); registrar('compartida desde la tablet'); aviso('Guía enviada'); return; }
     catch (e) { if (e && e.name === 'AbortError') return; }
   }
-  const pull = await contactoPullman();
+  /* Harold 22-oct (captura): "no le adjunta al wsp, solo le envía un mensaje". WhatsApp no acepta archivos por enlace, así que en el Mac
+     la guía se copia como imagen al portapapeles: en el chat de Don René basta Cmd+V para adjuntarla. El PDF igual queda en Descargas. */
+  const pull = await contactoPullman(); let png = null; try { png = await guiaPng(blob); } catch (e) { }
   modal(`<h2>Enviar guía N° ${g.numero}</h2>
-    <div style="font-size:13px;margin-bottom:10px">Se descarga el PDF <b>${esc(archivo)}</b> y se abre el chat o el correo con este mensaje. Adjunta el PDF descargado antes de enviar.</div>
+    <div style="font-size:13px;margin-bottom:10px">${png ? 'La guía se copia como <b>imagen</b> y se abre el chat de Don René con el mensaje escrito. En el chat aprieta <b>Cmd+V</b> para adjuntarla y envía. El PDF también queda en Descargas.' : `Se descarga el PDF <b>${esc(archivo)}</b> y se abre el chat o el correo con este mensaje. Arrastra el PDF descargado al chat antes de enviar.`}</div>
     <div class="campo" style="background:var(--fondo-2,#f4f6f7);padding:8px;border-radius:6px;font-size:13px">${esc(texto)}</div>
     ${pull.telefono ? '' : '<div style="font-size:12px;color:var(--rojo-txt)">Falta el teléfono de Don René: agrégalo en Compras, proveedor Pullman Cargo. Mientras, WhatsApp te deja elegir el chat.</div>'}
     <div class="acciones"><button type="button" class="btn" id="eg-cancelar">Cancelar</button><button type="button" class="btn" id="eg-correo">Por correo</button><button type="button" class="btn primario" id="eg-wsp">Por WhatsApp a Don René</button></div>`);
   const descargar = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = archivo; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); };
   $('#eg-cancelar').onclick = cerrarModal;
-  $('#eg-wsp').onclick = async () => { descargar(); cerrarModal(); await abrirWa(`https://wa.me/${pull.telefono}?text=${encodeURIComponent(texto)}`); registrar('WhatsApp'); };
+  $('#eg-wsp').onclick = async () => {
+    let copiada = false; if (png && navigator.clipboard && window.ClipboardItem) { try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]); copiada = true; } catch (e) { } }
+    descargar(); cerrarModal();
+    if (copiada) { aviso('Guía copiada: en el chat de Don René aprieta Cmd+V y envía'); window.open(`https://web.whatsapp.com/send?${pull.telefono ? 'phone=' + pull.telefono + '&' : ''}text=${encodeURIComponent(texto)}`, 'santino_wsp'); }
+    else { await abrirWa(`https://wa.me/${pull.telefono}?text=${encodeURIComponent(texto)}`); aviso('No se pudo copiar la guía: arrastra el PDF de Descargas al chat de Don René', true); }
+    registrar(copiada ? 'WhatsApp, imagen pegada' : 'WhatsApp'); };
   $('#eg-correo').onclick = () => { descargar(); cerrarModal(); location.href = `mailto:${encodeURIComponent(pull.correo)}?subject=${encodeURIComponent('Guía de despacho N° ' + g.numero + ' · Santino Design')}&body=${encodeURIComponent(texto)}`; registrar('correo'); };
 }
 
