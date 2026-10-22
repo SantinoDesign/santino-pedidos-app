@@ -412,7 +412,7 @@ async function render() {
   try {
     const est = $('#pagina-guia'); if (est && !h.startsWith('#/guia/')) est.remove();
     if (h.startsWith('#/pedido/')) await vFicha(h.split('/')[2]);
-    else if (h.startsWith('#/guia/') && !esOp) await vGuia(h.split('/')[2]);
+    else if (h.startsWith('#/guia/')) await vGuia(h.split('/')[2]);
     else if (h === '#/tablero' && !esOp) await vTablero();
     else if (h === '#/panel' && !esOp) await vPanel();
     else if (h === '#/clientes' && !esOp) await vClientes();
@@ -824,12 +824,19 @@ function mensajeSaldo(p, abonos) {
 }
 /* Harold 15-oct (captura): WhatsApp de escritorio en el Mac muestra � en vez de los emojis y perdió la línea de Webpay del texto que viene en el
    enlace (el enlace sale correcto de la app). Por eso todo enlace wa.me pasa por aquí: el mensaje se copia al portapapeles y en pantallas con
-   mouse (Mac) el chat se abre sin texto para pegarlo con Cmd+V; en la tablet o el celular (pantalla táctil) el texto va prellenado. */
+   mouse (Mac) el chat se abre sin texto para pegarlo con Cmd+V; en la tablet o el celular (pantalla táctil) el texto va prellenado.
+   Harold 22-oct (captura): "al poner el botón de wsp no me deja el texto predeterminado". En el Mac se abre ahora WhatsApp Web (siempre la misma
+   pestaña) con el mensaje ya escrito y sin emojis, que eran los que salían como �; el mensaje completo queda igual en el portapapeles. */
 const esTactil = () => window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+const sinEmojis = t => t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{25A0}-\u{25FF}️‍]/gu, '').replace(/[ \t]{2,}/g, ' ').replace(/^[ \t]+/gm, '');
 async function abrirWa(url) {
   const [base, q] = url.split('?text='); const texto = q ? decodeURIComponent(q) : '';
   let copiado = false; if (texto && navigator.clipboard) { try { await navigator.clipboard.writeText(texto); copiado = true; } catch (e) { } }
-  if (texto && !esTactil()) { aviso(copiado ? 'Mensaje copiado: pégalo en el chat con Cmd+V' : 'No se pudo copiar el mensaje; se abre con el texto en el enlace'); window.open(copiado ? base : url, '_blank'); }
+  if (texto && !esTactil()) {
+    const tel = base.replace('https://wa.me/', '').replace(/\D/g, '');
+    aviso('Se abre WhatsApp Web con el mensaje escrito' + (copiado ? ' (también quedó copiado: Cmd+V si hiciera falta)' : ''));
+    window.open(`https://web.whatsapp.com/send?${tel ? 'phone=' + tel + '&' : ''}text=${encodeURIComponent(sinEmojis(texto))}`, 'santino_wsp');
+  }
   else window.open(url, '_blank');
 }
 document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('a[href^="https://wa.me/"]'); if (!a) return; ev.preventDefault(); ev.stopPropagation(); abrirWa(a.href); }, true);
@@ -1046,7 +1053,7 @@ async function vFicha(id) {
         ${esOp ? '' : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span>Documento tributario</span><select id="s-doc"><option ${p.documento_tributario === 'Pendiente' ? 'selected' : ''}>Pendiente</option><option ${p.documento_tributario === 'Boleta emitida' ? 'selected' : ''}>Boleta emitida</option><option ${p.documento_tributario === 'Factura emitida' ? 'selected' : ''}>Factura emitida</option></select><input id="i-docnum" placeholder="N°" value="${esc(p.documento_numero || '')}" style="width:90px"><input type="date" id="i-docfecha" value="${p.documento_fecha || ''}"><button class="btn chico" id="b-doc">Guardar</button></div>`}
       </section>`}
       ${`${esOp && !(casos || []).length ? '' : casosFichaHtml(casos || [], esOp)}
-      <section class="seccion"><div class="cab"><h2>Guías de despacho</h2><button class="btn chico borde" id="b-guia">+ Nueva guía de despacho</button></div>
+      <section class="seccion"><div class="cab"><h2>Guías de despacho</h2>${esOp && p.tipo_pedido === 'Proyecto' ? '' : '<button class="btn chico borde" id="b-guia">+ Nueva guía de despacho</button>'}</div>
         ${(guias || []).length ? `<div class="docs">${guias.map(g => `<div class="doc"><span>Guía N° ${g.numero}${g.anulada ? ' (anulada)' : ''}<div class="tipo">${fecha(g.fecha)} · ${g.bultos} bulto${g.bultos > 1 ? 's' : ''} · ${esc(g.modalidad)} · ${esc(g.estado_pago)} · ${esc(g.emitida_por)}</div></span><a class="btn chico" href="#/guia/${g.id}">Ver / imprimir</a></div>`).join('')}</div>` : '<div style="color:var(--gris-3);font-size:13px">Sin guías emitidas. El correlativo sigue en la base (siguiente: el que muestre el formulario).</div>'}
       </section>
       <section class="seccion"><h2>Historial</h2><div class="historial">${hist.map(h => `<div><time>${fechaHora(h.cuando)}</time><span><strong>${esc(h.quien)}</strong> ${esc(h.campo)}: ${h.valor_anterior ? esc(h.valor_anterior) + ' → ' : ''}${esc(h.valor_nuevo || '')}</span></div>`).join('') || '<span style="color:var(--gris-3)">Sin movimientos</span>'}</div></section>`}
@@ -1841,7 +1848,12 @@ async function vRuta() {
   const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones'), retiros = programados.filter(p => p.tipo_entrega === 'Retiro en taller');
   const movsDia = (cache.movs || []).filter(m => m.fecha === f && cache.pedidos.some(x => x.id === m.pedido_id));
   const propuestos = cache.pedidos.filter(p => p.estado !== 'DESPACHO PROGRAMADO' && p.despacho_propuesto === f);
-  const candidatos = cache.pedidos.filter(p => ['LISTO EN TALLER', 'EN FABRICACIÓN'].includes(p.estado) && p.despacho_propuesto !== f && p.tipo_entrega !== 'Retiro en taller');
+  /* Harold 22-oct: "en la ruta no me aparecen los demás pedidos para poder verlos y confirmar con los clientes": los candidatos suman
+     POR FABRICAR y DISEÑO APROBADO, van por fecha de entrega y la lista queda abierta; los programados de otros días tienen su propia sección. */
+  const fEntrega = p => p.fecha_comprometida || p.fecha_estimada || '9999';
+  const candidatos = cache.pedidos.filter(p => ['LISTO EN TALLER', 'EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) && p.despacho_propuesto !== f && p.tipo_entrega !== 'Retiro en taller')
+    .sort((a, b) => (b.estado === 'LISTO EN TALLER') - (a.estado === 'LISTO EN TALLER') || fEntrega(a).localeCompare(fEntrega(b)));
+  const otrosDias = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida && p.fecha_comprometida !== f).sort((a, b) => a.fecha_comprometida.localeCompare(b.fecha_comprometida));
   const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && cache.pedidos.some(x => x.id === m.pedido_id)).sort((a, b) => a.fecha.localeCompare(b.fecha));
   const paradas = programados.filter(p => !regiones.includes(p) && !retiros.includes(p)).map(paradaDePedido).concat(movsDia.map(paradaDeMov));
   const nuevas = await ubicar(paradas);
@@ -1870,8 +1882,8 @@ async function vRuta() {
       </div></div>`;
   const propHtml = p => `<div class="prop"><span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.estado !== 'LISTO EN TALLER' ? ` · ${esc(p.estado)} ${p.piezas_listas}/${p.piezas_total}` : ''}</span></span>
       <span class="acc">${esOp ? `<span class="chip prop">PROPUESTO · esperando a Harold</span><button class="btn chico borde" data-prop-quitar="${p.id}">Quitar</button>` : `<span class="chip prop">Alexis propone</span>${menuWsp(p)}<button class="btn chico primario" data-confirmar="${p.id}" title="Entra a la ruta de este día como confirmado">Confirmó</button><input type="date" data-conf-fecha="${p.id}" value="" title="Si el cliente prefiere otro día" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-conf-otro="${p.id}">Otro día</button>`}</span></div>`;
-  const candHtml = p => { const listo = p.estado === 'LISTO EN TALLER'; return `<div class="prop">${esOp ? `<input type="checkbox" data-prop="${p.id}" ${listo ? '' : 'disabled'} title="Proponer para este día; Harold confirma con el cliente">` : ''}<span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}${p.despacho_propuesto ? ` · <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones: va por guía' : ''}</span></span>
-      <span class="acc">${listo ? '<span class="chip ok">LISTO</span>' : `<span class="chip">EN FABRICACIÓN · ${p.piezas_listas}/${p.piezas_total}</span>`}${!esOp ? `<input type="date" data-prog-fecha="${p.id}" value="${f}" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-programar="${p.id}" title="Acordado con el cliente: entra a la ruta de ese día como confirmado">Programar</button>` : ''}</span></div>`; };
+  const candHtml = p => { const listo = p.estado === 'LISTO EN TALLER'; return `<div class="prop">${esOp ? `<input type="checkbox" data-prop="${p.id}" ${listo ? '' : 'disabled'} title="Proponer para este día; Harold confirma con el cliente">` : ''}<span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}${p.despacho_propuesto ? ` · <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones: va por guía' : ''}${fEntrega(p) !== '9999' ? ` · entrega ${fecha(fEntrega(p), true)}` : ''}</span></span>
+      <span class="acc">${listo ? '<span class="chip ok">LISTO</span>' : `<span class="chip">${esc(p.estado)} · ${p.piezas_listas}/${p.piezas_total}</span>`}${!esOp ? menuWsp(p) : ''}${!esOp ? `<input type="date" data-prog-fecha="${p.id}" value="${f}" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-programar="${p.id}" title="Acordado con el cliente: entra a la ruta de ese día como confirmado">Programar</button>` : ''}</span></div>`; };
   const movOtroHtml = m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; const prop = m.fecha_propuesta === f; return `<div class="prop">${esOp ? `<input type="checkbox" data-movprop="${m.id}" ${prop ? 'checked' : ''}>` : ''}<span style="flex:1"><strong>${esc(m.tipo)}</strong> · <a class="ficha-num" href="#/pedido/${pm.id || ''}">${esc(pm.numero || '')}</a> ${esc(pm.cliente || '')} · ${esc(pm.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(m.nota || '')}${m.nota ? ' · ' : ''}${esc(m.direccion || pm.direccion || 'dirección pendiente')} · fecha ${fecha(m.fecha, true)}${m.fecha_propuesta && !prop ? ' · Alexis propone ' + fecha(m.fecha_propuesta, true) : ''}</span></span>
       <span class="acc">${prop ? '<span class="chip prop">PROPUESTO para este día</span>' : ''}${prop && !esOp ? `<button class="btn chico primario" data-mov-conf="${m.id}">Aceptar</button>` : ''}${!esOp ? `<input type="date" data-mov-fecha="${m.id}" value="${m.fecha}" title="Cambiar la fecha" style="min-height:32px;padding:2px 6px">` : ''}</span></div>`; };
   const resumen = `${orden.length} parada${orden.length === 1 ? '' : 's'}${porConfirmar ? ` · <strong class="ambar-txt">${porConfirmar} por confirmar</strong>` : orden.length ? ' · todas confirmadas' : ''}${cobrar ? ` · cobrar ${pesos(cobrar)}` : ''}${orden.length ? ` · vuelta al taller ~${minHora(plan.fin)}` : ''}`;
@@ -1888,7 +1900,10 @@ async function vRuta() {
         ${regiones.length ? `<div style="margin-top:6px;font-size:13px"><strong>Regiones (guía y transporte, no van en ruta):</strong> ${regiones.map(p => `${esc(p.numero)} ${esc(p.cliente)} · ${esc(p.comuna || '')}`).join(' · ')}</div>` : ''}</section>
       ${propuestos.length || !esOp ? `<section class="seccion no-imprimir"><div class="cab"><h2>Propuestos por Alexis para este día (${propuestos.length})</h2><span class="gris" style="font-size:12px">${esOp ? 'Harold manda el WhatsApp y confirma' : 'Manda el WhatsApp; cuando el cliente responda, Confirmó los pasa a la ruta'}</span></div>
         ${propuestos.map(propHtml).join('') || '<div style="color:var(--gris-3)">Nada propuesto para este día</div>'}</section>` : ''}
-      <details class="seccion plegable no-imprimir" ${esOp ? 'open' : ''}><summary>${esOp ? 'Proponer para este día' : 'Programar otro pedido para este día'} · listos en taller y en fabricación (${candidatos.length})</summary>
+      ${otrosDias.length ? `<section class="seccion no-imprimir"><div class="cab"><h2>Programados para otros días (${otrosDias.length})</h2><span class="gris" style="font-size:12px">${esOp ? 'Harold confirma con el cliente' : 'Manda el WhatsApp y marca Confirmó cuando el cliente responda'}</span></div>
+        ${otrosDias.map(p => `<div class="prop"><span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones' : p.tipo_entrega === 'Retiro en taller' ? ' · retira en taller' : ''}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}</span></span>
+          <span class="acc"><button class="btn chico borde" data-dia="${p.fecha_comprometida}" title="Ver la ruta de ese día">${fecha(p.fecha_comprometida, true)}</button>${p.despacho_confirmado_en ? '<span class="chip ok">CONFIRMADO</span>' : '<span class="chip saldo">POR CONFIRMAR</span>'}${!esOp ? menuWsp(p) : ''}${!esOp && !p.despacho_confirmado_en ? `<button class="btn chico primario" data-conf-dia="${p.id}" title="El cliente respondió que recibe ese día">Confirmó</button>` : ''}</span></div>`).join('')}</section>` : ''}
+      <details class="seccion plegable no-imprimir" open><summary>${esOp ? 'Proponer para este día' : 'Programar otro pedido para este día'} · listos, en fabricación y por fabricar (${candidatos.length})</summary>
         <div class="gris" style="font-size:12px;margin:4px 0 8px">${esOp ? 'Marca lo que se puede despachar ese día; Harold confirma con el cliente.' : 'Programar = ya lo acordaste con el cliente: entra a la ruta como confirmado.'}</div>
         ${candidatos.map(candHtml).join('') || '<div style="color:var(--gris-3)">Nada listo en taller</div>'}</details>
       ${movsOtros.length ? `<details class="seccion plegable no-imprimir"><summary>Otros movimientos pendientes (retiros, visitas, instalaciones) · ${movsOtros.length}</summary>${movsOtros.map(movOtroHtml).join('')}</details>` : ''}
@@ -1902,6 +1917,7 @@ async function vRuta() {
   $$('[data-confirmar]').forEach(b => b.onclick = async () => { const id = Number(b.dataset.confirmar); try { await rpc('confirmar_despacho', { p_pedido_id: id }); aviso('Confirmado por el cliente ✓'); anotarCambio('confirmación del cliente (volver a por confirmar)', () => rpc('confirmar_despacho', { p_pedido_id: id, p_quitar: true })); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
   $$('[data-conf-otro]').forEach(b => b.onclick = async () => { const id = Number(b.dataset.confOtro); const d = $(`[data-conf-fecha="${id}"]`).value; if (!d) return aviso('Elige el día que acordó el cliente', true); try { await rpc('confirmar_despacho', { p_pedido_id: id, p_fecha: d }); aviso('Confirmado para el ' + fecha(d, true)); cache.rutaFecha = d; vRuta(); } catch (e) { aviso(errorDe(e), true); } });
   $$('[data-horario]').forEach(b => b.onclick = () => { const p = cache.pedidos.find(x => x.id === Number(b.dataset.horario)); formHorarioEntrega(p, () => vRuta()); });
+  $$('[data-conf-dia]').forEach(b => b.onclick = async () => { const p = cache.pedidos.find(x => x.id === Number(b.dataset.confDia)); if (!p) return; try { await rpc('confirmar_despacho', { p_pedido_id: p.id, p_fecha: p.fecha_comprometida }); aviso(`${p.numero} confirmado para el ${fecha(p.fecha_comprometida, true)} ✓`); anotarCambio('confirmación del cliente (volver a por confirmar)', () => rpc('confirmar_despacho', { p_pedido_id: p.id, p_quitar: true })); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
   $$('[data-entregar]').forEach(b => b.onclick = () => formEntregar(cache.pedidos.find(p => p.id === Number(b.dataset.entregar)), () => vRuta()));
   $$('[data-prop]').forEach(c => c.onchange = async () => { try { await rpc('proponer_despacho', { p_pedido_id: Number(c.dataset.prop), p_fecha: c.checked ? f : null }); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
   $$('[data-prop-quitar]').forEach(b => b.onclick = async () => { try { await rpc('proponer_despacho', { p_pedido_id: Number(b.dataset.propQuitar), p_fecha: null }); aviso('Propuesta retirada'); vRuta(); } catch (e) { aviso(errorDe(e), true); } });
@@ -1987,6 +2003,8 @@ function productosGuia(p) {
 }
 async function formGuia(p) {
   await cargarModelos();
+  /* Alexis ve el pedido por la vista de operación, sin precios: datos_guia los trae (0074, 22-oct-2026; las guías de proyectos las emite Harold). */
+  try { p = { ...p, ...(await rpc('datos_guia', { p_pedido_id: p.id }) || {}) }; } catch (e) { aviso(errorDe(e), true); return; }
   const b = bultosDe(p); const prods = productosGuia(p);
   const modalidad = p.tipo_entrega === 'Despacho regiones' ? 'Encomienda región' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro en taller' : 'Despacho RM';
   const estadoPago = p.saldo <= 0 ? 'PAGADO' : 'PENDIENTE ' + pesos(p.saldo);
@@ -2027,7 +2045,8 @@ async function vGuia(id) {
   const d = g.destinatario || {}; const prods = g.productos || [];
   const archivo = `GD_${g.numero}_${(d.nombre || '').trim().replace(/\s+/g, '_')}.pdf`;
   const fila = (k, v) => `<div class="party-row"><span class="pf">${k}</span>${esc(v || '—')}</div>`;
-  app.innerHTML = barra('#/lista') + `<div class="sub no-imprimir"><a class="btn" href="#/pedido/${g.pedido_id}">‹ Volver a la ficha ${esc(g.pedido ? g.pedido.numero : '')}</a><button class="btn primario" id="b-print">Imprimir o guardar PDF</button><span style="color:var(--gris-3)">Nombre sugerido del archivo: ${esc(archivo)} · carpeta 05_Guias_de_despacho/${new Date(g.fecha + 'T12:00:00').getFullYear()}/</span></div>
+  const esOp = yo.rol === 'operacion';
+  app.innerHTML = barra(esOp ? '#/taller' : '#/lista') + `<div class="sub no-imprimir"><a class="btn" href="#/pedido/${g.pedido_id}">‹ Volver a la ficha ${esc(g.pedido ? g.pedido.numero : '')}</a><button class="btn primario" id="b-enviar-guia">Enviar guía</button><button class="btn" id="b-print">Imprimir</button>${esOp ? '' : `<span style="color:var(--gris-3)">Nombre sugerido del archivo: ${esc(archivo)} · carpeta 05_Guias_de_despacho/${new Date(g.fecha + 'T12:00:00').getFullYear()}/</span>`}</div>
   <div class="guia">
     <div class="header"><img class="logo" src="logo-guia.png" alt="Santino Design"><div class="header-right"><span class="doc-type">Guía de Despacho</span><span class="doc-number">N° ${g.numero}</span><span class="doc-fecha">Fecha: ${new Date(g.fecha + 'T12:00:00').toLocaleDateString('es-CL')}</span></div></div>
     <div class="parties">
@@ -2044,6 +2063,68 @@ async function vGuia(id) {
     <div class="firma"><div class="firma-line"></div><br><div class="firma-label">Firma receptor</div></div>
   </div>`;
   $('#b-print').onclick = () => { document.title = archivo.replace('.pdf', ''); window.print(); setTimeout(() => { document.title = 'Santino Pedidos'; }, 2000); };
+  $('#b-enviar-guia').onclick = () => enviarGuia(g, archivo);
+}
+
+/* Enviar guía (Harold 22-oct-2026: "él se la envía por wsp a don René", Pullman Cargo). Arma el PDF de la guía con jsPDF y:
+   en la tablet o el celular abre la hoja de compartir con el PDF (WhatsApp, Gmail, Bluetooth); en el Mac, o si la hoja no acepta
+   archivos, descarga el PDF y abre el chat de Don René (o un correo) con el mensaje listo para adjuntarlo. Cada envío queda en el historial. */
+async function logoGuiaDataUrl() { if (cache.logoGuia) return cache.logoGuia; const b = await (await fetch('logo-guia.png')).blob(); cache.logoGuia = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); }); return cache.logoGuia; }
+async function pdfGuia(g) {
+  await cargarJsPDF(); const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'letter' }); const W = 215.9, M = 16, A = W - 2 * M; let y = 12;
+  const d = g.destinatario || {}; const prods = g.productos || [];
+  try { doc.addImage(await logoGuiaDataUrl(), 'PNG', M - 4, y - 4, 44, 44); } catch (e) { }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(0, 129, 166); doc.text('GUÍA DE DESPACHO', W - M, y + 12, { align: 'right' });
+  doc.setFontSize(24); doc.setTextColor(26, 26, 26); doc.text('N° ' + g.numero, W - M, y + 22, { align: 'right' });
+  doc.setFontSize(8.5); doc.setTextColor(150); doc.text('Fecha: ' + new Date(g.fecha + 'T12:00:00').toLocaleDateString('es-CL'), W - M, y + 28, { align: 'right' });
+  y += 38; doc.setDrawColor(221); doc.setLineWidth(0.2); doc.line(M, y, W - M, y); y += 7;
+  const bloque = (x, titulo, filas) => { doc.setFontSize(7); doc.setTextColor(0, 129, 166); doc.text(titulo.toUpperCase(), x, y); doc.setDrawColor(238); doc.line(x, y + 1.5, x + A / 2 - 6, y + 1.5); let yy = y + 6.5;
+    filas.forEach(([k, v]) => { doc.setFontSize(8.5); doc.setTextColor(170); doc.text(k, x, yy); doc.setFontSize(10); doc.setTextColor(40); const t = doc.splitTextToSize(String(v || '-'), A / 2 - 28); doc.text(t, x + 20, yy); yy += Math.max(5, t.length * 4.4); }); return yy; };
+  const y1 = bloque(M, 'Emisor', [['Empresa', EMISOR.empresa], ['RUT', EMISOR.rut], ['Dirección', EMISOR.direccion], ['Teléfono', EMISOR.telefono], ['Email', EMISOR.email]]);
+  const y2 = bloque(M + A / 2 + 4, 'Destinatario', [['Nombre', d.nombre], ['Teléfono', d.telefono], ['Dirección', d.direccion], ['Comuna', d.comuna], ['Región', d.region], ['Email', d.email]]);
+  y = Math.max(y1, y2) + 3;
+  doc.setFillColor(242, 248, 250); doc.rect(M, y, A, 15, 'F');
+  [['Modalidad', g.modalidad], ['Bultos', String(g.bultos)], ['Estado pago', g.estado_pago]].forEach(([k, v], i) => { const x = M + 5 + i * (A / 3);
+    doc.setFontSize(7); doc.setTextColor(0, 129, 166); doc.text(k.toUpperCase(), x, y + 5.5); doc.setFontSize(11); doc.setTextColor(26, 26, 26); doc.text(String(v || '-'), x, y + 11.5); });
+  y += 22; doc.setFontSize(7); doc.setTextColor(0, 129, 166); doc.text('PRODUCTOS', M, y); y += 3;
+  const cV = 34; doc.setFillColor(230, 243, 247); doc.rect(M, y, A, 7, 'F'); doc.setFontSize(8.5); doc.setTextColor(40);
+  doc.text('N°', M + 2, y + 4.8); doc.text('Descripción', M + 14, y + 4.8); doc.text('Valor', W - M - 2, y + 4.8, { align: 'right' }); y += 7;
+  doc.setFontSize(9.5); doc.setDrawColor(221);
+  const filas = prods.concat(Array.from({ length: Math.max(0, 10 - prods.length) }, () => ({ desc: '', valor: '' })));
+  filas.forEach((l, i) => { const t = doc.splitTextToSize(String(l.desc || ''), A - 14 - cV - 4); const h = Math.max(7, t.length * 4.4 + 2.6);
+    doc.setTextColor(150); doc.text(String(i + 1), M + 2, y + 4.8); doc.setTextColor(40); doc.text(t, M + 14, y + 4.8); doc.text(String(l.valor || ''), W - M - 2, y + 4.8, { align: 'right' }); y += h; doc.line(M, y, W - M, y); });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.text('Total', M + 14, y + 6); doc.text(pesos(g.total), W - M - 2, y + 6, { align: 'right' }); doc.setFont('helvetica', 'normal');
+  y = Math.max(y + 32, 236); doc.setDrawColor(120); doc.line(W / 2 - 35, y, W / 2 + 35, y); doc.setFontSize(8); doc.setTextColor(150); doc.text('Firma receptor', W / 2, y + 5, { align: 'center' });
+  return doc.output('blob');
+}
+function textoGuia(g) {
+  const d = g.destinatario || {}; const destino = [d.comuna, d.region && !/metropolitana/i.test(d.region) && d.region !== d.comuna ? d.region : ''].filter(Boolean).join(', ');
+  return `Hola don René, le envío la guía de despacho N° ${g.numero} de Santino Design: ${g.bultos} bulto${g.bultos > 1 ? 's' : ''} para ${d.nombre || ''}${destino ? ', ' + destino : ''}. Gracias`;
+}
+async function contactoPullman() {
+  const { data } = await sb.from('proveedor').select('nombre, telefono, correo, contactos').eq('nombre', 'Pullman Cargo').maybeSingle();
+  const c = data && (data.contactos || [])[0] || {};
+  return { telefono: String((data && data.telefono) || c.telefono || '').replace(/\D/g, ''), correo: (data && data.correo) || '' };
+}
+async function enviarGuia(g, archivo) {
+  let blob; try { aviso('Preparando el PDF…'); blob = await pdfGuia(g); } catch (e) { aviso(errorDe(e), true); return; }
+  const file = new File([blob], archivo, { type: 'application/pdf' }); const texto = textoGuia(g);
+  const registrar = canal => rpc('registrar_envio_guia', { p_guia_id: g.id, p_canal: canal }).catch(() => { });
+  if (esTactil() && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: 'Guía N° ' + g.numero, text: texto }); registrar('compartida desde la tablet'); aviso('Guía enviada'); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const pull = await contactoPullman();
+  modal(`<h2>Enviar guía N° ${g.numero}</h2>
+    <div style="font-size:13px;margin-bottom:10px">Se descarga el PDF <b>${esc(archivo)}</b> y se abre el chat o el correo con este mensaje. Adjunta el PDF descargado antes de enviar.</div>
+    <div class="campo" style="background:var(--fondo-2,#f4f6f7);padding:8px;border-radius:6px;font-size:13px">${esc(texto)}</div>
+    ${pull.telefono ? '' : '<div style="font-size:12px;color:var(--rojo-txt)">Falta el teléfono de Don René: agrégalo en Compras, proveedor Pullman Cargo. Mientras, WhatsApp te deja elegir el chat.</div>'}
+    <div class="acciones"><button type="button" class="btn" id="eg-cancelar">Cancelar</button><button type="button" class="btn" id="eg-correo">Por correo</button><button type="button" class="btn primario" id="eg-wsp">Por WhatsApp a Don René</button></div>`);
+  const descargar = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = archivo; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); };
+  $('#eg-cancelar').onclick = cerrarModal;
+  $('#eg-wsp').onclick = async () => { descargar(); cerrarModal(); await abrirWa(`https://wa.me/${pull.telefono}?text=${encodeURIComponent(texto)}`); registrar('WhatsApp'); };
+  $('#eg-correo').onclick = () => { descargar(); cerrarModal(); location.href = `mailto:${encodeURIComponent(pull.correo)}?subject=${encodeURIComponent('Guía de despacho N° ' + g.numero + ' · Santino Design')}&body=${encodeURIComponent(texto)}`; registrar('correo'); };
 }
 
 /* Mover la tabla hacia el costado (Harold 12-oct): arrastrar con el mouse sobre la tabla (si se mueve más de 6 px no cuenta como clic),
