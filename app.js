@@ -1046,6 +1046,7 @@ async function vFicha(id) {
           ${p.estado === 'LISTO EN TALLER' ? `<label style="font-size:13px">Proponer despacho <input type="date" id="f-prop" value="${p.despacho_propuesto || ''}"></label><button class="btn borde" id="b-prop">Proponer</button>${!esOp ? `<button class="btn primario" id="b-conf">Cliente confirmó: programar</button>` : ''}` : ''}
           ${!esOp && p.cliente_telefono ? `<a class="btn" target="_blank" href="${waLink(p, 'despacho')}" title="Mensaje 1 de las plantillas de despacho">WhatsApp: confirmar despacho</a>${p.saldo > 0 ? `<button class="btn" id="b-wa-saldo">WhatsApp: saldo pendiente</button>` : ''}` : ''}
           ${p.estado === 'DESPACHO PROGRAMADO' ? `<button class="btn primario" id="b-entregar">Marcar ENTREGADO</button>` : `<span class="prog-desp"><input type="date" data-prog-fecha="${p.id}" value="${p.despacho_propuesto || p.fecha_comprometida || ''}" style="min-height:32px;padding:4px 8px"><button class="btn primario" data-programar="${p.id}">Programar despacho</button></span>`}
+          ${['LISTO EN TALLER', 'DESPACHO PROGRAMADO', 'ENTREGADO'].includes(p.estado) && !(esOp && p.tipo_pedido === 'Proyecto') ? (() => { const gv = (guias || []).find(x => !x.anulada); return gv ? `<a class="btn borde" href="#/guia/${gv.id}" title="Abrir para imprimir o enviar a Don René">Guía N° ${gv.numero}</a>` : '<button class="btn borde" id="b-guia-top" title="Emitir la guía para imprimir o enviar a Don René">Guía de despacho</button>'; })() : ''}
           ${p.cotizacion_numero ? `<span style="font-size:12px;color:var(--gris-2)">Cotización ${esc(p.cotizacion_numero)}</span>` : ''}
         </div>
       </section>
@@ -1126,7 +1127,7 @@ async function vFicha(id) {
     on('#b-precios', () => formEditarPrecios(p, recargar));
     on('#b-subir', () => formSubir(p, recargar));
     on('#b-linea', () => formLinea(p, recargar));
-    on('#b-guia', () => formGuia(p));
+    on('#b-guia', () => formGuia(p)); on('#b-guia-top', () => formGuia(p));
   }
   if (!esOp) pintarMargenFicha(p).catch(() => {});   // Fase 6: costo y margen (solo Harold)
 }
