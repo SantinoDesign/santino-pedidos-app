@@ -494,6 +494,9 @@ async function cargarPedidos() {
     const clave = p => String(p.fecha_comprometida || p.fecha_estimada || '9');
     const primera = {}; data.forEach(p => { const k = clave(p); if (!primera[p.cliente_id] || k < primera[p.cliente_id]) primera[p.cliente_id] = k; });
     data.sort((a, b) => primera[a.cliente_id].localeCompare(primera[b.cliente_id]) || a.cliente_id - b.cliente_id || clave(a).localeCompare(clave(b)) || ESTADOS.indexOf(a.estado) - ESTADOS.indexOf(b.estado) || (a.prioridad || 999) - (b.prioridad || 999));
+    // Un movimiento pendiente nunca se esconde (Harold 25-oct, H26-0015 Hernán Retamales): si su pedido está ENTREGADO o CANCELADO se trae igual y sale solo como fila MOV
+    const faltan = [...new Set((cache.movs || []).map(m => m.pedido_id))].filter(id => !data.some(p => p.id === id));
+    if (faltan.length) { const { data: extra, error: e2 } = await sb.from(yo.rol === 'operacion' ? 'v_pedido_operacion' : 'v_pedido').select('*').in('id', faltan); if (e2) throw e2; (extra || []).forEach(p => { p.soloMov = true; data.push(p); }); }
   }
   cache.pedidos = data; return data;
 }
@@ -574,8 +577,8 @@ function pintarLista() {
   const lista = filtrar(cache.pedidos);
   const esOp = yo.rol === 'operacion';
   const celdas = LISTA_PIEZAS === 'celda';
-  const nMov = cache.filtro === 'pendientes' ? (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.piezas || []).some(x => x.area); }).length : 0;
-  $('#resumen-lista').textContent = `${lista.length} pedidos${nMov ? ` · ${nMov} movimiento${nMov > 1 ? 's' : ''}` : ''}`;
+  const nMov = cache.filtro === 'pendientes' ? (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.soloMov || (p.piezas || []).some(x => x.area)); }).length : 0;
+  $('#resumen-lista').textContent = `${lista.filter(p => !p.soloMov).length} pedidos${nMov ? ` · ${nMov} movimiento${nMov > 1 ? 's' : ''}` : ''}`;
   const cab = [['est', 'Est.', 'Estado del pedido (ver leyenda en ?)'], ['num', 'N°', 'Abre la ficha'], ['cli', 'Cliente', 'Nombre; debajo el tipo de pedido y las alertas'], ['mod', 'Modelo', ''], ['med', 'Medida', 'Largo × ancho (× alto); debajo forma y personas'],
     ['cub', celdas ? 'Cubierta / pieza' : 'Cubierta', celdas ? 'Material y espesor; debajo el tono. La celda es el botón de etapa: toca para avanzar, mantener apretado para volver' : 'Material y espesor; debajo el tono'],
     ['base', 'Base', celdas ? 'Material; debajo el color. Toca para avanzar la etapa' : 'Material; debajo el color'],
@@ -591,13 +594,12 @@ function pintarLista() {
       <td class="c-ent fecha-mov" data-mov-id="${m.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(m)}</td><td class="c-com">${dos(p.comuna || '', '')}</td>
       ${celdas ? '' : '<td class="c-pz"></td>'}<td class="c-saldo"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td></tr>`;
   const feP = p => cache.filtro === 'entregados' && p.entregado_en ? String(p.entregado_en).slice(0, 10) : (p.fecha_comprometida || p.fecha_estimada || '9999');   // entregados: por fecha de entrega real
-  const ids = new Set(lista.map(p => p.id));
-  const entradas = lista.map(p => ({ k: feP(p), p }));
+  const entradas = lista.filter(p => !p.soloMov).map(p => ({ k: feP(p), p }));
   // Un pedido SIN piezas de taller (postventa: visita técnica, retiro) se muestra como una sola fila con su movimiento adentro, en la fecha del movimiento (Harold 13-oct, W3142)
   const sinPiezas = p => !(p.piezas || []).some(x => x.area);
   const movDelPedido = p => sinPiezas(p) ? (cache.movs || []).filter(m => m.pedido_id === p.id).sort((a, b) => a.fecha.localeCompare(b.fecha))[0] : null;
   entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha; } });
-  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => ids.has(m.pedido_id) && !sinPiezas(lista.find(p => p.id === m.pedido_id))).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
+  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.soloMov || !sinPiezas(p)); }).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
   else lista.forEach(p => { if (sinPiezas(p) && movDelPedido(p)) return; movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })); });   // sin piezas: el movimiento ya va dentro de su fila (Harold 16-oct, Dina W3153 salía dos veces)
   entradas.sort((a, b) => cache.filtro === 'entregados' ? String(b.k).localeCompare(String(a.k)) : String(a.k).localeCompare(String(b.k)));   // entregados: el último entregado arriba (Harold 14-oct)
   let semAct = null;
@@ -1659,7 +1661,7 @@ async function vImprimirListado() {
     return [envio, p.instalacion ? 'SI' : '-', p.cliente, cub.cantidad || 1, r.modelo, r.color, cub.personas ? cub.personas + ' PER' : '-', r.forma, r.cubierta + (r.base !== '-' && r.base !== r.cubierta ? ' / ' + r.base : ''), r.esp, r.medida === '-' ? '-' : r.medida + ' cm', String(r.tono).toUpperCase() === 'SIN BARNIZ' ? 'Sin barniz' : r.tono, sil ? (sil.tipo_silla || '-') : 'n/a', sil ? (sil.color_silla || '-') : 'n/a', sil ? sil.cantidad : 'n/a', fecha(fe(p))]; };
   // Movimientos (retiros, visitas, instalaciones) como fila propia en su fecha, marcados MOV (Harold 13-oct); no cuentan como pedido
   const movFila = (m, p) => ['MOV', '-', p.cliente, 1, `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()}${m.fecha_propuesta ? ' (Alexis propone ' + fecha(m.fecha_propuesta) + ')' : ''}${m.nota ? ': ' + m.nota : ''}`, '-', '-', '-', m.direccion || p.direccion || 'dirección pendiente', '-', '-', '-', 'n/a', 'n/a', 'n/a', fecha(m.fecha)];
-  const movsAct = (cache.movs || []).map(m => ({ m, p: activos.find(p => p.id === m.pedido_id) })).filter(e => e.p);
+  const movsAct = (cache.movs || []).map(m => ({ m, p: activos.find(p => p.id === m.pedido_id) || cache.pedidos.find(p => p.id === m.pedido_id && ['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado)) })).filter(e => e.p);   // movimiento de un pedido cerrado también se imprime (Harold 25-oct)
   const filaDe = e => e.m ? movFila(e.m, e.p) : fila(e.p);
   const tabla = lista => `<table class="lista impresion"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${lista.map(e => `<tr class="${(e.m ? e.m.fecha < hoyISO() : e.p.atrasado) ? 'atrasado' : ''}${e.m ? ' mov' : ''}">${filaDe(e).map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const conE = con.map(p => ({ p, k: fe(p) })).concat(movsAct.map(e => ({ ...e, k: e.m.fecha }))).sort((a, b) => a.k.localeCompare(b.k)), sinE = sin.map(p => ({ p }));
