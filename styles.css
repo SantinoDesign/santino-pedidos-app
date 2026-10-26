@@ -306,7 +306,7 @@ table.odt td.ctd{text-align:center}
 table.odt a.cli-edit{color:var(--azul-osc);font-weight:600;text-decoration:underline dotted;cursor:pointer}
 table.odt a.cli-edit:hover{color:var(--azul)}
 table.odt input.f-taller{min-height:26px;padding:1px 3px;font-size:11px;width:100%;max-width:120px}
-col.c-fecha{width:9.5%}col.c-num{width:5%}col.c-cli{width:11%}col.c-pieza{width:10%}col.c-madera{width:9%}col.c-medidas{width:14%}col.c-forma{width:5%}col.c-ctd{width:3.5%}col.c-term{width:8%}col.c-indic{width:16%}col.c-estado{width:9%}
+col.c-fecha{width:9.5%}col.c-num{width:5%}col.c-cli{width:11%}col.c-pieza{width:10%}col.c-madera{width:9%}col.c-medidas{width:14%}col.c-forma{width:5%}col.c-ctd{width:3.5%}col.c-term{width:8%}col.c-indic{width:13.5%}col.c-mover{width:2.5%}col.c-estado{width:9%}
 .odt-print{page:odt}
 @page odt{size:8.5in 13in landscape;margin:8mm 7mm}
 @media print{
@@ -532,3 +532,14 @@ table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila
 .sol-hoja{background:#fff;border:1px solid var(--linea);border-radius:6px;padding:18px;margin-bottom:16px}.sol-hoja-cab{display:flex;gap:14px;align-items:center;margin-bottom:12px}
 .sol-firma{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-top:36px;font-size:13px}
 @media print{.sol-hoja{border:none;margin:0;padding:0;page-break-after:always}.sol-hoja:last-child{page-break-after:auto}}
+
+/* Arrastrar en la ODT (25-oct-2026) */
+table.odt td.mover{padding:4px 0;text-align:center}
+table.odt .asa{cursor:grab;touch-action:none;user-select:none;font-size:18px;line-height:1;color:var(--gris-3);display:inline-block;padding:4px 6px}
+table.odt .asa:hover{color:var(--azul)}
+table.odt tr.arrastrando td{opacity:.45}
+table.odt tr.drop-antes td{box-shadow:inset 0 3px 0 var(--azul)}
+table.odt tr.drop-despues td{box-shadow:inset 0 -3px 0 var(--azul)}
+/* Aviso chico mientras se actualizan los datos por detrás (25-oct-2026) */
+.actualizando{position:fixed;right:14px;bottom:14px;z-index:60;background:var(--panel,#fff);border:1px solid var(--linea,#ddd);color:var(--gris-2,#666);font-size:12px;padding:4px 10px;border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:0;transition:opacity .2s;pointer-events:none}
+.actualizando.on{opacity:1}

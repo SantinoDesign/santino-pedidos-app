@@ -314,7 +314,7 @@ function pintarDeshacer() {
   eb.innerHTML = u ? `<button class="btn chico" id="b-deshacer" title="Deshace el último cambio de esta sesión (${deshacer.length} en la pila)">↶ Deshacer: ${esc(u.desc)}</button>` : '';
   const b = $('#b-deshacer'); if (b) b.onclick = async () => { const x = deshacer.pop(); try { await x.revertir(); aviso('Deshecho: ' + x.desc); } catch (e) { aviso(errorDe(e), true); } render(); };
 }
-async function rpc(nombre, args) { const { data, error } = await sb.rpc(nombre, args); if (error) throw error; return data; }
+async function rpc(nombre, args) { datosSucios(); const { data, error } = await sb.rpc(nombre, args); if (error) throw error; return data; }
 
 /* ---------- acceso ---------- */
 async function iniciar() {
@@ -480,15 +480,37 @@ function vClave() {
 }
 
 /* ---------- datos ---------- */
+/* Carga rápida de pestañas (Harold 25-oct: "se demora en cargar cada pestaña"). La base responde en 0,03 s; lo lento eran 2 o 3 viajes
+   seguidos a Supabase (São Paulo) en cada pestaña con la pantalla congelada. Ahora Lista, ODT y Ruta comparten los mismos pedidos:
+   al cambiar de pestaña se pinta al tiro con lo último cargado y se refresca por detrás; si llegó algo distinto, se vuelve a pintar.
+   Después de cualquier cambio (rpc, insert, update, delete) la siguiente carga espera los datos nuevos, como antes. */
+const datos = { k: {}, sucio: false, enVuelo: {} };
+function datosSucios() { datos.sucio = true; }
+{ const desde = sb.from.bind(sb); sb.from = t => { const q = desde(t); if (t === 'geocache') return q; ['insert', 'update', 'upsert', 'delete'].forEach(m => { const f = q[m].bind(q); q[m] = (...a) => { datosSucios(); return f(...a); }; }); return q; }; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) Object.values(datos.k).forEach(c => { c.en = 0; }); });
+function marcaActualizando(n) { let e = $('#actualizando'); if (!e) { e = document.createElement('div'); e.id = 'actualizando'; e.className = 'actualizando no-imprimir'; e.textContent = 'Actualizando…'; document.body.appendChild(e); } e.classList.toggle('on', n > 0); }
+function ocupado() { const a = document.activeElement; return !$('#modal').classList.contains('oculto') || (a && ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName) && a.type !== 'checkbox') || !!document.querySelector('.arrastrando, .menu-lista.abierto, .menu-lista.on'); }
+async function traerDatos(clave, fn) {
+  const c = datos.k[clave], usar = d => { cache.pedidos = d.pedidos; cache.movs = d.movs; return d.pedidos; };
+  const traer = async () => { datos.enVuelo[clave] = true; marcaActualizando(Object.keys(datos.enVuelo).length); try { const d = await fn(); datos.k[clave] = { d, en: Date.now(), firma: JSON.stringify(d) }; return d; } finally { delete datos.enVuelo[clave]; marcaActualizando(Object.keys(datos.enVuelo).length); } };
+  if (!c || datos.sucio) { datos.sucio = false; return usar(await traer()); }
+  if (Date.now() - c.en > 5000 && !datos.enVuelo[clave]) {
+    const firma = c.firma;
+    traer().then(d => { if (datos.k[clave].firma === firma || !/^#\/(lista|taller|odt|ruta|tablero)$/.test(location.hash.split('?')[0]) || ocupado()) return; render(); }).catch(() => {});
+  }
+  return usar(c.d);
+}
 async function cargarPedidos() {
-  await cargarModelos(); await cargarMovimientos();
+  return traerDatos('ped:' + yo.rol + ':' + cache.filtro, traerPedidos);
+}
+async function traerPedidos() {
   // La misma Lista para Harold y Alexis (Harold 12-oct): solo cambia la vista (la de operación no trae precios)
   let q = sb.from(yo.rol === 'operacion' ? 'v_pedido_operacion' : 'v_pedido').select('*');
   if (cache.filtro === 'pendientes') q = q.not('estado', 'in', '("ENTREGADO","CANCELADO","DEVUELTO")').order('fecha_comprometida', { ascending: true, nullsFirst: false }).order('fecha_estimada');
   else if (cache.filtro === 'entregados') q = q.eq('estado', 'ENTREGADO').order('entregado_en', { ascending: false }).limit(200);
   else if (cache.filtro === 'todos') q = q.order('fecha_compra', { ascending: false }).limit(500);
   else q = q.eq('estado', cache.filtro).order('prioridad').order('fecha_comprometida');
-  const { data, error } = await q; if (error) throw error;
+  const [{ data, error }] = await Promise.all([q, cargarModelos(), cargarMovimientos()]); if (error) throw error;
   if (cache.filtro === 'pendientes') {
     // Manda la fecha de entrega (Harold 12-oct); los pedidos del MISMO CLIENTE van juntos, en el lugar del más próximo (Harold 12-oct, Liliana).
     const clave = p => String(p.fecha_comprometida || p.fecha_estimada || '9');
@@ -498,7 +520,7 @@ async function cargarPedidos() {
     const faltan = [...new Set((cache.movs || []).map(m => m.pedido_id))].filter(id => !data.some(p => p.id === id));
     if (faltan.length) { const { data: extra, error: e2 } = await sb.from(yo.rol === 'operacion' ? 'v_pedido_operacion' : 'v_pedido').select('*').in('id', faltan); if (e2) throw e2; (extra || []).forEach(p => { p.soloMov = true; data.push(p); }); }
   }
-  cache.pedidos = data; return data;
+  return { pedidos: data, movs: cache.movs };
 }
 function filtrar(lista) {
   // Filtros acumulables (Harold 12-oct): estados marcados Y tipos marcados Y texto buscado. Sin marcas = todos.
@@ -585,6 +607,10 @@ function pintarLista() {
     ['sillas', 'Sillas', 'Cantidad × modelo; debajo tapiz y pata' + (celdas ? '. Toca para avanzar la compra' : '')], ['ent', 'Entrega cliente', 'Fecha de entrega; "aprox." = estimada, no comprometida. Clic para cambiarla'],
     ['com', 'Comuna', 'Debajo: RM, regiones o retiro, y si lleva instalación'], ...(celdas ? [] : [['pz', 'Piezas', 'Toca para avanzar; mantener para volver']]), ['saldo', 'Saldo', esOp ? 'Saldo por cobrar al entregar' : '']];
   const nCols = cab.length; const hoy = hoyISO();
+  // Lugar en la ODT bajo el N° (Harold 25-oct): la prioridad se cambia arrastrando en la ODT, la Lista solo la muestra
+  const lugar = cache.filtro === 'pendientes' ? lugaresOdt(cache.pedidos) : {};
+  const lugarHtml = p => { const por = {}; (p.piezas || []).forEach(x => { const l = lugar[x.id]; if (l && (!por[l.area] || l.n < por[l.area].n)) por[l.area] = { ...l, f: x.fecha_taller }; });
+    const t = Object.values(por).map(l => `${ODT_CORTO[l.area]} #${l.n}${l.f ? ' · ' + fecha(l.f) : ''}`); return t.length ? `<div class="l2 odt-lugar" title="Lugar en la ODT de cada taller y fecha para el maestro; se cambia arrastrando en la pestaña ODT">${esc(t.join(' / '))}</div>` : ''; };
   const dos = (a, b) => `<div class="l1">${esc(a || '-')}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
   const sal = p => esOp ? p.saldo_por_cobrar : p.saldo;   // Alexis ve el saldo por cobrar como Harold (Harold 14-oct: "él entrega")
   const filaMov = (m, p) => `<tr class="fila mov-fila ${m.fecha < hoy ? 'atrasado' : ''}" data-mov="${m.id}" data-id="${p.id}">
@@ -622,7 +648,7 @@ function pintarLista() {
     const celdaBase = celdas ? celdaPieza(r.base.tipo ? r.base : null, p, baseL1, baseL2) : dos(baseL1, baseL2);
     const celdaSil = r.sillasL1 ? (celdas ? celdaPieza(r.sil, p, r.sillasL1, r.sillasL2) : dos(r.sillasL1, r.sillasL2)) : '<span class="gris">-</span>';
     return sep + `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
-      <td class="c-est">${mp ? `<span class="estado e-MOV" title="${esc(p.tipo_pedido)}: ${esc(mp.tipo)}, no se fabrica nada">${esc(COD_MOV[mp.tipo] || 'MOV')}</span>` : estadoHtml(p.estado, true)}</td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a></td>
+      <td class="c-est">${mp ? `<span class="estado e-MOV" title="${esc(p.tipo_pedido)}: ${esc(mp.tipo)}, no se fabrica nada">${esc(COD_MOV[mp.tipo] || 'MOV')}</span>` : estadoHtml(p.estado, true)}</td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a>${mp ? '' : lugarHtml(p)}</td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2">${tipoHtml(p.tipo_pedido)} ${alertasPedido(p)}</div></td>
       <td class="c-mod" title="${esc(r.descripcion || '')}"><div class="l1">${esc(r.modelo)}</div>${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
@@ -954,7 +980,7 @@ async function vTablero() {
   cache.filtro = 'pendientes'; await cargarPedidos();
   const { data: ent } = await sb.from('v_pedido').select('*').eq('estado', 'ENTREGADO').gte('entregado_en', new Date(Date.now() - 7 * 864e5).toISOString()).order('entregado_en', { ascending: false });
   const cols = [
-    ['POR FABRICAR', 'var(--panel)', 'var(--gris)', p => ['POR FABRICAR', 'VISITA TÉCNICA', 'DIBUJO 3D', 'DISEÑO APROBADO'].includes(p.estado), 'Arrastra para cambiar la prioridad'],
+    ['POR FABRICAR', 'var(--panel)', 'var(--gris)', p => ['POR FABRICAR', 'VISITA TÉCNICA', 'DIBUJO 3D', 'DISEÑO APROBADO'].includes(p.estado), 'La prioridad del taller se cambia arrastrando en la ODT'],
     ['EN FABRICACIÓN', 'var(--azul-claro)', 'var(--azul-osc)', p => p.estado === 'EN FABRICACIÓN', 'Piezas por área de taller'],
     ['LISTO EN TALLER', 'var(--azul)', '#fff', p => p.estado === 'LISTO EN TALLER', 'Se cobra el saldo antes de programar'],
     ['DESPACHO PROGRAMADO', 'var(--azul-osc)', '#fff', p => p.estado === 'DESPACHO PROGRAMADO', 'Ruta de Alexis'],
@@ -963,7 +989,7 @@ async function vTablero() {
   const mes = resumenMes(cache.pedidos.concat(ent || []));
   app.innerHTML = barra('#/tablero') + `<div class="sub">${mes}<span><span class="chip urgente">URGENTE</span> única etiqueta manual</span><span><span class="chip saldo">SALDO</span><span class="chip pago">PAGO PENDIENTE</span><span class="chip inst">INSTALACIÓN</span> se marcan solas</span></div>
     <div class="contenido"><div class="tablero">${cols.map(([nombre, bg, fg, f, nota]) => {
-      const items = nombre === 'ENTREGADO' ? (ent || []) : cache.pedidos.filter(f).sort((a, b) => nombre === 'POR FABRICAR' ? (a.prioridad || 999) - (b.prioridad || 999) : 0);
+      const items = nombre === 'ENTREGADO' ? (ent || []) : cache.pedidos.filter(f).sort((a, b) => nombre === 'POR FABRICAR' ? String(a.fecha_comprometida || a.fecha_estimada || '9').localeCompare(String(b.fecha_comprometida || b.fecha_estimada || '9')) : 0);
       return `<div class="col" data-col="${nombre}"><div class="col-cab" style="background:${bg};color:${fg}"><span>${nombre}</span><span class="n">${items.length}</span></div><div style="font-size:11px;color:var(--gris-3);padding:0 4px">${nota}</div>${items.map(tarjeta).join('')}</div>`;
     }).join('')}</div></div>`;
   activarArrastre();
@@ -994,14 +1020,15 @@ function activarArrastre() {
     t.ondragend = () => { t.classList.remove('arrastrando'); $$('.col').forEach(c => c.classList.remove('sobre')); };
   });
   $$('.col').forEach(col => {
-    col.ondragover = ev => { ev.preventDefault(); col.classList.add('sobre'); if (col.dataset.col === 'POR FABRICAR' && arrastrado && arrastrado.dataset.estado === 'POR FABRICAR') { const despues = [...col.querySelectorAll('.tarjeta')].find(t => t !== arrastrado && ev.clientY < t.getBoundingClientRect().top + t.offsetHeight / 2); if (despues) col.insertBefore(arrastrado, despues); else col.appendChild(arrastrado); } };
+    col.ondragover = ev => { ev.preventDefault(); col.classList.add('sobre'); };
     col.ondragleave = () => col.classList.remove('sobre');
     col.ondrop = async ev => {
       ev.preventDefault(); col.classList.remove('sobre'); if (!arrastrado) return;
       const destino = col.dataset.col, id = Number(arrastrado.dataset.id), origen = arrastrado.dataset.estado;
       try {
-        if (destino === 'POR FABRICAR' && origen === 'POR FABRICAR') { await rpc('reordenar_prioridad', { p_ids: [...col.querySelectorAll('.tarjeta')].map(t => Number(t.dataset.id)) }); aviso('Prioridad guardada'); }
-        else if (destino !== origen && destino !== 'POR FABRICAR') { await rpc('cambiar_estado', { p_pedido_id: id, p_estado: destino }); aviso(`${destino}`); anotarCambio(`estado a ${destino} (volver a ${origen})`, () => rpc('cambiar_estado', { p_pedido_id: id, p_estado: origen })); }
+        // La prioridad del taller ya no se arrastra aquí: vive en la ODT (Harold 25-oct, una sola fuente)
+        if (destino === origen) return;
+        if (destino !== origen && destino !== 'POR FABRICAR') { await rpc('cambiar_estado', { p_pedido_id: id, p_estado: destino }); aviso(`${destino}`); anotarCambio(`estado a ${destino} (volver a ${origen})`, () => rpc('cambiar_estado', { p_pedido_id: id, p_estado: origen })); }
         else if (destino === 'POR FABRICAR' && origen !== 'POR FABRICAR') { await rpc('cambiar_estado', { p_pedido_id: id, p_estado: 'POR FABRICAR' }); anotarCambio(`estado a POR FABRICAR (volver a ${origen})`, () => rpc('cambiar_estado', { p_pedido_id: id, p_estado: origen })); }
         vTablero();
       } catch (e) { aviso(errorDe(e), true); vTablero(); }
@@ -1083,7 +1110,7 @@ async function vFicha(id) {
         ${p.estado === 'DESPACHO PROGRAMADO' ? `<div class="fila-dato"><span>Cliente confirmó</span><span>${p.despacho_confirmado_en ? '<span class="chip ok">SÍ · ' + fechaHora(p.despacho_confirmado_en) + '</span>' : '<span class="chip saldo">POR CONFIRMAR</span>' + (esOp ? ' <small class="gris">Harold confirma</small>' : ` <a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp</a> <button class="btn chico primario" id="b-conf2">Confirmó</button>`)}</span></div>` : ''}
         ${p.cotizacion_numero ? `<div class="fila-dato"><span>Cotización</span><span>${esc(p.cotizacion_numero)}</span></div>` : ''}
         ${garantia ? garantiaHtml(garantia) : ''}
-        ${p.estado === 'POR FABRICAR' ? `<div class="fila-dato"><span>Prioridad</span><span>${p.prioridad || '-'} en cola</span></div>` : ''}
+        ${p.estado === 'POR FABRICAR' ? `<div class="fila-dato"><span>Lugar en la ODT</span><span>${esc(Object.entries(lugaresOdt(cache.pedidos || [p])).filter(([id]) => (p.piezas || []).some(x => x.id === Number(id))).map(([, l]) => ODT_CORTO[l.area] + ' #' + l.n).join(' / ') || '-')}</span></div>` : ''}
         ${esOp && p.saldo_por_cobrar > 0 ? `<div style="padding:10px;border-radius:8px;background:var(--ambar);color:var(--ambar-txt);font-weight:700">Cobrar ${pesos(p.saldo_por_cobrar)} al entregar</div>` : ''}
       </section>
       <section class="seccion"><div class="cab"><h2>${esOp ? 'Planos y fotos' : 'Documentos'}</h2>${esOp ? '' : `<button class="btn chico" id="b-subir">Subir</button>`}</div>
@@ -1305,8 +1332,8 @@ function formPostventa(p, fechaDefecto, despues) {
     <label class="campo">Fecha <input type="date" name="fecha" required value="${fechaDefecto || hoyISO(1)}"></label>
     <label class="campo">Dirección (vacía = la del pedido) <input name="direccion" placeholder="${esc(p.direccion_entrega || p.direccion || '')}"></label></div>
     <label class="campo" style="display:block;margin-top:8px">Qué se hace o se revisa <textarea name="nota" rows="2" style="width:100%" required placeholder="Ej. revisar cajón que no cierra, llevar rieles de 35 mm"></textarea></label>
-    <label class="campo" style="display:block;margin-top:8px">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label>
-    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Se crea un pedido POSTVENTA con número W nuevo, ligado a este, con el movimiento en la fecha indicada. Si lleva una pieza de taller, agrégala después en su ficha con "Agregar línea".</p>
+    <div class="campos" style="margin-top:8px"><label class="campo">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label>${tallerPostventaHtml()}</div>
+    <p style="font-size:12px;color:var(--gris-2);margin:6px 0">Se crea un pedido POSTVENTA con número W nuevo, ligado a este, con el movimiento en la fecha indicada. Si hay reparación, la pieza entra a la ODT de ese taller. Una pieza nueva (cubierta, repuesto) se agrega después en su ficha con "Agregar línea".</p>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Crear postventa</button></div></form>`);
   $('#f-pv').onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target);
@@ -1316,7 +1343,8 @@ function formPostventa(p, fechaDefecto, despues) {
       if (error) throw error;
       const { error: e2 } = await sb.from('movimiento').insert({ pedido_id: np.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: (f.get('direccion') || '').trim() || null, nota: f.get('nota') });
       if (e2) throw e2;
-      cerrarModal(); aviso(`Postventa ${numero} creada`); if (despues) despues(); else location.hash = '#/pedido/' + np.id;
+      await crearPiezaPostventa(np.id, f.get('taller'), f.get('nota'));
+      cerrarModal(); aviso(`Postventa ${numero} creada${f.get('taller') ? ', la reparación entra a la ODT de ' + f.get('taller') : ''}`); if (despues) despues(); else location.hash = '#/pedido/' + np.id;
     } catch (e) { aviso(errorDe(e), true); }
   };
 }
@@ -1641,8 +1669,10 @@ function formMovimientoRuta(dia, despues) {
   $('#mr-q').oninput = e => { clearTimeout(t); t = setTimeout(() => buscar(e.target.value), 250); };
 }
 async function cargarOperacion() {
-  await cargarModelos(); await cargarMovimientos();
-  const { data, error } = await sb.from('v_pedido_operacion').select('*').order('fecha_entrega', { ascending: true, nullsFirst: false }).order('prioridad'); if (error) throw error; cache.pedidos = data; return data;
+  return traerDatos('op', async () => {
+    const [{ data, error }] = await Promise.all([sb.from('v_pedido_operacion').select('*').order('fecha_entrega', { ascending: true, nullsFirst: false }), cargarModelos(), cargarMovimientos()]); if (error) throw error;
+    return { pedidos: data, movs: cache.movs };
+  });
 }
 function lunesDe(s) { const d = new Date(s + 'T12:00:00'); const dia = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dia); return d; }
 function etiquetaSemana(lunes) { const v = new Date(lunes); v.setDate(v.getDate() + 4); return `Semana del ${String(lunes.getDate()).padStart(2, '0')} al ${String(v.getDate()).padStart(2, '0')} de ${MESES_L[v.getMonth()]}`; }
@@ -1681,6 +1711,18 @@ async function vImprimirListado() {
 // Harold 13-oct: todo pedido entra de inmediato a la cola de producción (primera pestaña, ordenada por fecha de entrega; cambia si cambian las fechas); Fabricación es solo lo que se está fabricando.
 // Harold 13-oct: la ODT que se le entrega al maestro es UNA lista por taller (lo que está en cola y lo que se está fabricando, por fecha
 // de entrega); marcar FABRICANDO no la cambia, solo dice qué se está haciendo hoy. [clave, título, área, etapa de trabajo, acabado]
+/* Orden de la ODT, fuente única de la prioridad del taller (Harold 25-oct): la fecha para el maestro (o la entrega si la pieza no tiene)
+   y, dentro del mismo día, el orden en que Harold arrastró las filas (orden_taller). La Lista solo muestra este lugar. */
+const diaOdt = (x, p) => x.fecha_taller || p.fecha_comprometida || p.fecha_estimada || null;
+const compararOdt = (a, b) => String(diaOdt(a.x, a.p) || '9').localeCompare(String(diaOdt(b.x, b.p) || '9')) || (a.x.orden_taller ?? Infinity) - (b.x.orden_taller ?? Infinity) || String(a.p.numero).localeCompare(String(b.p.numero)) || a.x.id - b.x.id;
+// Lugar de cada pieza en la ODT de su taller (Lista: "Carp. #3"); mismo filtro que la ODT de carpintería, soldadura y armado
+const ODT_CORTO = { 'Carpintería': 'Carp.', 'Soldadura': 'Sold.', 'Armado muebles': 'Arm.' };
+function lugaresOdt(pedidos) {
+  const act = pedidos.filter(p => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado) && !p.pago_pendiente && !p.soloMov), lugar = {};
+  ODT_ETAPAS.filter(e => e[2]).forEach(([, , area, etapa]) => act.flatMap(p => (p.piezas || []).filter(x => x.area === area && (x.etapa === 'En cola' || x.etapa === etapa)).map(x => ({ p, x })))
+    .sort(compararOdt).forEach((f, i) => { lugar[f.x.id] = { area, n: i + 1 }; }));
+  return lugar;
+}
 const ODT_ETAPAS = [['Carpintería', 'Carpintería', 'Carpintería', 'Fabricación', null], ['Soldadura', 'Soldadura', 'Soldadura', 'Soldadura', null], ['Armado muebles', 'Armado de muebles', 'Armado muebles', 'Armado', null], ['Barniz', 'Barniz', null, 'Barniz', 'Barniz'], ['Pintura', 'Pintura', null, 'Pintura', 'Pintura']];
 async function vOdt() {
   const esOp = yo.rol === 'operacion';
@@ -1689,8 +1731,7 @@ async function vOdt() {
   const [clave, titulo, area, etapa, acabado] = ODT_ETAPAS.find(e => e[0] === cache.odt) || ODT_ETAPAS[0];
   const fe = p => p.fecha_comprometida || p.fecha_estimada || null;
   const activos = cache.pedidos.filter(p => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado) && !p.pago_pendiente);
-  const filas = cond => activos.flatMap(p => (p.piezas || []).filter(x => x.area && cond(x)).map(x => ({ p, x })))
-    .sort((a, b) => String(a.x.fecha_taller || fe(a.p) || '9').localeCompare(String(b.x.fecha_taller || fe(b.p) || '9')) || String(a.p.numero).localeCompare(String(b.p.numero)));
+  const filas = cond => activos.flatMap(p => (p.piezas || []).filter(x => x.area && cond(x)).map(x => ({ p, x }))).sort(compararOdt);
   const ahora = area ? filas(x => x.area === area && (x.etapa === 'En cola' || x.etapa === etapa)) : filas(x => x.etapa === etapa);
   const fabricando = ahora.filter(({ x }) => x.etapa === etapa).length;
   const vienen = acabado ? filas(x => x.acabado === acabado && ['En cola', 'Fabricación', 'Armado', 'Soldadura'].includes(x.etapa)) : [];
@@ -1732,11 +1773,11 @@ async function vOdt() {
   };
   const filaFecha = (x, p) => { const k = x.fecha_taller || null; return `<td class="nw"><span class="no-imprimir"><input type="date" class="f-taller" value="${k || ''}" data-ftaller="${x.id}" title="Fecha comprometida para el maestro (cuándo debe estar lista esta pieza)"></span><span class="solo-impresion">${k ? fecha(k, true) : '________'}</span>${p.urgente ? ' <strong>URG</strong>' : ''}</td>`; };
   // Anchos fijos por columna (Harold 13-oct: "deja un ancho estándar máximo"); al imprimir no hay columna de estado.
-  const COLS = [['fecha', 'Fecha', 'Fecha comprometida para el maestro'], ['num', 'N°', ''], ['cli', 'Cliente', 'Toca el nombre para editar la pieza'], ['pieza', 'Pieza', ''], ['madera', 'Madera', 'Material y espesor'], ['medidas', 'Medidas L × A × Al', 'Largo × ancho × alto, siempre en ese orden'], ['forma', 'Form.', 'Formato'], ['ctd', 'Ctd', ''], ['term', 'Term.', 'Tono o color y acabado'], ['indic', 'Indicaciones', ''], ['estado no-imprimir', 'Estado', ''], ['hecho solo-impresion', 'Hecho', ''], ['rev solo-impresion', 'Entrega / Rev.', '']];
-  const tabla = (lista, conChip) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><colgroup>${COLS.map(([c]) => `<col class="c-${c.split(' ')[0]} ${c.includes(' ') ? c.split(' ')[1] : ''}">`).join('')}</colgroup><thead><tr>${COLS.map(([c, t, tt]) => `<th class="${c}" title="${esc(tt)}">${c.startsWith('estado') && !conChip ? '' : esc(t)}</th>`).join('')}</tr></thead><tbody>${lista.map(({ p, x }) => {
+  const COLS = [['mover no-imprimir', '', 'Arrastra la fila para cambiar el orden del taller'], ['fecha', 'Fecha', 'Fecha comprometida para el maestro'], ['num', 'N°', ''], ['cli', 'Cliente', 'Toca el nombre para editar la pieza'], ['pieza', 'Pieza', ''], ['madera', 'Madera', 'Material y espesor'], ['medidas', 'Medidas L × A × Al', 'Largo × ancho × alto, siempre en ese orden'], ['forma', 'Form.', 'Formato'], ['ctd', 'Ctd', ''], ['term', 'Term.', 'Tono o color y acabado'], ['indic', 'Indicaciones', ''], ['estado no-imprimir', 'Estado', ''], ['hecho solo-impresion', 'Hecho', ''], ['rev solo-impresion', 'Entrega / Rev.', '']];
+  const tabla = (lista, conChip, arrastre) => !lista.length ? '<p class="gris" style="margin:6px 0 14px">Nada por ahora.</p>' : `<table class="lista impresion odt"><colgroup>${COLS.map(([c]) => `<col class="c-${c.split(' ')[0]} ${c.includes(' ') ? c.split(' ')[1] : ''}">`).join('')}</colgroup><thead><tr>${COLS.map(([c, t, tt]) => `<th class="${c}" title="${esc(tt)}">${c.startsWith('estado') && !conChip ? '' : esc(t)}</th>`).join('')}</tr></thead><tbody>${lista.map(({ p, x }) => {
     const fab = area && x.etapa === etapa, tarde = (x.fecha_taller || '9999') < hoyI || (!x.fecha_taller && p.atrasado);
     const ind = [x.indicaciones].filter(Boolean);
-    return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}">${filaFecha(x, p)}<td class="num">${esc(p.numero)}</td><td class="cli"><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza (medidas, formato, indicaciones, fecha para el maestro)">${esc(p.cliente)}</a></td>
+    return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}" data-pz="${x.id}"><td class="mover no-imprimir">${arrastre ? '<span class="asa" title="Arrastra para cambiar el orden del taller">⠿</span>' : ''}</td>${filaFecha(x, p)}<td class="num">${esc(p.numero)}</td><td class="cli"><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza (medidas, formato, indicaciones, fecha para el maestro)">${esc(p.cliente)}</a></td>
     <td class="pieza"><strong>${esc(nombrePieza(x))}</strong><div class="l2">${aMedidaTxt(x) ? (detalleAMedidaHtml(x, p) || esc(x.tipo)) : [esc(x.tipo), detalleAMedidaHtml(x, p)].filter(Boolean).join(' · ')}</div></td>
     <td class="madera">${maderaHtml(x)}</td><td class="medidas">${tamanoHtml(x, p)}</td><td class="forma">${esc(formatoTxt(x))}</td><td class="ctd">${x.cantidad || 1}</td><td class="term">${esc(terminacion(x))}</td><td class="indic${esOp ? '' : ' ind-edit'}" ${esOp ? '' : `data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro"`}>${ind.map(esc).join(' · ')}</td>
     <td class="estado no-imprimir">${conChip ? etapaChip(x, p.id) : esc(x.etapa)}</td><td class="hecho solo-impresion caja-ok"></td><td class="rev solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
@@ -1744,9 +1785,9 @@ async function vOdt() {
   app.innerHTML = barra('#/odt') + `<div class="sub no-imprimir">
       <span class="fgrupo"><span class="fgrupo-t">Etapa</span>${ODT_ETAPAS.map(([v, t]) => `<button class="ftog ${v === etapa ? 'on' : ''}" data-odt="${esc(v)}">${esc(t)}</button>`).join('')}</span>
       <button class="btn primario" onclick="window.print()">Imprimir ODT</button>
-      <span style="color:var(--gris-3)">${area ? 'Una sola lista, ordenada por la fecha comprometida para el maestro (si una pieza no la tiene, por la entrega al cliente): la cola más lo que se está haciendo. Toca la pieza cuando el maestro la empiece (queda marcada y no sale de la lista); tócala de nuevo al terminar y pasa a barniz, pintura o embalado.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
+      <span style="color:var(--gris-3)">${area ? 'Una sola lista, ordenada por la fecha comprometida para el maestro (si una pieza no la tiene, por la entrega al cliente): la cola más lo que se está haciendo. Arrastra una fila por ⠿ para cambiar el orden: el pedido se mueve entero y toma la fecha de la fila donde lo sueltas. Toca la pieza cuando el maestro la empiece (queda marcada y no sale de la lista); tócala de nuevo al terminar y pasa a barniz, pintura o embalado.' : 'Toca la pieza cuando termine esta etapa: pasa a la siguiente y sale de esta lista.'}</span></div>
     <div class="contenido listado-print odt-print"><div class="titulo-print">ORDEN DE TRABAJO · ${esc(titulo.toUpperCase())} · ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()} · ${ahora.length} pieza${ahora.length === 1 ? '' : 's'}</div>
-    <h3 class="no-imprimir">${area ? `Orden de trabajo por fecha comprometida (${ahora.length} piezas, ${fabricando} fabricándose ahora)` : `En ${esc(etapa.toLowerCase())} ahora (${ahora.length})`}</h3>${tabla(ahora, true)}
+    <h3 class="no-imprimir">${area ? `Orden de trabajo por fecha comprometida (${ahora.length} piezas, ${fabricando} fabricándose ahora)` : `En ${esc(etapa.toLowerCase())} ahora (${ahora.length})`}</h3><div id="odt-ahora">${tabla(ahora, true, true)}</div>
     ${acabado ? `<h3 class="no-imprimir">Vienen a ${esc(etapa.toLowerCase())} (todavía en fabricación, armado o soldadura: ${vienen.length})</h3><div class="no-imprimir">${tabla(vienen, true)}</div>` : ''}</div>`;
   $$('[data-odt]').forEach(b => b.onclick = () => { cache.odt = b.dataset.odt; vOdt(); });
   $$('[data-ftaller]').forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async () => {
@@ -1754,8 +1795,54 @@ async function vOdt() {
     try { const r = await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: inp.value || null } }); actualizarPiezas(r); aviso('Fecha para el maestro: ' + (inp.value ? fecha(inp.value, true) : 'sin fecha'));
       anotarCambio(`fecha para el maestro (volver a ${antes ? fecha(antes) : 'sin fecha'})`, async () => { actualizarPiezas(await rpc('editar_pieza', { p_linea_id: id, p_cambios: { fecha_taller: antes || null } })); });
       vOdt(); } catch (e) { aviso(errorDe(e), true); } }; });
+  activarArrastreOdt($('#odt-ahora tbody'), ahora, () => vOdt());
   activarEtapas(app, () => vOdt());
   activarPiezasEdicion(app, () => vOdt());
+  pintarDeshacer();   // la ODT se repinta sola tras cada cambio: el botón Deshacer vuelve a la barra
+}
+/* Arrastrar en la ODT (Harold 25-oct, Ulriksen antes que Liliana porque su barniz necesita más secado): con el dedo o el mouse
+   por el asa ⠿. Se mueven juntas todas las piezas del pedido en esta lista; caen en el lugar marcado, toman la fecha para el maestro
+   de la fila donde se sueltan (si es otro día) y se reescribe el orden de la lista entera. Se puede deshacer. */
+function activarArrastreOdt(tb, lista, despues) {
+  if (!tb || !tb.querySelectorAll) return;
+  const fe = r => diaOdt(r.x, r.p);
+  tb.querySelectorAll('.asa').forEach(asa => asa.onpointerdown = ev => {
+    ev.preventDefault();
+    const fila = asa.closest('tr'), id = Number(fila.dataset.pz), sel = lista.find(r => r.x.id === id); if (!sel) return;
+    const grupo = lista.filter(r => r.p.id === sel.p.id), gIds = new Set(grupo.map(r => r.x.id));
+    const filasG = [...tb.querySelectorAll('tr[data-pz]')].filter(tr => gIds.has(Number(tr.dataset.pz)));
+    filasG.forEach(tr => tr.classList.add('arrastrando'));
+    let destino = null, antesDe = true;
+    const limpiar = () => tb.querySelectorAll('.drop-antes,.drop-despues').forEach(tr => tr.classList.remove('drop-antes', 'drop-despues'));
+    const mover = e => {
+      const tr = document.elementFromPoint(e.clientX, e.clientY)?.closest('tr[data-pz]'); limpiar();
+      if (!tr || !tb.contains(tr) || gIds.has(Number(tr.dataset.pz))) { destino = null; return; }
+      const r = tr.getBoundingClientRect(); antesDe = e.clientY < r.top + r.height / 2; destino = Number(tr.dataset.pz);
+      tr.classList.add(antesDe ? 'drop-antes' : 'drop-despues');
+    };
+    const soltar = async () => {
+      document.removeEventListener('pointermove', mover); document.removeEventListener('pointerup', soltar); document.removeEventListener('pointercancel', soltar);
+      limpiar(); filasG.forEach(tr => tr.classList.remove('arrastrando'));
+      if (destino == null) return;
+      const resto = lista.filter(r => !gIds.has(r.x.id)), t = resto.findIndex(r => r.x.id === destino); if (t < 0) return;
+      const nuevo = resto.slice(0, antesDe ? t : t + 1).concat(grupo, resto.slice(antesDe ? t : t + 1));
+      const dia = fe(resto[t]), items = [], antes = [];
+      nuevo.forEach((r, i) => {
+        const orden = (i + 1) * 10, it = { id: r.x.id, orden }, cambiaDia = gIds.has(r.x.id) && dia && fe(r) !== dia;
+        if (cambiaDia) it.fecha_taller = dia;
+        if (r.x.orden_taller !== orden || cambiaDia) { items.push(it); antes.push({ id: r.x.id, orden: r.x.orden_taller ?? null, ...(cambiaDia ? { fecha_taller: r.x.fecha_taller || null } : {}) }); }
+      });
+      if (!items.length) return;
+      try {
+        (await rpc('reordenar_odt', { p_items: items })).forEach(actualizarPiezas);
+        const cambiaron = grupo.filter(r => dia && fe(r) !== dia);
+        aviso(`${sel.p.cliente}: orden del taller guardado${cambiaron.length ? ', fecha para el maestro ' + fecha(dia, true) + (cambiaron[0].x.fecha_taller ? ' (antes ' + fecha(cambiaron[0].x.fecha_taller, true) + ')' : '') : ''}`);
+        anotarCambio(`orden del taller (${sel.p.cliente})`, async () => { (await rpc('reordenar_odt', { p_items: antes })).forEach(actualizarPiezas); });
+        despues();
+      } catch (e) { aviso(errorDe(e), true); }
+    };
+    document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar);
+  });
 }
 
 /* ---------- Ruta (tanda 33, 15-oct-2026) ----------
@@ -1837,6 +1924,25 @@ function planificar(paradas, salida) {
   }
   const orden = mejor.l.concat(sin); const e = horario(orden, salida); return { orden, ...e };
 }
+/* Grupo de ruta (Harold 25-oct): proyectos a medida (Proyecto y Mueble a medida) salen aparte de las mesas el 99% de las veces.
+   Una postventa o repuesto va con el tipo del pedido original (Macarena González con proyectos, Hernán Retamales con mesas). */
+const GRUPO_PROYECTOS = ['Proyecto', 'Mueble a medida'];
+function grupoRuta(p) {
+  const t = ['Postventa', 'Repuesto'].includes(p.tipo_pedido) && p.pedido_origen_id ? ((cache.pedidos || []).find(x => x.id === p.pedido_origen_id) || {}).tipo_pedido || (cache.tipoOrigen || {})[p.pedido_origen_id] : p.tipo_pedido;
+  return GRUPO_PROYECTOS.includes(t) ? 'proyectos' : 'mesas';
+}
+async function tiposOrigen() {
+  cache.tipoOrigen = cache.tipoOrigen || {};
+  const faltan = [...new Set((cache.pedidos || []).filter(p => p.pedido_origen_id && !(cache.pedidos || []).some(x => x.id === p.pedido_origen_id)).map(p => p.pedido_origen_id))].filter(id => !(id in cache.tipoOrigen));
+  if (!faltan.length) return;
+  const { data } = await sb.rpc('tipos_origen', { p_ids: faltan });   // sb.rpc directo: es lectura, no ensucia los datos en memoria
+  faltan.forEach(id => { cache.tipoOrigen[id] = ((data || []).find(x => x.id === id) || {}).tipo_pedido || null; });
+}
+async function rutaJunta(f) {
+  cache.juntas = cache.juntas || {};
+  if (!(f in cache.juntas)) { const { data } = await sb.from('ruta_junta').select('fecha').eq('fecha', f); cache.juntas[f] = !!(data && data.length); }
+  return cache.juntas[f];
+}
 function paradaDePedido(p) { return { k: 'p' + p.id, tipo: 'pedido', id: p.id, p, numero: p.numero, cliente: p.cliente, telefono: p.cliente_telefono, comuna: p.comuna, direccion: p.direccion, nota: p.nota_entrega, resumen: p.resumen, instalacion: p.instalacion, saldo: Number(p.saldo_por_cobrar ?? p.saldo ?? 0), confirmado: !!p.despacho_confirmado_en, hora_desde: hhmm(p.hora_desde), hora_hasta: hhmm(p.hora_hasta), minutos: minParada(p), orden: p.orden_ruta }; }
 function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}; return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, numero: p.numero || '', cliente: p.cliente || '', telefono: p.cliente_telefono, comuna: p.comuna, direccion: m.direccion || p.direccion, nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, minutos: minMov(m), orden: m.orden_ruta }; }
 async function guardarOrdenRuta(orden, antes) {
@@ -1851,17 +1957,23 @@ async function vRuta() {
   if (!cache.rutaFecha) cache.rutaFecha = hoyISO();
   const f = cache.rutaFecha, salida = cache.rutaSalida || SALIDA_DEFECTO, hoy = hoyISO(), manana = hoyISO(1);
   const saldoDe = p => Number(p.saldo_por_cobrar ?? p.saldo ?? 0);
-  const programados = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f);
+  // Dos rutas por día (Harold 25-oct): mesas y proyectos a medida salen por separado, salvo el día que Harold las junta
+  const [junta] = await Promise.all([rutaJunta(f), tiposOrigen()]);
+  if (!['mesas', 'proyectos'].includes(cache.rutaGrupo)) cache.rutaGrupo = 'mesas';
+  const g = junta ? null : cache.rutaGrupo, enG = p => !g || grupoRuta(p) === g, movEnG = m => enG(cache.pedidos.find(x => x.id === m.pedido_id) || {});
+  const enRuta = p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f && !['Despacho regiones', 'Retiro en taller'].includes(p.tipo_entrega);
+  const cuenta = gr => cache.pedidos.filter(p => enRuta(p) && grupoRuta(p) === gr).length + (cache.movs || []).filter(m => m.fecha === f && grupoRuta(cache.pedidos.find(x => x.id === m.pedido_id) || {}) === gr && cache.pedidos.some(x => x.id === m.pedido_id)).length;
+  const programados = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f).filter(enG);
   const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones'), retiros = programados.filter(p => p.tipo_entrega === 'Retiro en taller');
-  const movsDia = (cache.movs || []).filter(m => m.fecha === f && cache.pedidos.some(x => x.id === m.pedido_id));
-  const propuestos = cache.pedidos.filter(p => p.estado !== 'DESPACHO PROGRAMADO' && p.despacho_propuesto === f);
+  const movsDia = (cache.movs || []).filter(m => m.fecha === f && cache.pedidos.some(x => x.id === m.pedido_id)).filter(movEnG);
+  const propuestos = cache.pedidos.filter(p => p.estado !== 'DESPACHO PROGRAMADO' && p.despacho_propuesto === f).filter(enG);
   /* Harold 22-oct: "en la ruta no me aparecen los demás pedidos para poder verlos y confirmar con los clientes": los candidatos suman
      POR FABRICAR y DISEÑO APROBADO, van por fecha de entrega y la lista queda abierta; los programados de otros días tienen su propia sección. */
   const fEntrega = p => p.fecha_comprometida || p.fecha_estimada || '9999';
-  const candidatos = cache.pedidos.filter(p => ['LISTO EN TALLER', 'EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) && p.despacho_propuesto !== f && p.tipo_entrega !== 'Retiro en taller')
+  const candidatos = cache.pedidos.filter(p => ['LISTO EN TALLER', 'EN FABRICACIÓN', 'POR FABRICAR', 'DISEÑO APROBADO'].includes(p.estado) && p.despacho_propuesto !== f && p.tipo_entrega !== 'Retiro en taller').filter(enG)
     .sort((a, b) => (b.estado === 'LISTO EN TALLER') - (a.estado === 'LISTO EN TALLER') || fEntrega(a).localeCompare(fEntrega(b)));
-  const otrosDias = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida && p.fecha_comprometida !== f).sort((a, b) => a.fecha_comprometida.localeCompare(b.fecha_comprometida));
-  const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && cache.pedidos.some(x => x.id === m.pedido_id)).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const otrosDias = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida && p.fecha_comprometida !== f).filter(enG).sort((a, b) => a.fecha_comprometida.localeCompare(b.fecha_comprometida));
+  const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && cache.pedidos.some(x => x.id === m.pedido_id)).filter(movEnG).sort((a, b) => a.fecha.localeCompare(b.fecha));
   const paradas = programados.filter(p => !regiones.includes(p) && !retiros.includes(p)).map(paradaDePedido).concat(movsDia.map(paradaDeMov));
   const nuevas = await ubicar(paradas);
   const guardadas = paradas.filter(x => x.orden != null).sort((a, b) => a.orden - b.orden), libres = paradas.filter(x => x.orden == null);
@@ -1896,9 +2008,10 @@ async function vRuta() {
   const resumen = `${orden.length} parada${orden.length === 1 ? '' : 's'}${porConfirmar ? ` · <strong class="ambar-txt">${porConfirmar} por confirmar</strong>` : orden.length ? ' · todas confirmadas' : ''}${cobrar ? ` · cobrar ${pesos(cobrar)}` : ''}${orden.length ? ` · vuelta al taller ~${minHora(plan.fin)}` : ''}`;
   app.innerHTML = barra('#/ruta') + `<div class="sub no-imprimir"><label>Día <input type="date" id="f-ruta" value="${f}"></label><button class="btn chico ${f === hoy ? 'primario' : 'borde'}" data-dia="${hoy}">Hoy</button><button class="btn chico ${f === manana ? 'primario' : 'borde'}" data-dia="${manana}">Mañana</button>
       <label title="Hora a la que sale Alexis del taller; las horas de llegada se calculan desde aquí">Salida <input type="time" id="h-salida" value="${salida}" style="min-height:34px;padding:4px 8px"></label>
+      <span class="fgrupo"><span class="fgrupo-t">Ruta</span>${junta ? `<button class="ftog on" title="Este día mesas y proyectos van juntos">Mesas y proyectos juntos (${cuenta('mesas') + cuenta('proyectos')})</button>` : [['mesas', 'Mesas'], ['proyectos', 'Proyectos a medida']].map(([v, t]) => `<button class="ftog ${g === v ? 'on' : ''}" data-grupo-ruta="${v}" title="${v === 'mesas' ? 'Venta de catálogo y mesas a medida' : 'Proyectos y muebles a medida; la postventa va con el tipo del pedido original'}">${t} (${cuenta(v)})</button>`).join('')}${esOp ? '' : `<button class="btn chico borde" id="b-juntar" title="${junta ? 'Vuelve a dos rutas: mesas y proyectos por separado' : 'Solo este día: mesas y proyectos en una sola ruta'}">${junta ? 'Separar rutas' : 'Juntar en una ruta'}</button>`}</span>
       <div class="pasos"><span>1. Alexis propone</span><span>2. Harold manda WhatsApp</span><span>3. Cliente confirma</span><span>4. Alexis entrega</span></div></div>
     <div class="contenido ruta">
-      <section class="seccion"><div class="cab"><h2>Ruta del ${fecha(f, true)}</h2><span class="gris" style="font-size:13px">${resumen}</span></div>
+      <section class="seccion"><div class="cab"><h2>Ruta${junta ? '' : g === 'proyectos' ? ' de proyectos a medida' : ' de mesas'} del ${fecha(f, true)}</h2><span class="gris" style="font-size:13px">${resumen}</span></div>
         <div class="ruta-cab no-imprimir"><span class="gris" style="font-size:12px">${guardadas.length ? 'Orden guardado (▲▼ para cambiar; lo ven todos).' : 'Orden propuesto por cercanía desde el taller y por el horario de cada cliente; ▲▼ lo cambia y lo guarda.'}${nuevas.length ? ` Ubicando ${nuevas.length} dirección${nuevas.length > 1 ? 'es' : ''} nueva${nuevas.length > 1 ? 's' : ''}…` : ''}</span>
           <span class="espacio"></span>${orden.length > 1 ? `<button class="btn chico borde" id="b-reordenar" title="Vuelve a calcular el mejor orden y lo guarda">Reordenar por cercanía</button>` : ''}${linkMaps(orden) ? `<a class="btn chico borde" target="_blank" href="${linkMaps(orden)}" title="Abre Google Maps con las paradas en este orden, saliendo y volviendo al taller${orden.filter(x => x.dirLimpia).length > 9 ? ' (solo las primeras 9)' : ''}">Abrir en Google Maps</a>` : ''}${!esOp ? `<button class="btn chico borde" id="b-mov-ruta" title="Retiro, visita técnica, instalación o entrega extra para este día; si el pedido ya está entregado se crea una Postventa">+ Movimiento</button>` : ''}<button class="btn chico borde" onclick="window.print()">Imprimir</button><button class="btn chico borde" id="b-etiq" ${orden.some(x => x.tipo === 'pedido') ? '' : 'disabled'}>Etiquetas</button></div>
         <div class="ruta-lista">${orden.map(tarjeta).join('') || '<div style="color:var(--gris-3)">Sin entregas confirmadas ni programadas para este día</div>'}</div>
@@ -1916,6 +2029,11 @@ async function vRuta() {
       ${movsOtros.length ? `<details class="seccion plegable no-imprimir"><summary>Otros movimientos pendientes (retiros, visitas, instalaciones) · ${movsOtros.length}</summary>${movsOtros.map(movOtroHtml).join('')}</details>` : ''}
     </div>`;
   $('#f-ruta').onchange = e => { cache.rutaFecha = e.target.value; vRuta(); };
+  $$('[data-grupo-ruta]').forEach(b => b.onclick = () => { cache.rutaGrupo = b.dataset.grupoRuta; vRuta(); });
+  const bJ = $('#b-juntar'); if (bJ) bJ.onclick = async () => { try {
+    const { error } = junta ? await sb.from('ruta_junta').delete().eq('fecha', f) : await sb.from('ruta_junta').insert({ fecha: f }); if (error) throw error;
+    delete (cache.juntas || {})[f]; aviso(junta ? 'Rutas separadas: mesas y proyectos por su lado' : `El ${fecha(f, true)} mesas y proyectos van en una sola ruta`); vRuta();
+  } catch (e) { aviso(errorDe(e), true); } };
   $$('[data-dia]').forEach(b => b.onclick = () => { cache.rutaFecha = b.dataset.dia; vRuta(); });
   $('#h-salida').onchange = e => { cache.rutaSalida = e.target.value || SALIDA_DEFECTO; vRuta(); };
   const antesOrden = orden.map(x => ({ tipo: x.tipo, id: x.id, orden: x.orden }));
@@ -2865,17 +2983,25 @@ async function modalCaso(id) {
   const fn = $('#f-nota'); if (fn) fn.onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try { await rpc('agregar_nota_caso', { p_id: id, p_tipo: f.get('tipo'), p_texto: f.get('texto') }); aviso('Nota agregada'); refrescar(); } catch (e) { aviso(errorDe(e), true); } };
   on('#cs-pv', () => formPostventaDeCaso(c, refrescar));
 }
+// Una reparación en taller entra a la ODT como pieza Servicio de ese taller (Harold 25-oct: la cubierta de Hernán Retamales no salía para carpintería)
+const tallerPostventaHtml = () => `<label class="campo" title="Si se repara en el taller, la pieza entra a la ODT de ese taller">¿Se repara en el taller? <select name="taller"><option value="">No, solo el movimiento</option>${['Carpintería', 'Soldadura', 'Armado muebles', 'Barniz'].map(a => `<option>${a}</option>`).join('')}</select></label>`;
+async function crearPiezaPostventa(pedidoId, area, nota) {
+  if (!area) return;
+  const { error } = await sb.from('linea_pedido').insert({ pedido_id: pedidoId, orden: 1, tipo_linea: 'Servicio', descripcion: 'Reparación: ' + String(nota || '').trim(), cantidad: 1, area_taller: area, precio_unitario: 0 });
+  if (error) throw error;
+}
 function formPostventaDeCaso(c, despues) {
   modal(`<h2>Postventa desde ${esc(c.codigo)} · ${esc(c.cliente)}</h2><div class="gris" style="font-size:12px">Resultado: ${esc(c.resultado)}. Se crea un pedido POSTVENTA ligado a ${esc(c.pedido_numero || 'este caso')} con el movimiento en la fecha indicada; desde ahí Alexis lo ve en su Lista. Si lleva una pieza de taller (cubierta nueva, repuesto), se agrega después en su ficha.</div><form id="f-pv"><div class="campos">
     <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
-    <label class="campo">Fecha <input type="date" name="fecha" required value="${fechaDefecto || hoyISO(1)}"></label>
+    <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO(1)}"></label>
     <label class="campo">Dirección (vacía = la del pedido) <input name="direccion"></label>
-    <label class="campo">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label></div>
+    <label class="campo">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label>${tallerPostventaHtml()}</div>
     <label class="campo" style="display:block;margin-top:8px">Qué se hace o se revisa <textarea name="nota" rows="2" style="width:100%" required>${esc(c.resumen)}</textarea></label>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Crear postventa</button></div></form>`);
   $('#f-pv').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); try {
     const r = await rpc('crear_postventa_de_caso', { p_caso_id: c.id, p_tipo_mov: f.get('tipo'), p_fecha: f.get('fecha'), p_direccion: f.get('direccion') || null, p_nota: f.get('nota'), p_valor: Number(f.get('valor') || 0) });
-    cerrarModal(); aviso(`Postventa ${r.numero} creada y ligada al caso`); despues();
+    await crearPiezaPostventa(r.pedido_id, f.get('taller'), f.get('nota'));
+    cerrarModal(); aviso(`Postventa ${r.numero} creada y ligada al caso${f.get('taller') ? ', la reparación entra a la ODT de ' + f.get('taller') : ''}`); despues();
   } catch (e) { aviso(errorDe(e), true); } };
 }
 /* Bloque de casos en la ficha del pedido */
