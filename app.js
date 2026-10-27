@@ -2357,11 +2357,15 @@ async function enviarGuia(g, archivo) {
   /* Harold 22-oct (captura): "no le adjunta al wsp, solo le envía un mensaje". WhatsApp no acepta archivos por enlace, así que en el Mac
      la guía se copia como imagen al portapapeles: en el chat de Don René basta Cmd+V para adjuntarla. El PDF igual queda en Descargas. */
   const pull = await contactoPullman(); let png = null; try { png = await guiaPng(blob); } catch (e) { }
+  let puedeCompartir = false; try { puedeCompartir = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { }
   modal(`<h2>Enviar guía N° ${g.numero}</h2>
     <div style="font-size:13px;margin-bottom:10px">${png ? 'La guía se copia como <b>imagen</b> y se abre el chat de Don René con el mensaje escrito. En el chat aprieta <b>Cmd+V</b> para adjuntarla y envía. El PDF también queda en Descargas.' : `Se descarga el PDF <b>${esc(archivo)}</b> y se abre el chat o el correo con este mensaje. Arrastra el PDF descargado al chat antes de enviar.`}</div>
     <div class="campo" style="background:var(--fondo-2,#f4f6f7);padding:8px;border-radius:6px;font-size:13px">${esc(texto)}</div>
     ${pull.telefono ? '' : '<div style="font-size:12px;color:var(--rojo-txt)">Falta el teléfono de Don René: agrégalo en Compras, proveedor Pullman Cargo. Mientras, WhatsApp te deja elegir el chat.</div>'}
-    <div class="acciones"><button type="button" class="btn" id="eg-cancelar">Cancelar</button><button type="button" class="btn" id="eg-correo">Por correo</button><button type="button" class="btn primario" id="eg-wsp">Por WhatsApp a Don René</button></div>`);
+    <div class="acciones"><button type="button" class="btn" id="eg-cancelar">Cancelar</button><button type="button" class="btn" id="eg-correo">Por correo</button>${puedeCompartir ? '<button type="button" class="btn" id="eg-compartir" title="Menú Compartir del Mac: elige WhatsApp y el chat de Don René; el PDF va adjunto">Compartir PDF</button>' : ''}<button type="button" class="btn primario" id="eg-wsp">Por WhatsApp a Don René</button></div>`);
+  /* Harold 27-oct (captura): "no la pega directamente". Ninguna página puede adjuntar sola un archivo en WhatsApp Web; si el Mac tiene el menú
+     Compartir del sistema, este botón manda el PDF adjunto a la app de WhatsApp de escritorio sin pegar nada. */
+  const bc = $('#eg-compartir'); if (bc) bc.onclick = async () => { try { await navigator.share({ files: [file], title: 'Guía N° ' + g.numero, text: texto }); cerrarModal(); registrar('compartida desde el Mac'); aviso('Guía enviada'); } catch (e) { if (!e || e.name !== 'AbortError') aviso('El menú Compartir no funcionó: usa Por WhatsApp a Don René', true); } };
   const descargar = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = archivo; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); };
   $('#eg-cancelar').onclick = cerrarModal;
   $('#eg-wsp').onclick = async () => {
