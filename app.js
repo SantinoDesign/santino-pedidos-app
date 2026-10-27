@@ -869,6 +869,8 @@ async function abrirWa(url) {
     aviso('Se abre WhatsApp Web con el mensaje escrito' + (copiado ? ' (también quedó copiado: Cmd+V si hiciera falta)' : ''));
     window.open(`https://web.whatsapp.com/send?${tel ? 'phone=' + tel + '&' : ''}text=${encodeURIComponent(sinEmojis(texto))}`, 'santino_wsp');
   }
+  // R-354 (Harold 27-oct): en el Mac también el link sin mensaje va directo a WhatsApp Web, sin la pantalla de "aplicación o web".
+  else if (!esTactil()) { const tel = base.replace('https://wa.me/', '').replace(/\D/g, ''); window.open(`https://web.whatsapp.com/send${tel ? '?phone=' + tel : ''}`, 'santino_wsp'); }
   else window.open(url, '_blank');
 }
 document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('a[href^="https://wa.me/"]'); if (!a) return; ev.preventDefault(); ev.stopPropagation(); abrirWa(a.href); }, true);
