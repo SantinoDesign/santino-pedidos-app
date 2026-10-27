@@ -2376,13 +2376,15 @@ async function enviarGuia(g, archivo) {
     registrar(link ? 'WhatsApp con link al PDF' : 'WhatsApp'); };
   $('#eg-correo').onclick = () => { descargar(); cerrarModal(); location.href = `mailto:${encodeURIComponent(pull.correo)}?subject=${encodeURIComponent('Guía de despacho N° ' + g.numero + ' · Santino Design')}&body=${encodeURIComponent(textoLink)}`; registrar('correo'); };
 }
-/* El PDF de la guía queda guardado una vez en guias/ (Harold y Alexis) y se entrega un link firmado de 60 días para el mensaje. */
+/* El PDF de la guía queda guardado una vez en guias/ (Harold y Alexis). Link corto (Harold 27-oct: "un link comprimido… no tan largo y raro"):
+   la función g da santinodesign.cl/g/CÓDIGO (o, sin el permiso de redirecciones en Shopify, su propia dirección corta); si falla, link firmado de 60 días. */
 async function linkGuia(g, blob, archivo) {
   if (!g.pdf_path) {
     const path = `guias/${g.numero}_${Date.now()}.pdf`;
     const { error } = await sb.storage.from('documentos').upload(path, new File([blob], archivo, { type: 'application/pdf' }), { contentType: 'application/pdf' }); if (error) throw error;
     await rpc('guardar_pdf_guia', { p_guia_id: g.id, p_path: path }); g.pdf_path = path;
   }
+  try { const { data: c, error: ec } = await sb.functions.invoke('g', { body: { guia_id: g.id } }); if (!ec && c && c.link) return c.link; } catch (e) { }
   const { data, error } = await sb.storage.from('documentos').createSignedUrl(g.pdf_path, 60 * 24 * 3600); if (error) throw error;
   return data.signedUrl;
 }
