@@ -2354,27 +2354,37 @@ async function enviarGuia(g, archivo) {
     try { await navigator.share({ files: [file], title: 'Guía N° ' + g.numero, text: texto }); registrar('compartida desde la tablet'); aviso('Guía enviada'); return; }
     catch (e) { if (e && e.name === 'AbortError') return; }
   }
-  /* Harold 22-oct (captura): "no le adjunta al wsp, solo le envía un mensaje". WhatsApp no acepta archivos por enlace, así que en el Mac
-     la guía se copia como imagen al portapapeles: en el chat de Don René basta Cmd+V para adjuntarla. El PDF igual queda en Descargas. */
-  const pull = await contactoPullman(); let png = null; try { png = await guiaPng(blob); } catch (e) { }
+  /* Harold 22 y 27-oct (capturas): "no le adjunta al wsp", "no pegó nada, solo pegó el texto". Ninguna página puede adjuntar un archivo en
+     WhatsApp Web, así que el PDF se guarda en la app (carpeta guias/, migración 0082) y el mensaje a Don René lleva el link: solo se aprieta Enviar.
+     El link dura 60 días. Si el Mac tiene el menú Compartir del sistema, Compartir PDF manda el archivo adjunto a la app de WhatsApp de escritorio. */
+  const pull = await contactoPullman(); let link = '';
+  try { link = await linkGuia(g, blob, archivo); } catch (e) { }
+  const textoLink = link ? `${texto}\n\nGuía: ${link}` : texto;
   let puedeCompartir = false; try { puedeCompartir = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { }
   modal(`<h2>Enviar guía N° ${g.numero}</h2>
-    <div style="font-size:13px;margin-bottom:10px">${png ? 'La guía se copia como <b>imagen</b> y se abre el chat de Don René con el mensaje escrito. En el chat aprieta <b>Cmd+V</b> para adjuntarla y envía. El PDF también queda en Descargas.' : `Se descarga el PDF <b>${esc(archivo)}</b> y se abre el chat o el correo con este mensaje. Arrastra el PDF descargado al chat antes de enviar.`}</div>
-    <div class="campo" style="background:var(--fondo-2,#f4f6f7);padding:8px;border-radius:6px;font-size:13px">${esc(texto)}</div>
+    <div style="font-size:13px;margin-bottom:10px">${link ? 'Se abre el chat de Don René con el mensaje y el <b>link de la guía</b> ya escritos: solo aprieta <b>Enviar</b>. Él abre la guía con un toque. El PDF también queda en Descargas.' : `No se pudo guardar la guía en la app. Se descarga el PDF <b>${esc(archivo)}</b> y se abre el chat con el mensaje: arrastra el PDF descargado al chat antes de enviar.`}</div>
+    <div class="campo" style="background:var(--fondo-2,#f4f6f7);padding:8px;border-radius:6px;font-size:13px">${esc(texto)}${link ? '<br><br>Guía: <a href="' + esc(link) + '" target="_blank" rel="noopener">link al PDF</a>' : ''}</div>
     ${pull.telefono ? '' : '<div style="font-size:12px;color:var(--rojo-txt)">Falta el teléfono de Don René: agrégalo en Compras, proveedor Pullman Cargo. Mientras, WhatsApp te deja elegir el chat.</div>'}
     <div class="acciones"><button type="button" class="btn" id="eg-cancelar">Cancelar</button><button type="button" class="btn" id="eg-correo">Por correo</button>${puedeCompartir ? '<button type="button" class="btn" id="eg-compartir" title="Menú Compartir del Mac: elige WhatsApp y el chat de Don René; el PDF va adjunto">Compartir PDF</button>' : ''}<button type="button" class="btn primario" id="eg-wsp">Por WhatsApp a Don René</button></div>`);
-  /* Harold 27-oct (captura): "no la pega directamente". Ninguna página puede adjuntar sola un archivo en WhatsApp Web; si el Mac tiene el menú
-     Compartir del sistema, este botón manda el PDF adjunto a la app de WhatsApp de escritorio sin pegar nada. */
   const bc = $('#eg-compartir'); if (bc) bc.onclick = async () => { try { await navigator.share({ files: [file], title: 'Guía N° ' + g.numero, text: texto }); cerrarModal(); registrar('compartida desde el Mac'); aviso('Guía enviada'); } catch (e) { if (!e || e.name !== 'AbortError') aviso('El menú Compartir no funcionó: usa Por WhatsApp a Don René', true); } };
   const descargar = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = archivo; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); };
   $('#eg-cancelar').onclick = cerrarModal;
-  $('#eg-wsp').onclick = async () => {
-    let copiada = false; if (png && navigator.clipboard && window.ClipboardItem) { try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]); copiada = true; } catch (e) { } }
+  $('#eg-wsp').onclick = () => {
+    window.open(`https://web.whatsapp.com/send?${pull.telefono ? 'phone=' + pull.telefono + '&' : ''}text=${encodeURIComponent(sinEmojis(textoLink))}`, 'santino_wsp');
     descargar(); cerrarModal();
-    if (copiada) { aviso('Guía copiada: en el chat de Don René aprieta Cmd+V y envía'); window.open(`https://web.whatsapp.com/send?${pull.telefono ? 'phone=' + pull.telefono + '&' : ''}text=${encodeURIComponent(texto)}`, 'santino_wsp'); }
-    else { await abrirWa(`https://wa.me/${pull.telefono}?text=${encodeURIComponent(texto)}`); aviso('No se pudo copiar la guía: arrastra el PDF de Descargas al chat de Don René', true); }
-    registrar(copiada ? 'WhatsApp, imagen pegada' : 'WhatsApp'); };
-  $('#eg-correo').onclick = () => { descargar(); cerrarModal(); location.href = `mailto:${encodeURIComponent(pull.correo)}?subject=${encodeURIComponent('Guía de despacho N° ' + g.numero + ' · Santino Design')}&body=${encodeURIComponent(texto)}`; registrar('correo'); };
+    aviso(link ? 'Mensaje con el link de la guía listo: aprieta Enviar en WhatsApp' : 'Arrastra el PDF de Descargas al chat de Don René', !link);
+    registrar(link ? 'WhatsApp con link al PDF' : 'WhatsApp'); };
+  $('#eg-correo').onclick = () => { descargar(); cerrarModal(); location.href = `mailto:${encodeURIComponent(pull.correo)}?subject=${encodeURIComponent('Guía de despacho N° ' + g.numero + ' · Santino Design')}&body=${encodeURIComponent(textoLink)}`; registrar('correo'); };
+}
+/* El PDF de la guía queda guardado una vez en guias/ (Harold y Alexis) y se entrega un link firmado de 60 días para el mensaje. */
+async function linkGuia(g, blob, archivo) {
+  if (!g.pdf_path) {
+    const path = `guias/${g.numero}_${Date.now()}.pdf`;
+    const { error } = await sb.storage.from('documentos').upload(path, new File([blob], archivo, { type: 'application/pdf' }), { contentType: 'application/pdf' }); if (error) throw error;
+    await rpc('guardar_pdf_guia', { p_guia_id: g.id, p_path: path }); g.pdf_path = path;
+  }
+  const { data, error } = await sb.storage.from('documentos').createSignedUrl(g.pdf_path, 60 * 24 * 3600); if (error) throw error;
+  return data.signedUrl;
 }
 
 /* Mover la tabla hacia el costado (Harold 12-oct): arrastrar con el mouse sobre la tabla (si se mueve más de 6 px no cuenta como clic),
