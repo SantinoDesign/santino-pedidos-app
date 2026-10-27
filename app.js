@@ -946,7 +946,8 @@ document.addEventListener('click', async ev => {
    maestro vaya viendo los planos"; plano híbrido aprobado: los modelos con dibujo salen con las medidas exactas del pedido, editables con el botón
    Editar). Lámina A4 horizontal en blanco y negro con cajetín (ESTANDAR_PLANOS_PRODUCCION), en mm. Se abre en el mismo visor con Imprimir.
    Primer modelo: Sobremesa (26-oct-2026, R-346): cruz de abajo y de arriba salen de medida_texto ("cruz arriba 50, cruz abajo 70, alto 71");
-   si falta, de la regla nueva sobre el diámetro de la cubierta. Unión por defecto: las cruces van de punta a punta y las patas entre ellas. */
+   si falta, de la regla nueva sobre el diámetro de la cubierta. Unión (Harold 27-oct: "la pata baja hacia abajo para que no se note la testa
+   de la pieza de abajo"): la cruz de arriba va de punta a punta sobre las patas; las patas bajan hasta el suelo y la cruz de abajo va entre ellas. */
 const sobremesaCruzAbajo = D => D >= 120 ? D - 35 : D >= 100 ? D - 20 : D >= 90 ? 80 : D > 80 ? 65 + 1.5 * (D - 80) : D - 15;  // 80 = 65 (Harold 26-oct)
 const PLANOS_BASE = { SOBREMESA: { nombre: 'Sobremesa', dibujar: laminaSobremesa } };
 const tienePlanoBase = x => x && x.tipo === 'Base' && !!PLANOS_BASE[String(x.modelo_base || '').toUpperCase()];
@@ -973,7 +974,7 @@ function laminaSobremesa(x, p, logo) {
   if (!m.abajo || !m.arriba) throw new Error('Faltan las medidas de la base: escribe "cruz arriba X, cruz abajo Y, alto Z" con el botón Editar de la pieza');
   const Lb = m.abajo * 10, Lt = m.arriba * 10, H = m.alto * 10, D = (m.D || m.abajo + 20) * 10, esp = m.esp, EC = m.espCub, PAT = 16, B = 70;
   const inc = (Lb - Lt) / 2, ang = Math.atan(inc / H), angTxt = (ang * 180 / Math.PI).toFixed(0).replace('.', ',');
-  const lPata = (H - 2 * B) / Math.cos(ang);
+  const lPata = (H - B) / Math.cos(ang);
   // Una escala por vista (cada una lo más grande que cabe en su zona de la lámina)
   const eF = [10, 15, 20, 25, 30].find(s => Math.max(Lb, D) / s <= 125 && (H + PAT + EC) / s <= 110) || 30;
   const eP = [10, 15, 20, 25, 30].find(s => D / s <= 86) || 30;
@@ -987,10 +988,10 @@ function laminaSobremesa(x, p, logo) {
   const cx = 80, cy = 108 + (H + PAT + EC) * k / 2, X = v => cx + v * k, Y = v => cy - v * k;
   const xo = y => Lb / 2 - inc * (y - PAT) / H;   // canto exterior de la pata a la altura y (mm desde el suelo)
   const y1 = PAT, y2 = PAT + B, y3 = PAT + H - B, y4 = PAT + H, wh = B / Math.cos(ang);
-  pol([[X(-Lb / 2), Y(y1)], [X(Lb / 2), Y(y1)], [X(xo(y2)), Y(y2)], [X(-xo(y2)), Y(y2)]]);
-  pol([[X(-xo(y3)), Y(y3)], [X(xo(y3)), Y(y3)], [X(Lt / 2), Y(y4)], [X(-Lt / 2), Y(y4)]]);
-  for (const s of [1, -1]) pol([[X(s * xo(y2)), Y(y2)], [X(s * xo(y3)), Y(y3)], [X(s * (xo(y3) - wh)), Y(y3)], [X(s * (xo(y2) - wh)), Y(y2)]]);
-  for (const s of [1, -1]) pol([[X(s * (Lb / 2 - 60)), Y(0)], [X(s * (Lb / 2 - 20)), Y(0)], [X(s * (Lb / 2 - 20)), Y(PAT)], [X(s * (Lb / 2 - 60)), Y(PAT)]], 'p fino');
+  pol([[X(-(xo(y1) - wh)), Y(y1)], [X(xo(y1) - wh), Y(y1)], [X(xo(y2) - wh), Y(y2)], [X(-(xo(y2) - wh)), Y(y2)]]);   // cruz abajo entre las patas
+  pol([[X(-xo(y3)), Y(y3)], [X(xo(y3)), Y(y3)], [X(Lt / 2), Y(y4)], [X(-Lt / 2), Y(y4)]]);   // cruz arriba de punta a punta
+  for (const s of [1, -1]) pol([[X(s * xo(y1)), Y(y1)], [X(s * xo(y3)), Y(y3)], [X(s * (xo(y3) - wh)), Y(y3)], [X(s * (xo(y1) - wh)), Y(y1)]]);   // patas hasta el suelo
+  for (const s of [1, -1]) pol([[X(s * (xo(y1) - wh + 5)), Y(0)], [X(s * (xo(y1) - 5)), Y(0)], [X(s * (xo(y1) - 5)), Y(PAT)], [X(s * (xo(y1) - wh + 5)), Y(PAT)]], 'p fino');
   L.push(`<rect class="seg" x="${X(-D / 2).toFixed(2)}" y="${Y(y4 + EC).toFixed(2)}" width="${T(D)}" height="${T(EC)}"/>`);
   lin(X(-Math.max(Lb, D) / 2) - 8, Y(0), X(Math.max(Lb, D) / 2) + 8, Y(0), 'suelo');
   txt(cx, Y(y4 + EC) - 2, `cubierta Ø ${mmTxt(D)}`, 'tg');
@@ -1008,11 +1009,12 @@ function laminaSobremesa(x, p, logo) {
   for (const s of [1, -1]) { lin(Xp(s * Lt / 2), Yp(-esp / 2) - 1, Xp(s * Lt / 2), Yp(esp / 2) + 1, 'l'); lin(Xp(-esp / 2) - 1, Yp(s * Lt / 2), Xp(esp / 2) + 1, Yp(s * Lt / 2), 'l'); }
   txt(px, 20, `VISTA SUPERIOR · esc. 1:${eP}`, 'tv'); txt(px, Yp(D / 2) + 5, 'cruce a media madera al centro', 'tg');
   // Piezas
-  const filas = [['Cruz abajo', '2', `${B} × ${esp}`, `puntas a ${angTxt}°, rebaje de ${B / 2} al centro`],
-    ['Cruz arriba', '2', `${B} × ${esp}`, `puntas a ${angTxt}°, rebaje de ${B / 2} al centro`],
-    ['Pata', '4', `${B} × ${esp}`, `${mmTxt(lPata)} por el canto exterior, puntas a ${angTxt}°`],
-    ['Patín regulable', '4', '', 'uno en cada punta de la cruz de abajo']];
-  const tx = 160, ty = 118, cw = [30, 10, 18, 71];
+  const lAbajo = Lb - 2 * wh;
+  const filas = [['Cruz abajo', '2', `${B} × ${esp}`, `${mmTxt(lAbajo)} por abajo entre patas, puntas a ${angTxt}°, rebaje ${B / 2}`],
+    ['Cruz arriba', '2', `${B} × ${esp}`, `puntas a ${angTxt}°, rebaje ${B / 2} al centro`],
+    ['Pata', '4', `${B} × ${esp}`, `${mmTxt(lPata)} por el canto exterior, hasta el suelo, puntas a ${angTxt}°`],
+    ['Patín regulable', '4', '', 'uno bajo cada pata']];
+  const tx = 160, ty = 118, cw = [24, 10, 16, 79];
   txt(tx, ty - 3, 'PIEZAS', 'tv', 'start');
   ['Pieza', 'Cant.', 'Sección', 'Corte'].forEach((h, i) => txt(tx + cw.slice(0, i).reduce((a, b) => a + b, 0) + 1, ty + 4, h, 'th', 'start'));
   lin(tx, ty + 5.5, tx + 129, ty + 5.5, 'l');
@@ -1022,12 +1024,12 @@ function laminaSobremesa(x, p, logo) {
   L.push(`<rect class="caj" x="${kx}" y="${ky}" width="${kw}" height="${kh}"/>`);
   if (logo) L.push(`<image href="${logo}" x="${kx + 3}" y="${ky + 3}" width="38" height="7.9" preserveAspectRatio="xMinYMid meet"/>`);
   const celdas = [['PROYECTO', `${p.numero || ''} · ${p.cliente || ''}`], ['MUEBLE', `Base Sobremesa Ø ${mmTxt(D)}`], ['MATERIAL', `${nombreMaterial(x.material_base || '') || 'madera por definir'} ${esp} mm`],
-    ['FECHA DE LOS PLANOS', hoy], ['LÁMINA', '1 de 1'], ['ESCALA', 'indicada en cada vista · A4'], ['VERSIÓN', 'regla 26-10-2026'], ['REVISADO POR MAESTRO', '']];
+    ['FECHA DE LOS PLANOS', hoy], ['LÁMINA', '1 de 1'], ['ESCALA', 'indicada en cada vista · A4'], ['VERSIÓN', 'regla 27-10-2026'], ['REVISADO POR MAESTRO', '']];
   celdas.forEach(([e, v], i) => { const c = i % 2, r = Math.floor(i / 2), x0 = kx + 3 + c * 64, y0 = ky + 15 + r * 7; txt(x0, y0, e, 'te', 'start'); txt(x0, y0 + 3.6, v, 'tvl', 'start'); });
   lin(kx, ky + 12, kx + kw, ky + 12, 'f');
   const css = `.l{stroke:#000;stroke-width:.35}.f{stroke:#000;stroke-width:.15}.c{stroke:#000;stroke-width:.2}.pt{fill:#000}.suelo{stroke:#000;stroke-width:.5}
     .p{fill:#fff;stroke:#000;stroke-width:.45}.p.fino{stroke-width:.3;fill:#ddd}.seg{fill:none;stroke:#000;stroke-width:.3;stroke-dasharray:2 1.2}.caj{fill:none;stroke:#000;stroke-width:.5}
-    text{font-family:Helvetica,Arial,sans-serif;fill:#000}.tv{font-size:4.2px;font-weight:700}.tc{font-size:3.2px;font-weight:700}.tg{font-size:2.8px}.th{font-size:2.9px;font-weight:700}.td{font-size:2.9px}
+    text{font-family:Helvetica,Arial,sans-serif;fill:#000}.tv{font-size:4.2px;font-weight:700}.tc{font-size:3.2px;font-weight:700}.tg{font-size:2.8px}.th{font-size:2.9px;font-weight:700}.td{font-size:2.7px}
     .te{font-size:2.1px;fill:#444}.tvl{font-size:3px;font-weight:700}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="297mm" height="210mm" viewBox="0 0 297 210"><style>${css}</style><rect x="0" y="0" width="297" height="210" fill="#fff"/><rect x="6" y="6" width="285" height="198" fill="none" stroke="#000" stroke-width=".5"/>${L.join('')}</svg>`;
 }
