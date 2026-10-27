@@ -190,7 +190,7 @@ const aMedidaTxt = x => x && x.tipo_mueble && (x.modelo_cubierta || x.modelo_bas
 const planoLinkHtml = p => p && p.planos ? `<a class="plano-ok" data-abrir-plano="${p.id}" title="Abrir el plano para imprimirlo">${p.planos > 1 ? 'PLANOS' : 'PLANO'} OK${p.planos > 1 ? ' (' + p.planos + ')' : ''}</a>` : '';
 function detalleAMedidaHtml(x, p) {
   // Harold 20-oct: la pieza de un proyecto (ej. P26-018 Ulriksen, sin tipo de mueble) también muestra el enlace al plano si el pedido lo tiene
-  if (!aMedidaTxt(x)) return planoLinkHtml(p);
+  if (!aMedidaTxt(x)) return [planoLinkHtml(p), planoBaseHtml(x, p)].filter(Boolean).join(' · ');
   let d = (x.descripcion || '').replace(/\d+([.,]\d+)?\s*[xX×]\s*\d+([.,]\d+)?(\s*[xX×]\s*\d+([.,]\d+)?)?\s*(cm)?/g, '').replace(/^[\s·,]+|[\s·,]+$/g, '').trim();
   d = d.replace(/^(base|cubierta)\s+(de\s+)?/i, '');  // "Cubierta mesa de centro a medida" no repite el nombre
   if (d) d = d.charAt(0).toUpperCase() + d.slice(1);
@@ -941,6 +941,112 @@ document.addEventListener('click', async ev => {
       window.open(href, '_blank');
     } catch (e2) { aviso(errorDe(e2), true); }
   }
+}, true);
+/* Plano de la base dibujado por la app con las medidas de la pieza (Harold 25-oct-2026: "esto debería estar conectado con las odt para que el
+   maestro vaya viendo los planos"; plano híbrido aprobado: los modelos con dibujo salen con las medidas exactas del pedido, editables con el botón
+   Editar). Lámina A4 horizontal en blanco y negro con cajetín (ESTANDAR_PLANOS_PRODUCCION), en mm. Se abre en el mismo visor con Imprimir.
+   Primer modelo: Sobremesa (26-oct-2026, R-346): cruz de abajo y de arriba salen de medida_texto ("cruz arriba 50, cruz abajo 70, alto 71");
+   si falta, de la regla nueva sobre el diámetro de la cubierta. Unión por defecto: las cruces van de punta a punta y las patas entre ellas. */
+const sobremesaCruzAbajo = D => D >= 120 ? D - 35 : D >= 100 ? D - 20 : Math.max(70, Math.min(D - 10, 80));
+const PLANOS_BASE = { SOBREMESA: { nombre: 'Sobremesa', dibujar: laminaSobremesa } };
+const tienePlanoBase = x => x && x.tipo === 'Base' && !!PLANOS_BASE[String(x.modelo_base || '').toUpperCase()];
+const planoBaseHtml = (x, p) => tienePlanoBase(x) && p ? `<a class="plano-ok" data-plano-base="${x.id}" data-pedido="${p.id}" title="Abrir el plano de la base con las medidas de este pedido">PLANO BASE</a>` : '';
+let logoPlanoUrl = null;
+async function logoPlano() {
+  if (logoPlanoUrl) return logoPlanoUrl;
+  try { const b = await (await fetch('logo.png')).blob(); logoPlanoUrl = await new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(b); }); } catch (e) { logoPlanoUrl = ''; }
+  return logoPlanoUrl;
+}
+const mmTxt = v => String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+function medidasSobremesa(x, p) {
+  const cub = (p.piezas || []).find(y => y.tipo === 'Cubierta' && y.largo_cm);
+  const D = cub ? Number(cub.largo_cm) : null;
+  const t = String(x.medida_texto || ''), nro = re => { const m = t.match(re); return m ? Number(m[1].replace(',', '.')) : null; };
+  let abajo = nro(/cruz\s+abajo\s+(\d+(?:[.,]\d+)?)/i), arriba = nro(/cruz\s+arriba\s+(\d+(?:[.,]\d+)?)/i), alto = nro(/alto\s+(\d+(?:[.,]\d+)?)/i);
+  if (!abajo && D) abajo = sobremesaCruzAbajo(D);
+  if (!arriba && abajo) arriba = abajo - 20;
+  if (!alto) alto = x.alto_cm ? Number(x.alto_cm) : 71;
+  return { D, abajo, arriba, alto, esp: x.espesor_mm ? Number(x.espesor_mm) : 34, espCub: cub && cub.espesor_mm ? Number(cub.espesor_mm) : 34 };
+}
+function laminaSobremesa(x, p, logo) {
+  const m = medidasSobremesa(x, p);
+  if (!m.abajo || !m.arriba) throw new Error('Faltan las medidas de la base: escribe "cruz arriba X, cruz abajo Y, alto Z" con el botón Editar de la pieza');
+  const Lb = m.abajo * 10, Lt = m.arriba * 10, H = m.alto * 10, D = (m.D || m.abajo + 20) * 10, esp = m.esp, EC = m.espCub, PAT = 16, B = 70;
+  const inc = (Lb - Lt) / 2, ang = Math.atan(inc / H), angTxt = (ang * 180 / Math.PI).toFixed(0).replace('.', ',');
+  const lPata = (H - 2 * B) / Math.cos(ang);
+  // Una escala por vista (cada una lo más grande que cabe en su zona de la lámina)
+  const eF = [10, 15, 20, 25, 30].find(s => Math.max(Lb, D) / s <= 125 && (H + PAT + EC) / s <= 110) || 30;
+  const eP = [10, 15, 20, 25, 30].find(s => D / s <= 86) || 30;
+  let k = 1 / eF; const T = v => (v * k).toFixed(2);
+  const L = [], lin = (x1, y1, x2, y2, cl = 'l') => L.push(`<line class="${cl}" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"/>`);
+  const pol = (pts, cl = 'p') => L.push(`<polygon class="${cl}" points="${pts.map(q => q[0].toFixed(2) + ',' + q[1].toFixed(2)).join(' ')}"/>`);
+  const txt = (x0, y0, s, cl = 't', anc = 'middle', rot = 0) => L.push(`<text class="${cl}" x="${x0.toFixed(2)}" y="${y0.toFixed(2)}" text-anchor="${anc}"${rot ? ` transform="rotate(${rot} ${x0.toFixed(2)} ${y0.toFixed(2)})"` : ''}>${esc(s)}</text>`);
+  const cotaH = (xa, xb, y, s, yRef) => { lin(xa, yRef, xa, y + 1.5, 'f'); lin(xb, yRef, xb, y + 1.5, 'f'); lin(xa, y, xb, y, 'c'); L.push(`<path class="pt" d="M${xa.toFixed(2)},${y.toFixed(2)} l2.2,-0.8 v1.6 z M${xb.toFixed(2)},${y.toFixed(2)} l-2.2,-0.8 v1.6 z"/>`); txt((xa + xb) / 2, y - 1.2, s, 'tc'); };
+  const cotaV = (x0, ya, yb, s, xRef) => { lin(xRef, ya, x0 + 1.5, ya, 'f'); lin(xRef, yb, x0 + 1.5, yb, 'f'); lin(x0, ya, x0, yb, 'c'); L.push(`<path class="pt" d="M${x0.toFixed(2)},${ya.toFixed(2)} l-0.8,2.2 h1.6 z M${x0.toFixed(2)},${yb.toFixed(2)} l-0.8,-2.2 h1.6 z"/>`); txt(x0 - 1.4, (ya + yb) / 2, s, 'tc', 'middle', -90); };
+  // VISTA FRONTAL (un marco; el otro es igual, girado 90°). Origen: centro en el suelo. Y del papel crece hacia abajo.
+  const cx = 80, cy = 108 + (H + PAT + EC) * k / 2, X = v => cx + v * k, Y = v => cy - v * k;
+  const xo = y => Lb / 2 - inc * (y - PAT) / H;   // canto exterior de la pata a la altura y (mm desde el suelo)
+  const y1 = PAT, y2 = PAT + B, y3 = PAT + H - B, y4 = PAT + H, wh = B / Math.cos(ang);
+  pol([[X(-Lb / 2), Y(y1)], [X(Lb / 2), Y(y1)], [X(xo(y2)), Y(y2)], [X(-xo(y2)), Y(y2)]]);
+  pol([[X(-xo(y3)), Y(y3)], [X(xo(y3)), Y(y3)], [X(Lt / 2), Y(y4)], [X(-Lt / 2), Y(y4)]]);
+  for (const s of [1, -1]) pol([[X(s * xo(y2)), Y(y2)], [X(s * xo(y3)), Y(y3)], [X(s * (xo(y3) - wh)), Y(y3)], [X(s * (xo(y2) - wh)), Y(y2)]]);
+  for (const s of [1, -1]) pol([[X(s * (Lb / 2 - 60)), Y(0)], [X(s * (Lb / 2 - 20)), Y(0)], [X(s * (Lb / 2 - 20)), Y(PAT)], [X(s * (Lb / 2 - 60)), Y(PAT)]], 'p fino');
+  L.push(`<rect class="seg" x="${X(-D / 2).toFixed(2)}" y="${Y(y4 + EC).toFixed(2)}" width="${T(D)}" height="${T(EC)}"/>`);
+  lin(X(-Math.max(Lb, D) / 2) - 8, Y(0), X(Math.max(Lb, D) / 2) + 8, Y(0), 'suelo');
+  txt(cx, Y(y4 + EC) - 2, `cubierta Ø ${mmTxt(D)}`, 'tg');
+  cotaH(X(-Lt / 2), X(Lt / 2), Y(y4 + EC) - 9, `cruz arriba ${mmTxt(Lt)}`, Y(y4) - 1);
+  cotaH(X(-Lb / 2), X(Lb / 2), Y(0) + 10, `cruz abajo ${mmTxt(Lb)}`, Y(0) + 1);
+  cotaH(X(Lt / 2), X(Lb / 2), Y(0) + 18, mmTxt(inc), Y(y4));
+  cotaV(X(-Math.max(Lb, D) / 2) - 6, Y(y1), Y(y4), `alto base ${mmTxt(H)}`, X(-Lb / 2) - 1);
+  txt(X(Lb / 2) + 3, Y(PAT) - 2.5, 'patín regulable', 'tg', 'start');
+  txt(cx, 20, `VISTA FRONTAL · esc. 1:${eF}`, 'tv'); txt(cx, 25, 'un marco; el otro es igual, cruzado a 90°', 'tg');
+  // VISTA SUPERIOR
+  k = 1 / eP; const px = 228, py = 64, Xp = v => px + v * k, Yp = v => py + v * k;
+  L.push(`<circle class="seg" cx="${px}" cy="${py}" r="${T(D / 2)}"/>`);
+  pol([[Xp(-Lb / 2), Yp(-esp / 2)], [Xp(Lb / 2), Yp(-esp / 2)], [Xp(Lb / 2), Yp(esp / 2)], [Xp(-Lb / 2), Yp(esp / 2)]]);
+  pol([[Xp(-esp / 2), Yp(-Lb / 2)], [Xp(esp / 2), Yp(-Lb / 2)], [Xp(esp / 2), Yp(Lb / 2)], [Xp(-esp / 2), Yp(Lb / 2)]]);
+  for (const s of [1, -1]) { lin(Xp(s * Lt / 2), Yp(-esp / 2) - 1, Xp(s * Lt / 2), Yp(esp / 2) + 1, 'l'); lin(Xp(-esp / 2) - 1, Yp(s * Lt / 2), Xp(esp / 2) + 1, Yp(s * Lt / 2), 'l'); }
+  txt(px, 20, `VISTA SUPERIOR · esc. 1:${eP}`, 'tv'); txt(px, Yp(D / 2) + 5, 'cruce a media madera al centro', 'tg');
+  // Piezas
+  const filas = [['Cruz abajo', '2', `${B} × ${esp}`, `puntas a ${angTxt}°, rebaje de ${B / 2} al centro`],
+    ['Cruz arriba', '2', `${B} × ${esp}`, `puntas a ${angTxt}°, rebaje de ${B / 2} al centro`],
+    ['Pata', '4', `${B} × ${esp}`, `${mmTxt(lPata)} por el canto exterior, puntas a ${angTxt}°`],
+    ['Patín regulable', '4', '', 'uno en cada punta de la cruz de abajo']];
+  const tx = 160, ty = 118, cw = [30, 10, 18, 71];
+  txt(tx, ty - 3, 'PIEZAS', 'tv', 'start');
+  ['Pieza', 'Cant.', 'Sección', 'Corte'].forEach((h, i) => txt(tx + cw.slice(0, i).reduce((a, b) => a + b, 0) + 1, ty + 4, h, 'th', 'start'));
+  lin(tx, ty + 5.5, tx + 129, ty + 5.5, 'l');
+  filas.forEach((f, r) => { f.forEach((c, i) => txt(tx + cw.slice(0, i).reduce((a, b) => a + b, 0) + 1, ty + 11 + r * 6, c, 'td', 'start')); lin(tx, ty + 13 + r * 6, tx + 129, ty + 13 + r * 6, 'f'); });
+  // Cajetín
+  const kx = 160, ky = 160, kw = 129, kh = 42, hoy = hoyISO().split('-').reverse().join('-');
+  L.push(`<rect class="caj" x="${kx}" y="${ky}" width="${kw}" height="${kh}"/>`);
+  if (logo) L.push(`<image href="${logo}" x="${kx + 3}" y="${ky + 3}" width="38" height="7.9" preserveAspectRatio="xMinYMid meet"/>`);
+  const celdas = [['PROYECTO', `${p.numero || ''} · ${p.cliente || ''}`], ['MUEBLE', `Base Sobremesa Ø ${mmTxt(D)}`], ['MATERIAL', `${nombreMaterial(x.material_base || '') || 'madera por definir'} ${esp} mm`],
+    ['FECHA DE LOS PLANOS', hoy], ['LÁMINA', '1 de 1'], ['ESCALA', 'indicada en cada vista · A4'], ['VERSIÓN', 'regla 26-10-2026'], ['REVISADO POR MAESTRO', '']];
+  celdas.forEach(([e, v], i) => { const c = i % 2, r = Math.floor(i / 2), x0 = kx + 3 + c * 64, y0 = ky + 15 + r * 7; txt(x0, y0, e, 'te', 'start'); txt(x0, y0 + 3.6, v, 'tvl', 'start'); });
+  lin(kx, ky + 12, kx + kw, ky + 12, 'f');
+  const css = `.l{stroke:#000;stroke-width:.35}.f{stroke:#000;stroke-width:.15}.c{stroke:#000;stroke-width:.2}.pt{fill:#000}.suelo{stroke:#000;stroke-width:.5}
+    .p{fill:#fff;stroke:#000;stroke-width:.45}.p.fino{stroke-width:.3;fill:#ddd}.seg{fill:none;stroke:#000;stroke-width:.3;stroke-dasharray:2 1.2}.caj{fill:none;stroke:#000;stroke-width:.5}
+    text{font-family:Helvetica,Arial,sans-serif;fill:#000}.tv{font-size:4.2px;font-weight:700}.tc{font-size:3.2px;font-weight:700}.tg{font-size:2.8px}.th{font-size:2.9px;font-weight:700}.td{font-size:2.9px}
+    .te{font-size:2.1px;fill:#444}.tvl{font-size:3px;font-weight:700}`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="297mm" height="210mm" viewBox="0 0 297 210"><style>${css}</style><rect x="0" y="0" width="297" height="210" fill="#fff"/><rect x="6" y="6" width="285" height="198" fill="none" stroke="#000" stroke-width=".5"/>${L.join('')}</svg>`;
+}
+async function abrirPlanoBase(pedidoId, piezaId) {
+  const p = (cache.pedidos || []).find(q => q.id === pedidoId); const x = p && (p.piezas || []).find(y => y.id === piezaId);
+  if (!p || !x) throw new Error('No encontré la pieza: recarga la página');
+  const svg = PLANOS_BASE[String(x.modelo_base || '').toUpperCase()].dibujar(x, p, await logoPlano());
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  const v = document.createElement('div'); v.id = 'visor-plano';
+  v.innerHTML = `<div class="vp-barra"><strong>Plano de la base · ${esc(p.numero || '')}</strong><span class="vp-esp"></span><button type="button" class="btn primario" id="vp-imp">Imprimir</button><button type="button" class="btn" id="vp-x">Cerrar</button></div>
+    <div class="vp-paginas"><img src="${url}" alt="Plano de la base"></div>`;
+  document.body.appendChild(v);
+  $('#vp-x', v).onclick = () => { URL.revokeObjectURL(url); v.remove(); };
+  $('#vp-imp', v).onclick = () => window.print();
+}
+document.addEventListener('click', async ev => {
+  const a = ev.target.closest && ev.target.closest('[data-plano-base]'); if (!a) return;
+  ev.preventDefault(); ev.stopPropagation();
+  try { await abrirPlanoBase(Number(a.dataset.pedido), Number(a.dataset.planoBase)); } catch (e) { aviso(errorDe(e), true); }
 }, true);
 function waLink(p, tipo) { return `https://wa.me/${telWa(p)}?text=${encodeURIComponent(tipo === 'despacho' ? mensajeDespacho(p) : `Hola ${nombrePila(p)}, te escribe Harold de Santino Design por tu pedido ${p.numero}.`)}`; }
 async function abrirWaSaldo(p) {
