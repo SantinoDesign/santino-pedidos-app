@@ -947,7 +947,7 @@ document.addEventListener('click', async ev => {
    Editar). Lámina A4 horizontal en blanco y negro con cajetín (ESTANDAR_PLANOS_PRODUCCION), en mm. Se abre en el mismo visor con Imprimir.
    Primer modelo: Sobremesa (26-oct-2026, R-346): cruz de abajo y de arriba salen de medida_texto ("cruz arriba 50, cruz abajo 70, alto 71");
    si falta, de la regla nueva sobre el diámetro de la cubierta. Unión por defecto: las cruces van de punta a punta y las patas entre ellas. */
-const sobremesaCruzAbajo = D => D >= 120 ? D - 35 : D >= 100 ? D - 20 : Math.max(70, Math.min(D - 10, 80));
+const sobremesaCruzAbajo = D => D >= 120 ? D - 35 : D >= 100 ? D - 20 : D >= 90 ? 80 : D > 80 ? 65 + 1.5 * (D - 80) : D - 15;  // 80 = 65 (Harold 26-oct)
 const PLANOS_BASE = { SOBREMESA: { nombre: 'Sobremesa', dibujar: laminaSobremesa } };
 const tienePlanoBase = x => x && x.tipo === 'Base' && !!PLANOS_BASE[String(x.modelo_base || '').toUpperCase()];
 const planoBaseHtml = (x, p) => tienePlanoBase(x) && p ? `<a class="plano-ok" data-plano-base="${x.id}" data-pedido="${p.id}" title="Abrir el plano de la base con las medidas de este pedido">PLANO BASE</a>` : '';
