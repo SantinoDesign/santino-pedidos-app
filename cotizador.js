@@ -543,10 +543,10 @@ function htmlCotizacion(c, opt = {}) {
 }
 
 /* ---------- PDF (jsPDF, texto vectorial; mismo orden y colores del documento oficial) ---------- */
+// Solo "Cot N Nombre Cliente.pdf": sin proyecto ni versión en el nombre, porque Harold reenvía el archivo tal cual (R-361, 29-oct-2026)
 function nombreArchivoCot(c) {
-  const partes = String(c.cliente_nombre || '').trim().split(/\s+/); let corto;
-  if (c.proyecto) corto = (partes[0] ? partes[0][0].toUpperCase() + partes[0].slice(1) : '') + (partes[1] ? ' ' + partes[1][0].toUpperCase() : '') + ' ' + String(c.proyecto).toUpperCase();
-  else corto = partes.slice(0, 3).map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' ');
+  const partes = String(c.cliente_nombre || '').trim().split(/\s+/);
+  const corto = partes.slice(0, 3).map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' ');
   return `Cot ${c.numero} ${corto.replace(/[\\/:*?"<>|]/g, '')}.pdf`;
 }
 /* Escribe un párrafo con **negrita** y salto de línea automático; devuelve el alto usado (mm). */
