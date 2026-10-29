@@ -613,7 +613,7 @@ async function pdfCotizacion(c) {
   doc.setFont('helvetica', 'bold'); doc.setTextColor(34); doc.text(ct.titular, bxx, yb); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRIS2);
   [ct.rut, ct.banco, ct.tipo + ': ' + ct.num, ct.email].forEach(tx => { yb += 4.2; doc.text(tx, bxx, yb); });
   /* guardar: bucket privado documentos/cotizaciones + registro en la cotización */
-  const blob = doc.output('blob'), nombre = nombreArchivoCot(c), path = `cotizaciones/${c.id}/${nombre}`;
+  const blob = doc.output('blob'), nombre = nombreArchivoCot(c), path = `cotizaciones/${c.id}/${nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w .()-]/g, '_')}`;   // el almacenamiento rechaza tildes y ñ en la ruta (Cot 3386, 29-oct-2026); el nombre visible las conserva
   const { error } = await sb.storage.from('documentos').upload(path, blob, { contentType: 'application/pdf', upsert: true }); if (error) throw error;
   COT.actual = await rpc('registrar_pdf_cotizacion', { p_id: c.id, p_path: path, p_nombre: nombre }); COT.actual.lineas = COT.actual.lineas || [];
   const file = new File([blob], nombre, { type: 'application/pdf' });
