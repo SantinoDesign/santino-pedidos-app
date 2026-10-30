@@ -1749,12 +1749,14 @@ function formEditarMovimiento(m, p, despues) {
   const ped = (p && p.id === m.pedido_id) ? p : (cache.pedidos || []).find(x => x.id === m.pedido_id) || {};
   modal(`<h2>Editar movimiento · ${esc(ped.numero || '')} ${esc(ped.cliente || '')}</h2><form id="f-mov-e"><div class="campos">
     <label class="campo">Qué <select name="tipo">${MOV_TIPOS.map(t => `<option ${t === m.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-    <label class="campo">Dirección (vacío = la del pedido) <input name="direccion" value="${esc(m.direccion || '')}" placeholder="${esc(ped.direccion || '')}"></label></div>
+    <label class="campo">Dirección (vacío = la del pedido) <input name="direccion" value="${esc(m.direccion || '')}" placeholder="${esc(ped.direccion || '')}"></label>
+    <label class="campo">Atiende o recibe desde <input type="time" name="hora_desde" value="${hhmm(m.hora_desde)}"></label>
+    <label class="campo">Hasta <input type="time" name="hora_hasta" value="${hhmm(m.hora_hasta)}"></label></div>
     <label class="campo" style="display:block;margin-top:8px">Nota (qué se hace, qué hay que llevar) <textarea name="nota" rows="3" style="width:100%">${esc(m.nota || '')}</textarea></label>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
   $('#f-mov-e').onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target); const nota = (f.get('nota') || '').trim() || null;
-    const { error } = await sb.from('movimiento').update({ tipo: f.get('tipo'), direccion: (f.get('direccion') || '').trim() || null, nota }).eq('id', m.id);
+    const { error } = await sb.from('movimiento').update({ tipo: f.get('tipo'), direccion: (f.get('direccion') || '').trim() || null, nota, hora_desde: f.get('hora_desde') || null, hora_hasta: f.get('hora_hasta') || null }).eq('id', m.id);
     if (error) return aviso(errorDe(error), true);
     if (ped.tipo_pedido === 'Postventa' && m.nota && (ped.observacion || '').includes(m.nota)) await sb.from('pedido').update({ observacion: ped.observacion.replace(m.nota, nota || '') }).eq('id', ped.id);
     cerrarModal(); aviso('Movimiento guardado'); despues();
@@ -1766,9 +1768,11 @@ function formMovimiento(p, fechaDefecto, despues) {
     <label class="campo">Qué <select name="tipo">${MOV_TIPOS.map(t => `<option>${t}</option>`).join('')}</select></label>
     <label class="campo">Fecha <input type="date" name="fecha" required value="${fechaDefecto || hoyISO()}"></label>
     <label class="campo">Dirección (vacío = la del pedido) <input name="direccion" placeholder="${esc(p.direccion || '')}"></label>
-    <label class="campo">Nota <input name="nota" placeholder="Qué se retira o se hace"></label></div>
+    <label class="campo">Nota <input name="nota" placeholder="Retiro en proveedor: «EPLUM: retirar…»"></label>
+    <label class="campo">Atiende o recibe desde <input type="time" name="hora_desde"></label>
+    <label class="campo">Hasta <input type="time" name="hora_hasta"></label></div>
     <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
-  $('#f-mov').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const { error } = await sb.from('movimiento').insert({ pedido_id: p.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: f.get('direccion') || null, nota: f.get('nota') || null }); if (error) return aviso(errorDe(error), true); cerrarModal(); aviso('Movimiento agregado'); despues(); };
+  $('#f-mov').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target); const { error } = await sb.from('movimiento').insert({ pedido_id: p.id, tipo: f.get('tipo'), fecha: f.get('fecha'), direccion: f.get('direccion') || null, nota: f.get('nota') || null, hora_desde: f.get('hora_desde') || null, hora_hasta: f.get('hora_hasta') || null }); if (error) return aviso(errorDe(error), true); cerrarModal(); aviso('Movimiento agregado'); despues(); };
 }
 /* "+ Movimiento" desde la Ruta (Harold 16-oct: una acción se hace desde donde uno está). Se busca el pedido por número o cliente entre
    todos (no solo los pendientes): si ya está ENTREGADO, lo que corresponde es una Postventa (pedido sin piezas con su movimiento, que es
@@ -2017,12 +2021,22 @@ function horario(lista, salida) {
   let t = horaMin(salida) || horaMin(SALIDA_DEFECTO), prev = TALLER, tarde = 0, espera = 0;
   for (const x of lista) {
     t += x.xy && prev ? minViaje(distKm(prev, x.xy)) : 20;
-    const desde = Math.max(horaMin(HORA_MIN_CLIENTE), horaMin(x.hora_desde) || 0); x.espera = t < desde ? desde - t : 0; t = Math.max(t, desde);
+    const desde = x.prov ? horaMin(x.hora_desde) || 0 : Math.max(horaMin(HORA_MIN_CLIENTE), horaMin(x.hora_desde) || 0);   // proveedor: su horario, no la regla de las 10:00 x.espera = t < desde ? desde - t : 0; t = Math.max(t, desde);
     const hasta = horaMin(x.hora_hasta); x.tarde = hasta && t > hasta ? t - hasta : 0; tarde += x.tarde; espera += x.espera;
     x.eta = t; t += x.minutos; prev = x.xy || prev;
   }
   t += prev ? minViaje(distKm(prev, TALLER)) : 20;
   return { fin: t, tarde, espera, costo: t - (horaMin(salida) || horaMin(SALIDA_DEFECTO)) + tarde * 10 };
+}
+/* Hora máxima de salida del taller con este orden para no llegar tarde a ninguna parada con "hasta" (Harold 30-oct: "un mensaje de alerta
+   cuando tiene que salir a cierta hora, como máximo"). Devuelve { hora, x } con la parada que la fija, o null si ninguna tiene hora límite. */
+function salidaMaxima(orden) {
+  if (!orden.some(x => x.hora_hasta)) return null;
+  let mejor = null;
+  for (let t = horaMin('06:00'); t <= horaMin('15:00'); t += 5) { const l = orden.map(x => ({ ...x })); if (horario(l, minHora(t)).tarde) break; mejor = { t, l }; }
+  if (!mejor) return { hora: null };
+  const x = mejor.l.filter(y => y.hora_hasta).sort((a, b) => (horaMin(a.hora_hasta) - a.eta) - (horaMin(b.hora_hasta) - b.eta))[0];
+  return { hora: minHora(mejor.t), x };
 }
 /* Mejor orden: menor tiempo total con vuelta al taller, penalizando llegar después de la hora del cliente; hasta 8 paradas prueba todos los órdenes */
 function planificar(paradas, salida) {
@@ -2069,7 +2083,7 @@ async function rutaJunta(f) {
   return cache.juntas[f];
 }
 function paradaDePedido(p) { return { k: 'p' + p.id, tipo: 'pedido', id: p.id, p, numero: p.numero, cliente: p.cliente, telefono: p.cliente_telefono, comuna: p.comuna, direccion: p.direccion, nota: p.nota_entrega, resumen: p.resumen, instalacion: p.instalacion, saldo: Number(p.saldo_por_cobrar ?? p.saldo ?? 0), confirmado: !!p.despacho_confirmado_en, hora_desde: hhmm(p.hora_desde), hora_hasta: hhmm(p.hora_hasta), minutos: minParada(p), orden: p.orden_ruta }; }
-function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}, prov = esRetProv(m); return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, prov, numero: p.numero || '', cliente: prov ? provDeMov(m) : p.cliente || '', telefono: prov ? null : p.cliente_telefono, comuna: prov ? comunaDeDir(m.direccion) : p.comuna, direccion: m.direccion || (prov ? '' : p.direccion), nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, minutos: minMov(m), orden: m.orden_ruta }; }
+function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}, prov = esRetProv(m); return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, prov, numero: p.numero || '', cliente: prov ? provDeMov(m) : p.cliente || '', telefono: prov ? null : p.cliente_telefono, comuna: prov ? comunaDeDir(m.direccion) : p.comuna, direccion: m.direccion || (prov ? '' : p.direccion), nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, hora_desde: hhmm(m.hora_desde), hora_hasta: hhmm(m.hora_hasta), minutos: minMov(m), orden: m.orden_ruta }; }
 async function guardarOrdenRuta(orden, antes) {
   const ped = orden.filter(x => x.tipo === 'pedido'), mov = orden.filter(x => x.tipo === 'mov');
   await rpc('ordenar_ruta', { p_pedidos: ped.map(x => x.id), p_movimientos: mov.map(x => x.id), p_orden_pedidos: ped.map(x => orden.indexOf(x) + 1), p_orden_movimientos: mov.map(x => orden.indexOf(x) + 1) });
@@ -2107,6 +2121,9 @@ async function vRuta() {
   let orden, plan;
   if (guardadas.length) { orden = guardadas.concat(libres.length ? planificar(libres, salida).orden : []); plan = horario(orden, salida); }
   else { plan = planificar(paradas, salida); orden = plan.orden; }
+  const smax = salidaMaxima(orden), nombreParada = x => x.prov ? x.cliente : `${x.numero} ${x.cliente}`;
+  const avisoSalida = !smax ? '' : !smax.hora ? `<div class="rojo" style="margin:6px 0">Ojo: con este orden no se alcanza a llegar a tiempo a todas las paradas con horario, aunque salga a las 06:00. Cambia el orden o mueve una parada.</div>`
+    : `<div class="${horaMin(salida) > horaMin(smax.hora) ? 'rojo' : 'ambar-txt'}" style="margin:6px 0;font-weight:600">Salir del taller a más tardar a las ${smax.hora}: ${esc(nombreParada(smax.x))} ${smax.x.prov ? 'atiende' : 'recibe'} hasta las ${smax.x.hora_hasta}.${horaMin(salida) > horaMin(smax.hora) ? ` Con salida a las ${salida} llega tarde.` : ''}</div>`;
   const porConfirmar = orden.filter(x => x.tipo === 'pedido' && !x.confirmado).length, cobrar = orden.reduce((s, x) => s + (x.saldo > 0 ? x.saldo : 0), 0);
   const chipConf = x => x.tipo !== 'pedido' ? '' : x.confirmado ? '<span class="chip ok">CONFIRMADO</span>' : `<span class="chip saldo" title="${esOp ? 'Harold confirma con el cliente' : 'Manda el WhatsApp y marca Confirmó cuando el cliente responda'}">POR CONFIRMAR</span>`;
   const tel = x => x.telefono ? `<a href="tel:${esc(x.telefono)}" style="white-space:nowrap">${esc(x.telefono)}</a>` : '<span class="falta-dato">sin teléfono</span>';
@@ -2116,7 +2133,7 @@ async function vRuta() {
         <div class="num">${x.prov ? `<strong>${esc(x.cliente)}</strong> <a class="ficha-num gris" href="#/pedido/${x.p.id || ''}" title="Pedido para el que se retira">${esc(x.numero)}</a>` : `<a class="ficha-num" href="#/pedido/${x.p.id || ''}">${esc(x.numero)}</a> ${esc(x.cliente)}`} ${x.tipo === 'mov' ? `<span class="chip inst">${esc(x.m.tipo.toUpperCase())}</span>` : ''}${x.instalacion && x.tipo === 'pedido' ? ' <span class="chip inst">INSTALACIÓN</span>' : ''} ${x.tipo === 'pedido' ? (sinMontos(x.p) ? `<span class="chip">${TXT_SIN_MONTOS.toUpperCase()}</span>` : x.saldo > 0 ? `<span class="chip saldo">COBRAR ${pesos(x.saldo)}</span>` : '<span class="chip ok">PAGADO</span>') : ''} ${chipConf(x)}${x.tipo === 'pedido' && x.p.despacho_propuesto && x.p.despacho_propuesto !== x.p.fecha_comprometida ? ` <span class="chip prop" title="Propuesta de otro día pendiente de evaluar">${esc((x.p.despacho_propuesto_por || 'Se').toUpperCase())} PROPONE ${fecha(x.p.despacho_propuesto, true)}</span>${!esOp ? `<button class="btn chico primario" data-acepta-prop="${x.id}" title="Mover la entrega a ese día como confirmada">Aceptar</button><button class="btn chico borde" data-descarta-prop="${x.id}">Descartar</button>` : ''}` : ''}</div>
         <div class="gris">${x.direccion ? esc(x.direccion) : '<span class="falta-dato">dirección pendiente</span>'}${x.comuna ? ' · ' + esc(x.comuna) : ' · <span class="falta-dato">sin comuna</span>'} ${x.prov ? '' : '· ' + tel(x)}${x.precision === 'comuna' ? ' · <span title="No se pudo ubicar la calle: se usa el centro de la comuna">ubicación aprox.</span>' : x.precision == null ? ' · <span class="falta-dato">sin ubicación: va al final</span>' : ''}</div>
         <div>${esc(x.resumen || '')}${x.nota ? ` · <em>${esc(x.nota)}</em>` : ''}</div>
-        <div class="gris">llega ~<strong>${minHora(x.eta)}</strong> · ${x.minutos} min${x.hora_desde || x.hora_hasta ? ` · recibe ${x.hora_desde || '…'} a ${x.hora_hasta || '…'}` : ''}${x.espera ? ` · <span class="ambar-txt">espera ${x.espera} min hasta las ${x.hora_desde || HORA_MIN_CLIENTE}</span>` : ''}${x.tarde ? ` · <span class="rojo">llega ${x.tarde} min después de las ${x.hora_hasta}</span>` : ''}</div>
+        <div class="gris">llega ~<strong>${minHora(x.eta)}</strong> · ${x.minutos} min${x.hora_desde || x.hora_hasta ? ` · ${x.prov ? 'atiende' : 'recibe'} ${x.hora_desde || '…'} a ${x.hora_hasta || '…'}` : ''}${x.espera ? ` · <span class="ambar-txt">espera ${x.espera} min hasta las ${x.hora_desde || HORA_MIN_CLIENTE}</span>` : ''}${x.tarde ? ` · <span class="rojo">llega ${x.tarde} min después de las ${x.hora_hasta}</span>` : ''}</div>
       </div>
       <div class="acc no-imprimir">
         ${!esOp && x.tipo === 'pedido' ? menuWsp(x.p) : ''}
@@ -2141,7 +2158,7 @@ async function vRuta() {
       <section class="seccion"><div class="cab"><h2>Ruta${junta ? '' : g === 'proyectos' ? ' de proyectos a medida' : ' de mesas'} del ${fecha(f, true)}</h2><span class="gris" style="font-size:13px">${resumen}</span></div>
         <div class="ruta-cab no-imprimir"><span class="gris" style="font-size:12px">${guardadas.length ? 'Orden guardado (▲▼ para cambiar; lo ven todos).' : 'Orden propuesto por cercanía desde el taller y por el horario de cada cliente; ▲▼ lo cambia y lo guarda.'}${nuevas.length ? ` Ubicando ${nuevas.length} dirección${nuevas.length > 1 ? 'es' : ''} nueva${nuevas.length > 1 ? 's' : ''}…` : ''}</span>
           <span class="espacio"></span>${orden.length > 1 ? `<button class="btn chico borde" id="b-reordenar" title="Vuelve a calcular el mejor orden y lo guarda">Reordenar por cercanía</button>` : ''}${linkMaps(orden) ? `<a class="btn chico borde" target="_blank" href="${linkMaps(orden)}" title="Abre Google Maps con las paradas en este orden, saliendo y volviendo al taller${orden.filter(x => x.dirLimpia).length > 9 ? ' (solo las primeras 9)' : ''}">Abrir en Google Maps</a>` : ''}${!esOp ? `<button class="btn chico borde" id="b-mov-ruta" title="Retiro, visita técnica, instalación o entrega extra para este día; si el pedido ya está entregado se crea una Postventa">+ Movimiento</button>` : ''}<button class="btn chico borde" onclick="window.print()">Imprimir</button><button class="btn chico borde" id="b-etiq" ${orden.some(x => x.tipo === 'pedido') ? '' : 'disabled'}>Etiquetas</button></div>
-        <div class="ruta-lista">${orden.map(tarjeta).join('') || '<div style="color:var(--gris-3)">Sin entregas confirmadas ni programadas para este día</div>'}</div>
+        ${avisoSalida}<div class="ruta-lista">${orden.map(tarjeta).join('') || '<div style="color:var(--gris-3)">Sin entregas confirmadas ni programadas para este día</div>'}</div>
         ${plan.fin > horaMin('19:00') && orden.length ? `<div class="rojo" style="margin-top:8px">Ojo: la ruta termina después de las 19:00 (~${minHora(plan.fin)}). Conviene mover una parada a otro día.</div>` : ''}
         ${retiros.length ? `<div style="margin-top:10px;font-size:13px"><strong>Retiran en el taller este día:</strong> ${retiros.map(p => `${esc(p.numero)} ${esc(p.cliente)}${sinMontos(p) ? '' : saldoDe(p) > 0 ? ' (cobrar ' + pesos(saldoDe(p)) + ')' : ''}`).join(' · ')}</div>` : ''}
         ${regiones.length ? `<div style="margin-top:6px;font-size:13px"><strong>Regiones (guía y transporte, no van en ruta):</strong> ${regiones.map(p => `${esc(p.numero)} ${esc(p.cliente)} · ${esc(p.comuna || '')}`).join(' · ')}</div>` : ''}</section>
