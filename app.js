@@ -623,9 +623,9 @@ function pintarLista() {
   const sal = p => esOp ? p.saldo_por_cobrar : p.saldo;   // Alexis ve el saldo por cobrar como Harold (Harold 14-oct: "él entrega")
   const filaMov = (m, p) => `<tr class="fila mov-fila ${m.fecha < hoy ? 'atrasado' : ''}" data-mov="${m.id}" data-id="${p.id}">
       <td class="c-est"><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></td>
-      <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2"><span class="chip inst">${esc(m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase())}</span></div></td>
-      <td colspan="4"><div class="l1">${esc(m.nota || m.tipo)}</div><div class="l2">${esc(m.direccion || p.direccion || 'dirección pendiente')}</div></td>
-      <td class="c-ent fecha-mov" data-mov-id="${m.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(m)}</td><td class="c-com">${dos(p.comuna || '', '')}</td>
+      <td class="c-cli">${esRetProv(m) ? `<div class="l1">${esc(provDeMov(m))}</div>` : `<div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div>`}<div class="l2"><span class="chip inst">${esc(movCorto(m.tipo))}</span></div></td>
+      <td colspan="4"><div class="l1">${esc(m.nota || m.tipo)}</div><div class="l2">${esc(m.direccion || (esRetProv(m) ? '' : p.direccion) || 'dirección pendiente')}</div></td>
+      <td class="c-ent fecha-mov" data-mov-id="${m.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(m)}</td><td class="c-com">${dos(esRetProv(m) ? comunaDeDir(m.direccion) : p.comuna || '', '')}</td>
       ${celdas ? '' : '<td class="c-pz"></td>'}<td class="c-saldo"><button class="btn chico primario" data-mov-hecho="${m.id}">Hecho</button></td></tr>`;
   const feP = p => cache.filtro === 'entregados' && p.entregado_en ? String(p.entregado_en).slice(0, 10) : (p.fecha_comprometida || p.fecha_estimada || '9999');   // entregados: por fecha de entrega real
   const entradas = lista.filter(p => !p.soloMov).map(p => ({ k: feP(p), p }));
@@ -1440,7 +1440,7 @@ function formLinea(p, despues) {
    con su movimiento (visita técnica, retiro, otro). Si después lleva una pieza (repuesto, cubierta nueva) se agrega desde la ficha nueva. */
 function formPostventa(p, fechaDefecto, despues) {
   modal(`<h2>Nueva postventa · ${esc(p.numero)} ${esc(p.cliente)}</h2><form id="f-pv"><div class="campos">
-    <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Retiro en proveedor', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
     <label class="campo">Fecha <input type="date" name="fecha" required value="${fechaDefecto || hoyISO(1)}"></label>
     <label class="campo">Dirección (vacía = la del pedido) <input name="direccion" placeholder="${esc(p.direccion_entrega || p.direccion || '')}"></label></div>
     <label class="campo" style="display:block;margin-top:8px">Qué se hace o se revisa <textarea name="nota" rows="2" style="width:100%" required placeholder="Ej. revisar cajón que no cierra, llevar rieles de 35 mm"></textarea></label>
@@ -1714,10 +1714,15 @@ function movFechaCelda(m) {
   return `<input type="date" value="${m.fecha}" data-mov-fecha="${m.id}" title="Fecha del movimiento (clic para cambiarla)" style="${chico};${rojo}">${m.fecha_propuesta ? ` ${movChip(m)} <button class="btn chico borde" data-mov-conf="${m.id}" title="Dejar la fecha que propone Alexis">Aceptar</button>` : ''}`;
 }
 const movFechaTxt = m => { const tarde = m.fecha < hoyISO() && !m.hecho; return `<div class="l1 ${tarde ? 'rojo' : ''}">${fecha(m.fecha)}</div>${m.fecha_propuesta ? `<div class="l2">Alexis propone ${fecha(m.fecha_propuesta)}</div>` : m.hecho ? '<div class="l2">hecho</div>' : ''}`; };
-const MOV_TIPOS = ['Retiro en cliente', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
+const MOV_TIPOS = ['Retiro en cliente', 'Retiro en proveedor', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
 // Etiqueta de estado de un pedido sin piezas (postventa): lo que hay que hacer, no "POR FABRICAR" (Harold 16-oct, Dina W3153)
-const COD_MOV = { 'Retiro en cliente': 'RETIRO', 'Entrega': 'ENTREGA', 'Visita técnica': 'VISITA', 'Instalación': 'INSTAL', 'Otro': 'MOV' };
-const movEtiqueta = m => `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()} ${fecha(m.fecha)}`;
+const COD_MOV = { 'Retiro en cliente': 'RETIRO', 'Retiro en proveedor': 'RET.PROV', 'Entrega': 'ENTREGA', 'Visita técnica': 'VISITA', 'Instalación': 'INSTAL', 'Otro': 'MOV' };
+/* Retiro en proveedor (Harold 30-oct, puertas en EPLUM): no es del cliente; se muestra con el proveedor (lo que va antes de ":" en la nota) y su dirección */
+const movCorto = t => t === 'Retiro en cliente' ? 'RETIRO' : t === 'Retiro en proveedor' ? 'RETIRO PROVEEDOR' : t.toUpperCase();
+const esRetProv = m => m && m.tipo === 'Retiro en proveedor';
+const provDeMov = m => ((m.nota || '').match(/^([^:.]{2,40}):/) || [])[1] || 'Proveedor';
+const comunaDeDir = d => (String(d || '').split(',').pop() || '').trim();
+const movEtiqueta = m => `${movCorto(m.tipo)} ${fecha(m.fecha)}`;
 async function cargarMovimientos() { const { data } = await sb.from('movimiento').select('*').eq('hecho', false).order('fecha'); cache.movs = data || []; }
 const movsDe = id => (cache.movs || []).filter(m => m.pedido_id === id);
 function movimientosHtml(p, esOp) {
@@ -1802,7 +1807,7 @@ async function vImprimirListado() {
     const envio = p.tipo_entrega === 'Despacho regiones' ? 'REGIONES' : p.tipo_entrega === 'Retiro en taller' ? 'RETIRO' : 'RM';
     return [envio, p.instalacion ? 'SI' : '-', p.cliente, cub.cantidad || 1, r.modelo, r.color, cub.personas ? cub.personas + ' PER' : '-', r.forma, r.cubierta + (r.base !== '-' && r.base !== r.cubierta ? ' / ' + r.base : ''), r.esp, r.medida === '-' ? '-' : r.medida + ' cm', String(r.tono).toUpperCase() === 'SIN BARNIZ' ? 'Sin barniz' : r.tono, sil ? (sil.tipo_silla || '-') : 'n/a', sil ? (sil.color_silla || '-') : 'n/a', sil ? sil.cantidad : 'n/a', fecha(fe(p))]; };
   // Movimientos (retiros, visitas, instalaciones) como fila propia en su fecha, marcados MOV (Harold 13-oct); no cuentan como pedido
-  const movFila = (m, p) => ['MOV', '-', p.cliente, 1, `${m.tipo === 'Retiro en cliente' ? 'RETIRO' : m.tipo.toUpperCase()}${m.fecha_propuesta ? ' (Alexis propone ' + fecha(m.fecha_propuesta) + ')' : ''}${m.nota ? ': ' + m.nota : ''}`, '-', '-', '-', m.direccion || p.direccion || 'dirección pendiente', '-', '-', '-', 'n/a', 'n/a', 'n/a', fecha(m.fecha)];
+  const movFila = (m, p) => ['MOV', '-', p.cliente, 1, `${movCorto(m.tipo)}${m.fecha_propuesta ? ' (Alexis propone ' + fecha(m.fecha_propuesta) + ')' : ''}${m.nota ? ': ' + m.nota : ''}`, '-', '-', '-', m.direccion || p.direccion || 'dirección pendiente', '-', '-', '-', 'n/a', 'n/a', 'n/a', fecha(m.fecha)];
   const movsAct = (cache.movs || []).map(m => ({ m, p: activos.find(p => p.id === m.pedido_id) || cache.pedidos.find(p => p.id === m.pedido_id && ['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado)) })).filter(e => e.p);   // movimiento de un pedido cerrado también se imprime (Harold 25-oct)
   const filaDe = e => e.m ? movFila(e.m, e.p) : fila(e.p);
   const tabla = lista => `<table class="lista impresion"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${lista.map(e => `<tr class="${(e.m ? e.m.fecha < hoyISO() : e.p.atrasado) ? 'atrasado' : ''}${e.m ? ' mov' : ''}">${filaDe(e).map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
@@ -1980,7 +1985,7 @@ const minHora = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${Stri
 const hhmm = h => h ? String(h).slice(0, 5) : '';
 /* Minutos en el lugar (tabla de la skill auto-pedidodespacho v3.1): sin instalación 35; instalación en depto 40, en casa 50; con vidrio 90 */
 function minParada(p) { if (!p || !p.instalacion) return 35; if ((p.piezas || []).some(x => /^V\./.test(x.material_cubierta || '') || /vidrio/i.test(x.descripcion || ''))) return 90; return esDepto(p.direccion) ? 40 : 50; }
-const minMov = m => m.tipo === 'Instalación' ? 50 : m.tipo === 'Retiro en cliente' ? 20 : 30;
+const minMov = m => m.tipo === 'Instalación' ? 50 : ['Retiro en cliente', 'Retiro en proveedor'].includes(m.tipo) ? 20 : 30;
 
 const geo = { cache: new Map(), fallo: new Set(), cargado: false };
 async function cargarGeocache() { if (geo.cargado) return; const { data } = await sb.from('geocache').select('direccion,lat,lng,precision'); (data || []).forEach(g => geo.cache.set(g.direccion, g)); geo.cargado = true; }
@@ -2064,7 +2069,7 @@ async function rutaJunta(f) {
   return cache.juntas[f];
 }
 function paradaDePedido(p) { return { k: 'p' + p.id, tipo: 'pedido', id: p.id, p, numero: p.numero, cliente: p.cliente, telefono: p.cliente_telefono, comuna: p.comuna, direccion: p.direccion, nota: p.nota_entrega, resumen: p.resumen, instalacion: p.instalacion, saldo: Number(p.saldo_por_cobrar ?? p.saldo ?? 0), confirmado: !!p.despacho_confirmado_en, hora_desde: hhmm(p.hora_desde), hora_hasta: hhmm(p.hora_hasta), minutos: minParada(p), orden: p.orden_ruta }; }
-function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}; return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, numero: p.numero || '', cliente: p.cliente || '', telefono: p.cliente_telefono, comuna: p.comuna, direccion: m.direccion || p.direccion, nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, minutos: minMov(m), orden: m.orden_ruta }; }
+function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}, prov = esRetProv(m); return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, prov, numero: p.numero || '', cliente: prov ? provDeMov(m) : p.cliente || '', telefono: prov ? null : p.cliente_telefono, comuna: prov ? comunaDeDir(m.direccion) : p.comuna, direccion: m.direccion || (prov ? '' : p.direccion), nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, minutos: minMov(m), orden: m.orden_ruta }; }
 async function guardarOrdenRuta(orden, antes) {
   const ped = orden.filter(x => x.tipo === 'pedido'), mov = orden.filter(x => x.tipo === 'mov');
   await rpc('ordenar_ruta', { p_pedidos: ped.map(x => x.id), p_movimientos: mov.map(x => x.id), p_orden_pedidos: ped.map(x => orden.indexOf(x) + 1), p_orden_movimientos: mov.map(x => orden.indexOf(x) + 1) });
@@ -2106,10 +2111,10 @@ async function vRuta() {
   const chipConf = x => x.tipo !== 'pedido' ? '' : x.confirmado ? '<span class="chip ok">CONFIRMADO</span>' : `<span class="chip saldo" title="${esOp ? 'Harold confirma con el cliente' : 'Manda el WhatsApp y marca Confirmó cuando el cliente responda'}">POR CONFIRMAR</span>`;
   const tel = x => x.telefono ? `<a href="tel:${esc(x.telefono)}" style="white-space:nowrap">${esc(x.telefono)}</a>` : '<span class="falta-dato">sin teléfono</span>';
   const tarjeta = (x, i) => `<div class="parada${x.tipo === 'mov' ? ' mov' : ''}${x.tarde ? ' tarde' : ''}" data-k="${x.k}">
-      <div class="n">${x.tipo === 'mov' ? (x.m.tipo === 'Retiro en cliente' ? 'R' : x.m.tipo[0]) : i + 1}</div>
+      <div class="n">${x.tipo === 'mov' ? (x.m.tipo.startsWith('Retiro') ? 'R' : x.m.tipo[0]) : i + 1}</div>
       <div class="cuerpo">
-        <div class="num"><a class="ficha-num" href="#/pedido/${x.p.id || ''}">${esc(x.numero)}</a> ${esc(x.cliente)} ${x.tipo === 'mov' ? `<span class="chip inst">${esc(x.m.tipo.toUpperCase())}</span>` : ''}${x.instalacion && x.tipo === 'pedido' ? ' <span class="chip inst">INSTALACIÓN</span>' : ''} ${x.tipo === 'pedido' ? (sinMontos(x.p) ? `<span class="chip">${TXT_SIN_MONTOS.toUpperCase()}</span>` : x.saldo > 0 ? `<span class="chip saldo">COBRAR ${pesos(x.saldo)}</span>` : '<span class="chip ok">PAGADO</span>') : ''} ${chipConf(x)}${x.tipo === 'pedido' && x.p.despacho_propuesto && x.p.despacho_propuesto !== x.p.fecha_comprometida ? ` <span class="chip prop" title="Propuesta de otro día pendiente de evaluar">${esc((x.p.despacho_propuesto_por || 'Se').toUpperCase())} PROPONE ${fecha(x.p.despacho_propuesto, true)}</span>${!esOp ? `<button class="btn chico primario" data-acepta-prop="${x.id}" title="Mover la entrega a ese día como confirmada">Aceptar</button><button class="btn chico borde" data-descarta-prop="${x.id}">Descartar</button>` : ''}` : ''}</div>
-        <div class="gris">${x.direccion ? esc(x.direccion) : '<span class="falta-dato">dirección pendiente</span>'}${x.comuna ? ' · ' + esc(x.comuna) : ' · <span class="falta-dato">sin comuna</span>'} · ${tel(x)}${x.precision === 'comuna' ? ' · <span title="No se pudo ubicar la calle: se usa el centro de la comuna">ubicación aprox.</span>' : x.precision == null ? ' · <span class="falta-dato">sin ubicación: va al final</span>' : ''}</div>
+        <div class="num">${x.prov ? `<strong>${esc(x.cliente)}</strong> <a class="ficha-num gris" href="#/pedido/${x.p.id || ''}" title="Pedido para el que se retira">${esc(x.numero)}</a>` : `<a class="ficha-num" href="#/pedido/${x.p.id || ''}">${esc(x.numero)}</a> ${esc(x.cliente)}`} ${x.tipo === 'mov' ? `<span class="chip inst">${esc(x.m.tipo.toUpperCase())}</span>` : ''}${x.instalacion && x.tipo === 'pedido' ? ' <span class="chip inst">INSTALACIÓN</span>' : ''} ${x.tipo === 'pedido' ? (sinMontos(x.p) ? `<span class="chip">${TXT_SIN_MONTOS.toUpperCase()}</span>` : x.saldo > 0 ? `<span class="chip saldo">COBRAR ${pesos(x.saldo)}</span>` : '<span class="chip ok">PAGADO</span>') : ''} ${chipConf(x)}${x.tipo === 'pedido' && x.p.despacho_propuesto && x.p.despacho_propuesto !== x.p.fecha_comprometida ? ` <span class="chip prop" title="Propuesta de otro día pendiente de evaluar">${esc((x.p.despacho_propuesto_por || 'Se').toUpperCase())} PROPONE ${fecha(x.p.despacho_propuesto, true)}</span>${!esOp ? `<button class="btn chico primario" data-acepta-prop="${x.id}" title="Mover la entrega a ese día como confirmada">Aceptar</button><button class="btn chico borde" data-descarta-prop="${x.id}">Descartar</button>` : ''}` : ''}</div>
+        <div class="gris">${x.direccion ? esc(x.direccion) : '<span class="falta-dato">dirección pendiente</span>'}${x.comuna ? ' · ' + esc(x.comuna) : ' · <span class="falta-dato">sin comuna</span>'} ${x.prov ? '' : '· ' + tel(x)}${x.precision === 'comuna' ? ' · <span title="No se pudo ubicar la calle: se usa el centro de la comuna">ubicación aprox.</span>' : x.precision == null ? ' · <span class="falta-dato">sin ubicación: va al final</span>' : ''}</div>
         <div>${esc(x.resumen || '')}${x.nota ? ` · <em>${esc(x.nota)}</em>` : ''}</div>
         <div class="gris">llega ~<strong>${minHora(x.eta)}</strong> · ${x.minutos} min${x.hora_desde || x.hora_hasta ? ` · recibe ${x.hora_desde || '…'} a ${x.hora_hasta || '…'}` : ''}${x.espera ? ` · <span class="ambar-txt">espera ${x.espera} min hasta las ${x.hora_desde || HORA_MIN_CLIENTE}</span>` : ''}${x.tarde ? ` · <span class="rojo">llega ${x.tarde} min después de las ${x.hora_hasta}</span>` : ''}</div>
       </div>
@@ -3138,7 +3143,7 @@ async function crearPiezaPostventa(pedidoId, area, nota) {
 }
 function formPostventaDeCaso(c, despues) {
   modal(`<h2>Postventa desde ${esc(c.codigo)} · ${esc(c.cliente)}</h2><div class="gris" style="font-size:12px">Resultado: ${esc(c.resultado)}. Se crea un pedido POSTVENTA ligado a ${esc(c.pedido_numero || 'este caso')} con el movimiento en la fecha indicada; desde ahí Alexis lo ve en su Lista. Si lleva una pieza de taller (cubierta nueva, repuesto), se agrega después en su ficha.</div><form id="f-pv"><div class="campos">
-    <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
+    <label class="campo">Qué hay que hacer <select name="tipo">${['Visita técnica', 'Retiro en cliente', 'Retiro en proveedor', 'Entrega', 'Instalación', 'Otro'].map(t => `<option>${t}</option>`).join('')}</select></label>
     <label class="campo">Fecha <input type="date" name="fecha" required value="${hoyISO(1)}"></label>
     <label class="campo">Dirección (vacía = la del pedido) <input name="direccion"></label>
     <label class="campo">Valor a cobrar (0 = sin costo) <input name="valor" type="number" value="0" min="0"></label>${tallerPostventaHtml()}</div>
