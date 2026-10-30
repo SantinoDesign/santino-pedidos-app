@@ -538,7 +538,7 @@ function filtrar(lista) {
 const PENDIENTES_MIOS = {
   'Atrasados': p => p.atrasado,
   'Sin acabado': p => (p.piezas || []).some(x => x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado),
-  'Sin medidas': p => (p.piezas || []).some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.medida_texto && !/\.(MOS|LIN)\./.test(x.color || '')),
+  'Sin medidas': p => faltanMedidas(p),
   'Sin fecha maestro': p => (p.piezas || []).some(x => x.area && x.area !== 'Vidrio/compras' && ['En cola', 'Fabricación', 'Soldadura', 'Armado'].includes(x.etapa) && !x.fecha_taller),
   'Devueltas': p => (p.piezas || []).some(x => x.etapa === 'Devuelta al proveedor'),
   'Sin comuna': p => !p.comuna && p.tipo_entrega !== 'Retiro en taller',
@@ -550,6 +550,7 @@ async function vLista() {
   const esOp = yo.rol === 'operacion';
   { const q = location.hash.split('?')[1]; const mq = q && q.match(/q=([^&]+)/); if (mq) { cache.busqueda = decodeURIComponent(mq[1]); cache.filtro = 'todos'; history.replaceState(null, '', esOp ? '#/taller' : '#/lista'); } }
   await cargarPedidos();
+  await Promise.all([tiposOrigen(), cargarJuntas()]).catch(e => console.warn('ruta en la Lista', e));   // para agrupar cada día como la Ruta
   if (!['pendientes', 'todos'].includes(cache.filtro)) cache.filtro = 'pendientes';   // Harold 14-oct: los entregados se revisan en Clientes (un solo lugar), no en la Lista
   const estadosVisibles = cache.filtro === 'pendientes' ? ESTADOS.filter(e => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(e)) : cache.filtro === 'entregados' ? [] : ESTADOS;
   const setDe = g => g === 'estado' ? cache.estados : g === 'tipo' ? cache.tipos : g === 'etapa' ? cache.etapas : g === 'mios' ? cache.mios : cache.bases;
@@ -585,6 +586,13 @@ function celdaPieza(x, p, l1, l2) {
   const falta = x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado;
   return `<button class="celda-pieza ${devuelta ? 'devuelta' : ult ? 'lista' : i > 0 ? 'proceso' : ''}${falta ? ' falta' : ''}" data-etapa="${x.id}" data-pedido="${p.id}" title="${esc(x.descripcion || x.tipo)}. ${devuelta ? 'Está en el proveedor. Toca: volvió conforme (Recibido).' : !ult ? 'Toca: pasa a ' + esc(et[i + 1] || '') + '.' : 'Pieza lista.'} Mantener apretado o clic derecho: vuelve atrás."><div class="l1">${esc(l1 || '-')}</div>${l2 ? `<div class="l2">${esc(l2)}</div>` : ''}<span class="etapa-tag">${esc(x.etapa || et[0] || '')}${ult ? ' ✓' : ''}${falta ? ' · ¿acabado?' : ''}</span></button>`;
 }
+/* Pieza de carpintería sin medidas para el maestro. Harold 30-oct (Ignacio Muñoz W3137, María Rosenqvist W3161): una base sin largo
+   no falta si la cubierta del mismo pedido trae sus medidas, porque la base sale de la mesa; tampoco si trae ancho o alto. */
+function faltanMedidas(p) {
+  const pz = p.piezas || [], cubConMedida = pz.some(x => ['Cubierta', 'Mesa'].includes(x.tipo) && (x.largo_cm || x.medida_texto));
+  return pz.some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.ancho_cm && !x.alto_cm && !x.medida_texto
+    && !(x.tipo === 'Base' && cubConMedida) && !/\.(MOS|LIN)\./.test(x.color || ''));
+}
 function alertasPedido(p) {
   const a = [];
   if (p.urgente) a.push(['URG', 'urgente']);
@@ -592,7 +600,7 @@ function alertasPedido(p) {
   if ((p.piezas || []).some(x => x.area && !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado)) a.push(['¿ACABADO?', 'atrasado']);
   if ((p.piezas || []).some(x => x.etapa === 'Devuelta al proveedor')) a.push(['DEVUELTA', 'atrasado']);
   if (p.grupo && p.grupo.n > 1) a.push([`UNIDO +${p.grupo.n - 1}`, 'inst']);   // pedidos unidos con pago compartido (tanda 30)
-  if ((p.piezas || []).some(x => x.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(x.etapa) && !x.largo_cm && !x.medida_texto && !/\.(MOS|LIN)\./.test(x.color || ''))) a.push(['SIN MEDIDAS', 'atrasado']);
+  if (faltanMedidas(p)) a.push(['SIN MEDIDAS', 'atrasado']);
   return a.map(([t, c]) => `<span class="chip ${c}">${t}</span>`).join(' ');
 }
 function pintarLista() {
@@ -627,12 +635,25 @@ function pintarLista() {
   entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha; } });
   if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.soloMov || !sinPiezas(p)); }).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
   else lista.forEach(p => { if (sinPiezas(p) && movDelPedido(p)) return; movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })); });   // sin piezas: el movimiento ya va dentro de su fila (Harold 16-oct, Dina W3153 salía dos veces)
-  entradas.sort((a, b) => cache.filtro === 'entregados' ? String(b.k).localeCompare(String(a.k)) : String(a.k).localeCompare(String(b.k)));   // entregados: el último entregado arriba (Harold 14-oct)
-  let semAct = null;
-  const cuerpo = entradas.map(({ p, m, k, mp }) => {
+  /* Dentro de cada día (Harold 30-oct): primero los que retiran en el taller, después la ruta de mesas y la de proyectos a medida
+     (pedidos programados y movimientos) en el orden guardado de la Ruta, luego regiones y al final lo demás con entrega ese día. */
+  const pend = cache.filtro === 'pendientes', junta = k => !!(cache.juntas || {})[k];
+  const grupoDia = ({ p, m, mp, k }) => { const mv = m || mp, ruta = x => junta(k) ? 1 : x === 'proyectos' ? 2 : 1;
+    if (mv) return [ruta(grupoMov(mv)), mv.orden_ruta ?? 999];
+    if (p.fecha_comprometida !== k) return [4, 0];
+    if (p.tipo_entrega === 'Retiro en taller') return [0, 0];
+    if (p.estado !== 'DESPACHO PROGRAMADO') return [4, 0];
+    return p.tipo_entrega === 'Despacho regiones' ? [3, 0] : [ruta(grupoRuta(p)), p.orden_ruta ?? 999]; };
+  if (pend) entradas.forEach(e => { e.r = grupoDia(e); });
+  const diasConRuta = new Set(pend ? entradas.filter(e => e.r[0] < 4).map(e => e.k) : []);
+  entradas.sort((a, b) => cache.filtro === 'entregados' ? String(b.k).localeCompare(String(a.k)) : String(a.k).localeCompare(String(b.k)) || (pend && diasConRuta.has(a.k) ? a.r[0] - b.r[0] || a.r[1] - b.r[1] : 0));   // entregados: el último entregado arriba (Harold 14-oct)
+  const NOMBRE_GRUPO_DIA = ['Retiran en el taller', 'Ruta de mesas', 'Ruta de proyectos a medida', 'Regiones: guía y transporte', 'Otros con entrega este día'];
+  let semAct = null, diaAct = null;
+  const cuerpo = entradas.map(({ p, m, k, mp, r: gd }) => {
     let sep = '';
     if ((cache.filtro === 'pendientes' || cache.filtro === 'entregados') && k !== '9999') { const sw = semanaDe(k); if (sw !== semAct) { semAct = sw; sep = `<tr class="semana"><td colspan="${nCols}">${sw}</td></tr>`; } }
     else if (cache.filtro === 'pendientes' && k === '9999' && semAct !== 'sin') { semAct = 'sin'; sep = `<tr class="semana"><td colspan="${nCols}">Sin fecha de entrega</td></tr>`; }
+    if (diasConRuta.has(k) && diaAct !== k + gd[0]) { diaAct = k + gd[0]; sep += `<tr class="dia-grupo g${gd[0]}"><td colspan="${nCols}">${fecha(k, true)} · ${gd[0] === 1 && junta(k) ? 'Ruta de mesas y proyectos juntos' : NOMBRE_GRUPO_DIA[gd[0]]}</td></tr>`; }
     if (m) return sep + filaMov(m, p);
     const r = rasgos(p);
     const envio = (p.tipo_entrega === 'Despacho regiones' ? 'Regiones' : p.tipo_entrega === 'Retiro en taller' ? 'Retiro en taller' : 'RM') + (p.instalacion ? ' + instalación' : '');
@@ -2019,6 +2040,14 @@ function grupoRuta(p) {
   const t = ['Postventa', 'Repuesto'].includes(p.tipo_pedido) && p.pedido_origen_id ? ((cache.pedidos || []).find(x => x.id === p.pedido_origen_id) || {}).tipo_pedido || (cache.tipoOrigen || {})[p.pedido_origen_id] : p.tipo_pedido;
   return GRUPO_PROYECTOS.includes(t) ? 'proyectos' : 'mesas';
 }
+/* Harold 30-oct: proyectos y mesas nunca se mezclan, pero un movimiento (retiro, visita) puede ir en cualquiera de las dos rutas:
+   por defecto la de su pedido; Harold lo pasa a la otra desde la Ruta (movimiento.grupo_ruta, migración 0086). */
+function grupoMov(m) { return m.grupo_ruta || grupoRuta((cache.pedidos || []).find(x => x.id === m.pedido_id) || {}); }
+/* Días con mesas y proyectos en una sola ruta: solo los que Harold juntó con el botón (nunca Claude por su cuenta) */
+async function cargarJuntas() {
+  const { data } = await sb.from('ruta_junta').select('fecha').gte('fecha', hoyISO(-7));
+  cache.juntas = {}; (data || []).forEach(r => { cache.juntas[r.fecha] = true; });
+}
 async function tiposOrigen() {
   cache.tipoOrigen = cache.tipoOrigen || {};
   const faltan = [...new Set((cache.pedidos || []).filter(p => p.pedido_origen_id && !(cache.pedidos || []).some(x => x.id === p.pedido_origen_id)).map(p => p.pedido_origen_id))].filter(id => !(id in cache.tipoOrigen));
@@ -2048,9 +2077,9 @@ async function vRuta() {
   // Dos rutas por día (Harold 25-oct): mesas y proyectos a medida salen por separado, salvo el día que Harold las junta
   const [junta] = await Promise.all([rutaJunta(f), tiposOrigen()]);
   if (!['mesas', 'proyectos'].includes(cache.rutaGrupo)) cache.rutaGrupo = 'mesas';
-  const g = junta ? null : cache.rutaGrupo, enG = p => !g || grupoRuta(p) === g, movEnG = m => enG(cache.pedidos.find(x => x.id === m.pedido_id) || {});
+  const g = junta ? null : cache.rutaGrupo, enG = p => !g || grupoRuta(p) === g, movEnG = m => !g || grupoMov(m) === g;
   const enRuta = p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f && !['Despacho regiones', 'Retiro en taller'].includes(p.tipo_entrega);
-  const cuenta = gr => cache.pedidos.filter(p => enRuta(p) && grupoRuta(p) === gr).length + (cache.movs || []).filter(m => m.fecha === f && grupoRuta(cache.pedidos.find(x => x.id === m.pedido_id) || {}) === gr && cache.pedidos.some(x => x.id === m.pedido_id)).length;
+  const cuenta = gr => cache.pedidos.filter(p => enRuta(p) && grupoRuta(p) === gr).length + (cache.movs || []).filter(m => m.fecha === f && grupoMov(m) === gr && cache.pedidos.some(x => x.id === m.pedido_id)).length;
   const programados = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f).filter(enG);
   const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones'), retiros = programados.filter(p => p.tipo_entrega === 'Retiro en taller');
   const movsDia = (cache.movs || []).filter(m => m.fecha === f && cache.pedidos.some(x => x.id === m.pedido_id)).filter(movEnG);
@@ -2085,7 +2114,7 @@ async function vRuta() {
         ${!esOp && x.tipo === 'pedido' ? `<button class="btn chico borde" data-horario="${x.id}" title="Restricción horaria del cliente (recibe desde / hasta)">Horario</button>` : ''}
         ${x.tipo === 'pedido' ? `<span class="menu-mas"><button type="button" class="btn chico borde" data-menu="mover${x.id}">Mover ▾</button><div class="menu-lista mover" data-menu-lista="mover${x.id}"><label>Nueva fecha <input type="date" data-mover-fecha="${x.id}"></label>${esOp ? `<button type="button" data-mover="propone" data-id="${x.id}">Proponer ese día (Harold confirma con el cliente)</button>` : `<button type="button" data-mover="confirmar" data-id="${x.id}">El cliente confirmó ese día: mover</button><button type="button" data-mover="propone" data-id="${x.id}">El cliente propone ese día: evaluar con Alexis</button><button type="button" data-mover="sacar" data-id="${x.id}">Sacar de la ruta (vuelve a Listo en taller)</button>`}</div></span>` : ''}
         <button class="btn chico" data-sube="${i}" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>▲</button><button class="btn chico" data-baja="${i}" aria-label="Bajar" ${i === orden.length - 1 ? 'disabled' : ''}>▼</button>
-        ${x.tipo === 'pedido' ? `<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-entregar="${x.id}">Entregado</button>` : `${esOp ? '' : `<button class="btn chico borde" data-mov-editar="${x.id}" title="Cambiar qué se hace, la nota o la dirección">Editar</button>`}<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-mov-hecho="${x.id}">Hecho</button>`}
+        ${x.tipo === 'pedido' ? `<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-entregar="${x.id}">Entregado</button>` : `${esOp ? '' : `${g ? `<button class="btn chico borde" data-mov-grupo="${x.id}" title="Solo este movimiento cambia de ruta; los pedidos de mesas y de proyectos siguen separados">A ruta de ${g === 'mesas' ? 'proyectos' : 'mesas'}</button>` : ''}<button class="btn chico borde" data-mov-editar="${x.id}" title="Cambiar qué se hace, la nota o la dirección">Editar</button>`}<button class="btn chico ${esOp ? 'primario' : 'borde'}" data-mov-hecho="${x.id}">Hecho</button>`}
       </div></div>`;
   const propHtml = p => `<div class="prop"><span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${saldoDe(p) > 0 ? ` · cobrar ${pesos(saldoDe(p))}` : ' · pagado'}${p.estado !== 'LISTO EN TALLER' ? ` · ${esc(p.estado)} ${p.piezas_listas}/${p.piezas_total}` : ''}</span></span>
       <span class="acc">${esOp ? `<span class="chip prop">PROPUESTO · esperando a Harold</span><button class="btn chico borde" data-prop-quitar="${p.id}">Quitar</button>` : `<span class="chip prop">Alexis propone</span>${menuWsp(p)}<button class="btn chico primario" data-confirmar="${p.id}" title="Entra a la ruta de este día como confirmado">Confirmó</button><input type="date" data-conf-fecha="${p.id}" value="" title="Si el cliente prefiere otro día" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-conf-otro="${p.id}">Otro día</button>`}</span></div>`;
@@ -2137,6 +2166,14 @@ async function vRuta() {
   $$('[data-movprop]').forEach(c => c.onchange = async () => { const id = Number(c.dataset.movprop); const { error } = await sb.from('movimiento').update({ fecha_propuesta: c.checked ? f : null }).eq('id', id); if (error) return aviso(errorDe(error), true); aviso(c.checked ? 'Propuesto; Harold avisa al cliente' : 'Propuesta retirada'); await cargarMovimientos(); vRuta(); });
   candidatos.forEach(p => { const b = $(`[data-programar="${p.id}"]`); if (b) activarProgramar(b.closest('.prop'), p, () => vRuta()); });
   const bm = $('#b-mov-ruta'); if (bm) bm.onclick = () => formMovimientoRuta(f, async () => { await cargarMovimientos(); vRuta(); });
+  $$('[data-mov-grupo]').forEach(b => b.onclick = async () => { const m = (cache.movs || []).find(x => x.id === Number(b.dataset.movGrupo)); if (!m) return;
+    const otro = g === 'mesas' ? 'proyectos' : 'mesas', antes = m.grupo_ruta ?? null;
+    // Si vuelve a la ruta de su pedido queda vacío (sigue al pedido); el orden se recalcula en la ruta nueva
+    const nuevo = grupoRuta(cache.pedidos.find(x => x.id === m.pedido_id) || {}) === otro ? null : otro;
+    const { error } = await sb.from('movimiento').update({ grupo_ruta: nuevo, orden_ruta: null }).eq('id', m.id); if (error) return aviso(errorDe(error), true);
+    aviso(`${m.tipo} pasa a la ruta de ${otro === 'mesas' ? 'mesas' : 'proyectos a medida'}`);
+    anotarCambio('ruta del movimiento', async () => { await sb.from('movimiento').update({ grupo_ruta: antes, orden_ruta: m.orden_ruta ?? null }).eq('id', m.id); await cargarMovimientos(); });
+    await cargarMovimientos(); vRuta(); });
   const be = $('#b-etiq'); if (be) be.onclick = () => imprimirEtiquetas(orden.filter(x => x.tipo === 'pedido').map(x => x.p));
   activarMenusWsp(app); activarMenus(app);
   const pedidoDe = b => cache.pedidos.find(p => p.id === Number(b.dataset.id || b.dataset.aceptaProp || b.dataset.descartaProp));

@@ -334,6 +334,10 @@ table.lista.v2 .rojo{color:var(--rojo-txt)}
 table.lista.v2 .gris{color:var(--gris-3)}
 table.lista.v2 td.c-saldo{text-align:right}
 table.lista.v2 tr.semana td{background:#F4F6F7;color:var(--gris-2);font-weight:700;font-size:11.5px;padding:5px 8px;letter-spacing:.3px}
+/* Subgrupos de un día con ruta (Harold 30-oct): retiros en taller, ruta de mesas, ruta de proyectos, regiones, otros */
+table.lista.v2 tr.dia-grupo td{background:#fff;color:var(--azul-osc);font-weight:700;font-size:11.5px;padding:6px 8px 3px;border-bottom:2px solid rgba(0,129,166,.35)}
+table.lista.v2 tr.dia-grupo.g0 td{color:var(--gris-2);border-bottom-color:rgba(71,71,71,.35)}
+table.lista.v2 tr.dia-grupo.g4 td{color:var(--gris-3);border-bottom-color:#E3E6E8;font-weight:600}
 table.lista.v2 tr.mov-fila td{background:#FBFDFE}
 table.lista.v2 a.ficha-num{color:var(--azul);font-weight:700;text-decoration:none}
 table.lista.v2 a.ficha-num:hover{text-decoration:underline}
