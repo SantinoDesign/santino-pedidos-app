@@ -644,7 +644,12 @@ function pintarLista() {
     const baseL1 = conBase ? r.base2[0] : '-', baseL2 = conBase ? r.base2.slice(1).filter(Boolean).join(' · ') : '';
     const medL1 = r.medida !== '-' ? r.medida.replace(/ x /g, ' × ') : (r.cub.medida_texto || ''), medL2 = [{ RECT: 'Rect', CUA: 'Cuad', CIRC: 'Circ', OVAL: 'Oval' }[r.cub.forma], r.cub.personas ? r.cub.personas + 'P' : ''].filter(Boolean).join(' · ');
     const celdaMov = mp ? `<button class="celda-pieza mov ${mp.fecha < hoy ? 'falta' : ''}" data-mov-hecho="${mp.id}" title="${esc(mp.nota || '')}. Toca cuando esté hecho."><div class="l1">${esc(mp.tipo)}</div><div class="l2">${esc(mp.nota || mp.direccion || '')}</div><span class="etapa-tag">${mp.fecha_propuesta ? 'Alexis propone ' + fecha(mp.fecha_propuesta) + ' · ' : ''}toca: hecho</span></button>` : '';
-    const celdaCub = mp ? celdaMov : celdas ? celdaPieza(r.cub.area ? r.cub : null, p, cubL1, cubL2) + r.extras.map(x => celdaPieza(x, p, (x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0]) + (x.cantidad > 1 ? ' ×' + x.cantidad : ''), codMaterial(x.material_cubierta || x.material_base) || '')).join('') : dos(cubL1, cubL2);
+    // Proyecto plegado (Harold 30-oct): una sola tarjeta resumen hasta el primer clic en la fila, porque sus piezas llenan la Lista
+    const pzProy = p.tipo_pedido === 'Proyecto' ? (p.piezas || []).filter(x => x.area) : [];
+    const plegado = celdas && !mp && pzProy.length > 1 && !PROY_ABIERTOS.has(p.id);
+    const celdaProy = () => { const et = x => x.etapas || [], nL = pzProy.filter(x => et(x).length && x.etapa === et(x)[et(x).length - 1]).length, nF = pzProy.filter(x => !['Vidrio/compras', 'Barniz'].includes(x.area) && !x.acabado).length;
+      return `<button class="celda-pieza resumen ${nL === pzProy.length ? 'lista' : nL || pzProy.some(x => et(x).indexOf(x.etapa) > 0) ? 'proceso' : ''}${nF ? ' falta' : ''}" title="Toca para ver las ${pzProy.length} piezas"><div class="l1">${pzProy.length} piezas</div><div class="l2">${nL} listas</div><span class="etapa-tag">toca para ver las piezas${nF ? ' · ¿acabado?' : ''}</span></button>`; };
+    const celdaCub = mp ? celdaMov : plegado ? celdaProy() : celdas ? celdaPieza(r.cub.area ? r.cub : null, p, cubL1, cubL2) + r.extras.map(x => celdaPieza(x, p, (x.tipo === 'Servicio' ? 'Instalación' : (x.descripcion || x.tipo).split(/\s·\s|:\s|,\s/)[0]) + (x.cantidad > 1 ? ' ×' + x.cantidad : ''), codMaterial(x.material_cubierta || x.material_base) || '')).join('') : dos(cubL1, cubL2);
     const celdaBase = celdas ? celdaPieza(r.base.tipo ? r.base : null, p, baseL1, baseL2) : dos(baseL1, baseL2);
     const celdaSil = r.sillasL1 ? (celdas ? celdaPieza(r.sil, p, r.sillasL1, r.sillasL2) : dos(r.sillasL1, r.sillasL2)) : '<span class="gris">-</span>';
     return sep + `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
@@ -688,9 +693,17 @@ function pintarLista() {
     if (esOp) return editorFecha(td, m.fecha_propuesta || m.fecha, async v => { const { error } = await sb.from('movimiento').update({ fecha_propuesta: v }).eq('id', m.id); if (error) return aviso(errorDe(error), true); aviso(v ? 'Propuesto ' + fecha(v, true) + '; Harold decide' : 'Propuesta retirada'); await cargarMovimientos(); pintarLista(); });
     editorFecha(td, m.fecha_propuesta || m.fecha, async v => { if (!v) return; const antes = m.fecha, antesProp = m.fecha_propuesta; const { error } = await sb.from('movimiento').update({ fecha: v, fecha_propuesta: null }).eq('id', m.id); if (error) return aviso(errorDe(error), true); aviso('Movimiento: ' + fecha(v, true)); anotarCambio(`fecha del movimiento (volver a ${fecha(antes)})`, async () => { await sb.from('movimiento').update({ fecha: antes, fecha_propuesta: antesProp }).eq('id', m.id); await cargarMovimientos(); }); await cargarMovimientos(); pintarLista(); });
   });
-  $$('#tabla tr.fila').forEach(tr => tr.onclick = () => abrirDetalleFila(tr));
+  // Proyecto plegado: el primer clic despliega sus piezas; el siguiente abre el detalle, y al cerrarlo vuelve a plegarse
+  $$('#tabla tr.fila').forEach(tr => tr.onclick = () => {
+    const id = Number(tr.dataset.id);
+    if (tr.querySelector('.celda-pieza.resumen')) { PROY_ABIERTOS.add(id); return pintarLista(); }
+    const abierto = tr.nextElementSibling && tr.nextElementSibling.classList.contains('detalle');
+    abrirDetalleFila(tr);
+    if (abierto && PROY_ABIERTOS.delete(id)) pintarLista();
+  });
   activarDeslizarEntrega();
 }
+const PROY_ABIERTOS = new Set();
 /* Tabla de piezas compartida (despliegue de la Lista y ficha): mismas columnas que la ODT (Harold 13-oct: una sola forma de ver las piezas) */
 function tablaPiezasHtml(p, esOp) {
   const piezas = (p.piezas || []).filter(x => x.area);
