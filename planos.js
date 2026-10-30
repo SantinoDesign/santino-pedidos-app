@@ -44,7 +44,7 @@
         else k.text(x - 7, c, s, 'dt', 'middle', -90);
       },
       // indicación: texto en (x,y) y línea desde el final del texto hasta el punto (px,py)
-      lab(px, py, x, y, s) { const t = String(s).toUpperCase(); k.text(x, y, t); k.circle(px, py, 2.6, 'dot'); k.line(px < x ? x - 6 : x + anchoTxt(t, 20) + 6, y - 7, px, py, 'lead'); },
+      lab(px, py, x, y, s) { const t = String(s).toUpperCase(); k.text(x, y, t); k.circle(px, py, 2.6, 'dot'); k.line(px < x ? x - 6 : x + t.length * 20 * 0.6 + 6, y - 7, px, py, 'lead'); },
       // indicación con línea que entra por la izquierda del texto (para textos a la derecha del dibujo)
       tag(px, py, x, lineas) { k.circle(px, py, 2.6, 'dot'); k.line(px, py, x, py, 'lead'); lineas.forEach((t, i) => k.text(x + 8, py + 7 + i * 22, String(t).toUpperCase())); },
       title: (x, y, s) => k.text(x, y, String(s).toUpperCase(), 'vt', 'middle'),
