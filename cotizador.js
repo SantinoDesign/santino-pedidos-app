@@ -16,6 +16,9 @@ const TYC_COT = {
   pago: 'Para comenzar el proyecto al cliente se le solicitará el pago luego de aceptada esta cotización.',
   plazo: 'El plazo de entrega será coordinado con el asesor al confirmar el pedido y puede variar según tipo de producto y carga del taller.',
   mods: 'Modificaciones al pedido solo serán aceptadas dentro de las 48 horas siguientes a la confirmación del pago. Cambios posteriores pueden implicar ajustes de precio y plazo.',
+  /* Muebles a medida (Harold 31-oct-2026, Cot 3391): el pago no nombra el dibujo 3D y los cambios se aceptan hasta aprobar el diseño final (R-276). */
+  pagoMueble: 'Forma de pago: 60% para agendar el proyecto, 30% con el mueble terminado en taller, antes del despacho, y 10% contra instalación terminada.',
+  modsMueble: 'Modificaciones al proyecto se aceptan hasta la aprobación del diseño final. Cambios posteriores pueden implicar ajustes de precio y plazo.',
   envios: 'Los envíos a regiones se gestionan como encomienda por operador externo y son de cargo del cliente.',
   garantia: g => `Garantía de ${g} meses contra defectos de fabricación bajo uso normal. No incluye daños por mal uso, humedad excesiva o condiciones inadecuadas de instalación.`
 };
@@ -500,7 +503,8 @@ const SDC_STYLE_COT = `.sdc-doc{background:#fff;margin:0 auto;padding:44px 50px;
 const mdBold = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 function tycDe(c) {
   if (Array.isArray(c.tyc) && c.tyc.length) return c.tyc.slice();
-  const t = [c.forma_pago || TYC_COT.pago, c.plazo || TYC_COT.plazo, TYC_COT.mods, TYC_COT.envios];
+  const mueble = c.categoria === 'proyectos' || /^Forma de pago: \d+% para (agendar el proyecto|iniciar el diseño)/.test(c.forma_pago || '');
+  const t = [c.forma_pago || (mueble ? TYC_COT.pagoMueble : TYC_COT.pago), c.plazo || TYC_COT.plazo, mueble ? TYC_COT.modsMueble : TYC_COT.mods, TYC_COT.envios];
   if (Number(c.garantia_meses) > 0) t.push(TYC_COT.garantia(c.garantia_meses));
   return t;
 }
