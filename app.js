@@ -519,7 +519,7 @@ async function traerPedidos() {
     const primera = {}; data.forEach(p => { const k = clave(p); if (!primera[p.cliente_id] || k < primera[p.cliente_id]) primera[p.cliente_id] = k; });
     data.sort((a, b) => primera[a.cliente_id].localeCompare(primera[b.cliente_id]) || a.cliente_id - b.cliente_id || clave(a).localeCompare(clave(b)) || ESTADOS.indexOf(a.estado) - ESTADOS.indexOf(b.estado) || (a.prioridad || 999) - (b.prioridad || 999));
     // Un movimiento pendiente nunca se esconde (Harold 25-oct, H26-0015 Hernán Retamales): si su pedido está ENTREGADO o CANCELADO se trae igual y sale solo como fila MOV
-    const faltan = [...new Set((cache.movs || []).map(m => m.pedido_id))].filter(id => !data.some(p => p.id === id));
+    const faltan = [...new Set((cache.movs || []).map(m => m.pedido_id))].filter(id => id && !data.some(p => p.id === id));
     if (faltan.length) { const { data: extra, error: e2 } = await sb.from(yo.rol === 'operacion' ? 'v_pedido_operacion' : 'v_pedido').select('*').in('id', faltan); if (e2) throw e2; (extra || []).forEach(p => { p.soloMov = true; data.push(p); }); }
   }
   return { pedidos: data, movs: cache.movs };
@@ -1721,7 +1721,7 @@ function movFechaCelda(m) {
 const movFechaTxt = m => { const tarde = m.fecha < hoyISO() && !m.hecho; return `<div class="l1 ${tarde ? 'rojo' : ''}">${fecha(m.fecha)}</div>${m.fecha_propuesta ? `<div class="l2">Alexis propone ${fecha(m.fecha_propuesta)}</div>` : m.hecho ? '<div class="l2">hecho</div>' : ''}`; };
 const MOV_TIPOS = ['Retiro en cliente', 'Retiro en proveedor', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
 // Etiqueta de estado de un pedido sin piezas (postventa): lo que hay que hacer, no "POR FABRICAR" (Harold 16-oct, Dina W3153)
-const COD_MOV = { 'Retiro en cliente': 'RETIRO', 'Retiro en proveedor': 'RET.PROV', 'Entrega': 'ENTREGA', 'Visita técnica': 'VISITA', 'Instalación': 'INSTAL', 'Otro': 'MOV' };
+const COD_MOV = { 'Retiro en cliente': 'RETIRO', 'Retiro en proveedor': 'RET.PROV', 'Entrega': 'ENTREGA', 'Visita técnica': 'VISITA', 'Instalación': 'INSTAL', 'Visita de venta': 'V.VENTA', 'Otro': 'MOV' };
 /* Retiro en proveedor (Harold 30-oct, puertas en EPLUM): no es del cliente; se muestra con el proveedor (lo que va antes de ":" en la nota) y su dirección */
 const movCorto = t => t === 'Retiro en cliente' ? 'RETIRO' : t === 'Retiro en proveedor' ? 'RETIRO PROVEEDOR' : t.toUpperCase();
 const esRetProv = m => m && m.tipo === 'Retiro en proveedor';
@@ -1784,7 +1784,9 @@ function formMovimiento(p, fechaDefecto, despues) {
    lo que la Ruta y la Lista muestran); si está pendiente, un movimiento más del mismo pedido. */
 function formMovimientoRuta(dia, despues) {
   modal(`<h2>Movimiento para el ${fecha(dia, true)}</h2><div class="gris" style="font-size:12px">Retiro, visita técnica, instalación o entrega extra. Busca el pedido; si ya está entregado se crea una Postventa.</div>
-    <label class="campo" style="display:block;margin-top:8px">Pedido o cliente <input id="mr-q" type="search" placeholder="W3153, Dina Soto, P25-014…" autofocus></label><div id="mr-res" style="margin-top:6px"></div>`);
+    <label class="campo" style="display:block;margin-top:8px">Pedido o cliente <input id="mr-q" type="search" placeholder="W3153, Dina Soto, P25-014…" autofocus></label><div id="mr-res" style="margin-top:6px"></div>
+    <div style="margin-top:10px"><button type="button" class="btn" id="mr-sinped">Visita de venta, sin pedido</button> <span class="gris" style="font-size:12px">Un cliente que aún no compra: llevar una muestra, mostrar telas o medir.</span></div>`);
+  $('#mr-sinped').onclick = () => { cerrarModal(); formVisitaVenta(dia, despues); };
   const res = $('#mr-res'); let t;
   const buscar = async q => {
     q = q.trim(); if (q.length < 2) { res.innerHTML = ''; return; }
@@ -1793,6 +1795,22 @@ function formMovimientoRuta(dia, despues) {
     $$('[data-mr]', res).forEach(d => d.onclick = () => { const p = data.find(x => x.id === Number(d.dataset.mr)); cerrarModal(); if (p.estado === 'ENTREGADO') formPostventa(p, dia, despues); else formMovimiento(p, dia, despues); });
   };
   $('#mr-q').oninput = e => { clearTimeout(t); t = setTimeout(() => buscar(e.target.value), 250); };
+}
+/* Visita de venta sin pedido (Harold 05-nov-2026, migración 0093): el cliente aún no compra, así que el movimiento lleva su nombre y teléfono
+   y queda en la Ruta de mesas (o de proyectos) como cualquier otra parada. Si compra, se ingresa el pedido aparte. */
+function formVisitaVenta(dia, despues) {
+  modal(`<h2>Visita de venta · ${fecha(dia, true)}</h2><form id="f-vv"><div class="campos">
+    <label class="campo">Cliente <input name="cliente" required placeholder="Mariano Fernandez"></label>
+    <label class="campo">Teléfono <input name="telefono" placeholder="+569…"></label>
+    <label class="campo">Dirección <input name="direccion" required placeholder="Avenida Departamental 4500, Macul"></label>
+    <label class="campo">Ruta <select name="grupo"><option value="mesas">Mesas</option><option value="proyectos">Proyectos a medida</option></select></label>
+    <label class="campo">Atiende desde <input type="time" name="hora_desde"></label>
+    <label class="campo">Hasta <input type="time" name="hora_hasta"></label></div>
+    <label class="campo" style="display:block;margin-top:8px">Qué hay que llevar y mostrar, con el detalle de la propuesta <textarea name="nota" rows="4" style="width:100%"></textarea></label>
+    <div class="acciones"><button type="button" class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#f-vv').onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target);
+    const { error } = await sb.from('movimiento').insert({ pedido_id: null, tipo: 'Visita de venta', fecha: dia, cliente_nombre: f.get('cliente').trim(), telefono: (f.get('telefono') || '').trim() || null, direccion: f.get('direccion').trim(), grupo_ruta: f.get('grupo'), nota: (f.get('nota') || '').trim() || null, hora_desde: f.get('hora_desde') || null, hora_hasta: f.get('hora_hasta') || null });
+    if (error) return aviso(errorDe(error), true); cerrarModal(); aviso('Visita de venta agregada a la ruta'); despues(); };
 }
 async function cargarOperacion() {
   return traerDatos('op', async () => {
@@ -2174,7 +2192,7 @@ async function rutaJunta(f) {
   return cache.juntas[f];
 }
 function paradaDePedido(p) { return { k: 'p' + p.id, tipo: 'pedido', id: p.id, p, numero: p.numero, cliente: p.cliente, telefono: p.cliente_telefono, comuna: p.comuna, direccion: p.direccion, nota: p.nota_entrega, resumen: p.resumen, instalacion: p.instalacion, saldo: Number(p.saldo_por_cobrar ?? p.saldo ?? 0), confirmado: !!p.despacho_confirmado_en, hora_desde: hhmm(p.hora_desde), hora_hasta: hhmm(p.hora_hasta), minutos: minParada(p), orden: p.orden_ruta }; }
-function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}, prov = esRetProv(m); return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, prov, numero: p.numero || '', cliente: prov ? provDeMov(m) : p.cliente || '', telefono: prov ? null : p.cliente_telefono, comuna: prov ? comunaDeDir(m.direccion) : p.comuna, direccion: m.direccion || (prov ? '' : p.direccion), nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, hora_desde: hhmm(m.hora_desde), hora_hasta: hhmm(m.hora_hasta), minutos: minMov(m), orden: m.orden_ruta }; }
+function paradaDeMov(m) { const p = cache.pedidos.find(x => x.id === m.pedido_id) || {}, prov = esRetProv(m); return { k: 'm' + m.id, tipo: 'mov', id: m.id, m, p, prov, numero: p.numero || '', cliente: prov ? provDeMov(m) : p.cliente || m.cliente_nombre || '', telefono: prov ? null : (p.cliente_telefono || m.telefono || null), comuna: prov ? comunaDeDir(m.direccion) : (p.comuna || (m.pedido_id ? null : comunaDeDir(m.direccion))), direccion: m.direccion || (prov ? '' : p.direccion), nota: m.nota, resumen: m.tipo, instalacion: m.tipo === 'Instalación', saldo: 0, confirmado: true, hora_desde: hhmm(m.hora_desde), hora_hasta: hhmm(m.hora_hasta), minutos: minMov(m), orden: m.orden_ruta }; }
 async function guardarOrdenRuta(orden, antes) {
   const ped = orden.filter(x => x.tipo === 'pedido'), mov = orden.filter(x => x.tipo === 'mov');
   await rpc('ordenar_ruta', { p_pedidos: ped.map(x => x.id), p_movimientos: mov.map(x => x.id), p_orden_pedidos: ped.map(x => orden.indexOf(x) + 1), p_orden_movimientos: mov.map(x => orden.indexOf(x) + 1) });
@@ -2194,10 +2212,10 @@ async function vRuta() {
   if (!['mesas', 'proyectos'].includes(cache.rutaGrupo)) cache.rutaGrupo = 'mesas';
   const g = junta ? null : cache.rutaGrupo, enG = p => !g || grupoRuta(p) === g, movEnG = m => !g || grupoMov(m) === g;
   const enRuta = p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f && !['Despacho regiones', 'Retiro en taller'].includes(p.tipo_entrega);
-  const cuenta = gr => cache.pedidos.filter(p => enRuta(p) && grupoRuta(p) === gr).length + (cache.movs || []).filter(m => m.fecha === f && grupoMov(m) === gr && cache.pedidos.some(x => x.id === m.pedido_id)).length;
+  const cuenta = gr => cache.pedidos.filter(p => enRuta(p) && grupoRuta(p) === gr).length + (cache.movs || []).filter(m => m.fecha === f && grupoMov(m) === gr && (!m.pedido_id || cache.pedidos.some(x => x.id === m.pedido_id))).length;
   const programados = cache.pedidos.filter(p => p.estado === 'DESPACHO PROGRAMADO' && p.fecha_comprometida === f).filter(enG);
   const regiones = programados.filter(p => p.tipo_entrega === 'Despacho regiones'), retiros = programados.filter(p => p.tipo_entrega === 'Retiro en taller');
-  const movsDia = (cache.movs || []).filter(m => m.fecha === f && cache.pedidos.some(x => x.id === m.pedido_id)).filter(movEnG);
+  const movsDia = (cache.movs || []).filter(m => m.fecha === f && (!m.pedido_id || cache.pedidos.some(x => x.id === m.pedido_id))).filter(movEnG);
   const propuestos = cache.pedidos.filter(p => p.estado !== 'DESPACHO PROGRAMADO' && p.despacho_propuesto === f).filter(enG);
   /* Harold 22-oct: "en la ruta no me aparecen los demás pedidos para poder verlos y confirmar con los clientes": los candidatos suman
      POR FABRICAR y DISEÑO APROBADO, van por fecha de entrega y la lista queda abierta; los programados de otros días tienen su propia sección. */
@@ -2208,7 +2226,7 @@ async function vRuta() {
   /* Harold 03-nov: W3146 programado el 2-nov no salió y al armar la ruta del 3 aparecía mezclado con Liliana (del jueves) sin forma de
      traerlo. Los atrasados (programados para un día que ya pasó) van arriba en rojo con "Traer a este día"; los de días futuros, plegados. */
   const atrasados = otrosDias.filter(p => p.fecha_comprometida < hoy), proximos = otrosDias.filter(p => p.fecha_comprometida >= hoy);
-  const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && cache.pedidos.some(x => x.id === m.pedido_id)).filter(movEnG).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && (!m.pedido_id || cache.pedidos.some(x => x.id === m.pedido_id))).filter(movEnG).sort((a, b) => a.fecha.localeCompare(b.fecha));
   const paradas = programados.filter(p => !regiones.includes(p) && !retiros.includes(p)).map(paradaDePedido).concat(movsDia.map(paradaDeMov));
   const nuevas = await ubicar(paradas);
   const guardadas = paradas.filter(x => x.orden != null).sort((a, b) => a.orden - b.orden), libres = paradas.filter(x => x.orden == null);
@@ -2241,7 +2259,7 @@ async function vRuta() {
       <span class="acc">${esOp ? `<span class="chip prop">PROPUESTO · esperando a Harold</span><button class="btn chico borde" data-prop-quitar="${p.id}">Quitar</button>` : `<span class="chip prop">Alexis propone</span>${menuWsp(p)}<button class="btn chico primario" data-confirmar="${p.id}" title="Entra a la ruta de este día como confirmado">Confirmó</button><input type="date" data-conf-fecha="${p.id}" value="" title="Si el cliente prefiere otro día" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-conf-otro="${p.id}">Otro día</button>`}</span></div>`;
   const candHtml = p => { const listo = p.estado === 'LISTO EN TALLER'; return `<div class="prop">${esOp ? `<input type="checkbox" data-prop="${p.id}" ${listo ? '' : 'disabled'} title="Proponer para este día; Harold confirma con el cliente">` : ''}<span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}${p.despacho_propuesto ? ` · <span class="chip prop">propuesto ${fecha(p.despacho_propuesto, true)}</span>` : ''}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${cobroDe(p)}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones: va por guía' : ''}${fEntrega(p) !== '9999' ? ` · entrega ${fecha(fEntrega(p), true)}` : ''}</span></span>
       <span class="acc">${listo ? '<span class="chip ok">LISTO</span>' : `<span class="chip">${esc(p.estado)} · ${p.piezas_listas}/${p.piezas_total}</span>`}${!esOp ? menuWsp(p) : ''}${!esOp ? `<input type="date" data-prog-fecha="${p.id}" value="${f}" style="min-height:32px;padding:2px 6px"><button class="btn chico borde" data-programar="${p.id}" title="Acordado con el cliente: entra a la ruta de ese día como confirmado">Programar</button>` : ''}</span></div>`; };
-  const movOtroHtml = m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; const prop = m.fecha_propuesta === f; return `<div class="prop">${esOp ? `<input type="checkbox" data-movprop="${m.id}" ${prop ? 'checked' : ''}>` : ''}<span style="flex:1"><strong>${esc(m.tipo)}</strong> · <a class="ficha-num" href="#/pedido/${pm.id || ''}">${esc(pm.numero || '')}</a> ${esc(pm.cliente || '')} · ${esc(pm.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(m.nota || '')}${m.nota ? ' · ' : ''}${esc(m.direccion || pm.direccion || 'dirección pendiente')} · fecha ${fecha(m.fecha, true)}${m.fecha_propuesta && !prop ? ' · Alexis propone ' + fecha(m.fecha_propuesta, true) : ''}</span></span>
+  const movOtroHtml = m => { const pm = cache.pedidos.find(x => x.id === m.pedido_id) || {}; const prop = m.fecha_propuesta === f; return `<div class="prop">${esOp ? `<input type="checkbox" data-movprop="${m.id}" ${prop ? 'checked' : ''}>` : ''}<span style="flex:1"><strong>${esc(m.tipo)}</strong> · <a class="ficha-num" href="#/pedido/${pm.id || ''}">${esc(pm.numero || '')}</a> ${esc(pm.cliente || m.cliente_nombre || '')} · ${esc(pm.comuna || '')}<br><span style="font-size:12px;color:var(--gris-2)">${esc(m.nota || '')}${m.nota ? ' · ' : ''}${esc(m.direccion || pm.direccion || 'dirección pendiente')} · fecha ${fecha(m.fecha, true)}${m.fecha_propuesta && !prop ? ' · Alexis propone ' + fecha(m.fecha_propuesta, true) : ''}</span></span>
       <span class="acc">${prop ? '<span class="chip prop">PROPUESTO para este día</span>' : ''}${prop && !esOp ? `<button class="btn chico primario" data-mov-conf="${m.id}">Aceptar</button>` : ''}${!esOp ? `<input type="date" data-mov-fecha="${m.id}" value="${m.fecha}" title="Cambiar la fecha" style="min-height:32px;padding:2px 6px">` : ''}</span></div>`; };
   const otroDiaHtml = (p, atrasado) => `<div class="prop"><span style="flex:1"><strong><a class="ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></strong> ${esc(p.cliente)} · ${esc(p.comuna || '')}${p.tipo_entrega === 'Despacho regiones' ? ' · regiones' : p.tipo_entrega === 'Retiro en taller' ? ' · retira en taller' : ''}<br><span style="font-size:12px;color:var(--gris-2)">${esc(p.resumen || '')}${cobroDe(p)}</span></span>
       <span class="acc"><button class="btn chico borde${atrasado ? ' rojo' : ''}" data-dia="${p.fecha_comprometida}" title="Ver la ruta de ese día">${atrasado ? 'era el ' : ''}${fecha(p.fecha_comprometida, true)}</button>${p.despacho_confirmado_en && !atrasado ? '<span class="chip ok">CONFIRMADO</span>' : atrasado ? '' : '<span class="chip saldo">POR CONFIRMAR</span>'}${!esOp ? menuWsp(p) : ''}${!esOp && !atrasado && !p.despacho_confirmado_en ? `<button class="btn chico borde" data-conf-dia="${p.id}" title="El cliente respondió que recibe ese día">Confirmó</button>` : ''}<button class="btn chico primario" data-traer="${p.id}" title="${esOp ? 'Proponer este día; Harold lo confirma con el cliente' : 'El cliente acordó este día: entra a la ruta como confirmado'}">${esOp ? 'Proponer este día' : 'Traer a este día'}</button></span></div>`;
