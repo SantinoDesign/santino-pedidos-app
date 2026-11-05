@@ -307,6 +307,8 @@ function formEditarPieza(lineaId, despues) {
 /* Deshacer: pila de los últimos 20 cambios hechos en ESTA sesión (estado, fecha de entrega, urgente, observación).
    Los cambios de sesiones anteriores no se deshacen desde aquí: están en el historial de cada ficha. (Harold 12-oct) */
 const deshacer = [];
+// Pedidos unidos se entregan el mismo día (0091, Harold 05-nov): la base mueve a los demás; el aviso dice cuáles
+const conUnidos = (p, v) => v && p.grupo && p.grupo.n > 1 ? ' · también ' + p.grupo.numeros.filter(n => n !== p.numero).join(', ') + ' (unidos)' : '';
 function anotarCambio(desc, revertir) { deshacer.push({ desc, revertir }); if (deshacer.length > 20) deshacer.shift(); pintarDeshacer(); }
 function pintarDeshacer() {
   const eb = $('#extra-barra'); if (!eb) return;
@@ -708,7 +710,7 @@ function pintarLista() {
     editorFecha(td, p.despacho_propuesto || p.fecha_comprometida || p.fecha_estimada, async v => {
       const antesV = p.fecha_comprometida, antesProp = p.despacho_propuesto;
       const { error } = await sb.from('pedido').update({ fecha_comprometida: v, despacho_propuesto: null }).eq('id', p.id);
-      aviso(error ? errorDe(error) : (v ? 'Entrega comprometida: ' + fecha(v, true) : 'Fecha de entrega borrada'), !!error);
+      aviso(error ? errorDe(error) : (v ? 'Entrega comprometida: ' + fecha(v, true) + conUnidos(p, v) : 'Fecha de entrega borrada'), !!error);
       if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: antesV, despacho_propuesto: antesProp }).eq('id', p.id).then(r => { if (r.error) throw r.error; }));
       vLista(); });
   });
@@ -1257,7 +1259,7 @@ async function vFicha(id) {
     $('#s-estado').onchange = async ev => { if (ev.target.value === 'ENTREGADO' && !confirmarEntregaAnticipada(p)) { ev.target.value = p.estado; return; } try { await rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: ev.target.value }); aviso('Estado: ' + ev.target.value); anotarCambio(`estado de ${p.numero} (volver a ${p.estado})`, () => rpc('cambiar_estado', { p_pedido_id: Number(id), p_estado: p.estado })); } catch (e) { aviso(errorDe(e), true); } recargar(); };
     $('#s-tipo').onchange = async ev => { const nuevo = ev.target.value, antes = p.tipo_pedido; const { error } = await sb.from('pedido').update({ tipo_pedido: nuevo }).eq('id', id); aviso(error ? errorDe(error) : 'Tipo de pedido: ' + nuevo, !!error); if (!error) { anotarCambio(`tipo de ${p.numero} (volver a ${antes})`, () => sb.from('pedido').update({ tipo_pedido: antes }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); } };
     $('#c-urgente').onchange = async ev => { const nuevo = ev.target.checked; const { error } = await sb.from('pedido').update({ urgente: nuevo }).eq('id', id); aviso(error ? errorDe(error) : (nuevo ? 'Marcado urgente' : 'Ya no es urgente'), !!error); if (!error) anotarCambio(`urgente de ${p.numero}`, () => sb.from('pedido').update({ urgente: !nuevo }).eq('id', id).then(r => { if (r.error) throw r.error; })); };
-    $('#i-comp').onchange = async ev => { const { error } = await sb.from('pedido').update({ fecha_comprometida: ev.target.value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Fecha comprometida guardada (queda en el historial)', !!error); if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: p.fecha_comprometida }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); };
+    $('#i-comp').onchange = async ev => { const { error } = await sb.from('pedido').update({ fecha_comprometida: ev.target.value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Fecha comprometida guardada (queda en el historial)' + conUnidos(p, ev.target.value), !!error); if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: p.fecha_comprometida }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); };
     on('#b-obs', async () => { const { error } = await sb.from('pedido').update({ observacion: $('#t-obs').value }).eq('id', id); aviso(error ? errorDe(error) : 'Observación guardada', !!error); if (!error) anotarCambio(`observación de ${p.numero}`, () => sb.from('pedido').update({ observacion: p.observacion }).eq('id', id).then(r => { if (r.error) throw r.error; })); });
     on('#b-doc', async () => { const { error } = await sb.from('pedido').update({ documento_tributario: $('#s-doc').value, documento_numero: $('#i-docnum').value || null, documento_fecha: $('#i-docfecha').value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Documento guardado', !!error); recargar(); });
     on('#b-abono', () => formAbono(p, recargar));
