@@ -649,7 +649,9 @@ function pintarLista() {
     return p.tipo_entrega === 'Despacho regiones' ? [3, 0] : [ruta(grupoRuta(p)), p.orden_ruta ?? 999]; };
   if (pend) entradas.forEach(e => { e.r = grupoDia(e); });
   const diasConRuta = new Set(pend ? entradas.filter(e => e.k === hoy && e.r[0] < 4).map(e => e.k) : []);
-  entradas.sort((a, b) => cache.filtro === 'entregados' ? String(b.k).localeCompare(String(a.k)) : String(a.k).localeCompare(String(b.k)) || (pend && diasConRuta.has(a.k) ? a.r[0] - b.r[0] || a.r[1] - b.r[1] : 0));   // entregados: el último entregado arriba (Harold 14-oct)
+  // Dentro del mismo día manda el orden de la ODT (Harold 05-nov): lo que se arrastra en la Lista o en la ODT se ve igual en las dos
+  const cmpOdt = pend ? comparadorOdtLista(entradas) : () => 0;
+  entradas.sort((a, b) => cache.filtro === 'entregados' ? String(b.k).localeCompare(String(a.k)) : String(a.k).localeCompare(String(b.k)) || (pend && diasConRuta.has(a.k) ? a.r[0] - b.r[0] || a.r[1] - b.r[1] : 0) || cmpOdt(a, b));   // entregados: el último entregado arriba (Harold 14-oct)
   const NOMBRE_GRUPO_DIA = ['Retiran en el taller', 'Ruta de mesas', 'Ruta de proyectos a medida', 'Regiones: guía y transporte', 'Otros con entrega este día'];
   let semAct = null, diaAct = null;
   const cuerpo = entradas.map(({ p, m, k, mp, r: gd }) => {
@@ -679,7 +681,7 @@ function pintarLista() {
     const celdaBase = celdas ? celdaPieza(r.base.tipo ? r.base : null, p, baseL1, baseL2) : dos(baseL1, baseL2);
     const celdaSil = r.sillasL1 ? (celdas ? celdaPieza(r.sil, p, r.sillasL1, r.sillasL2) : dos(r.sillasL1, r.sillasL2)) : '<span class="gris">-</span>';
     return sep + `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
-      <td class="c-est">${mp ? `<span class="estado e-MOV" title="${esc(p.tipo_pedido)}: ${esc(mp.tipo)}, no se fabrica nada">${esc(COD_MOV[mp.tipo] || 'MOV')}</span>` : estadoHtml(p.estado, true)}</td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a>${mp ? '' : lugarHtml(p)}</td>
+      <td class="c-est">${mp ? `<span class="estado e-MOV" title="${esc(p.tipo_pedido)}: ${esc(mp.tipo)}, no se fabrica nada">${esc(COD_MOV[mp.tipo] || 'MOV')}</span>` : estadoHtml(p.estado, true)}</td><td class="c-num">${pend && !esOp && !mp ? `<button type="button" class="asa" data-asa="${p.id}" title="Arrastra para cambiar la prioridad (mismo orden que la ODT) o, soltando en otro día, la fecha de entrega">⠿</button>` : ''}<a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a>${mp ? '' : lugarHtml(p)}</td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2">${tipoHtml(p.tipo_pedido)} ${alertasPedido(p)}</div></td>
       <td class="c-mod" title="${esc(r.descripcion || '')}"><div class="l1">${esc(r.modelo)}</div>${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
@@ -728,6 +730,7 @@ function pintarLista() {
     if (abierto && PROY_ABIERTOS.delete(id)) pintarLista();
   });
   activarDeslizarEntrega();
+  if (cache.filtro === 'pendientes' && yo.rol !== 'operacion') activarArrastreLista($('#tabla tbody'), entradas);
 }
 const PROY_ABIERTOS = new Set();
 /* Tabla de piezas compartida (despliegue de la Lista y ficha): mismas columnas que la ODT (Harold 13-oct: una sola forma de ver las piezas) */
@@ -1835,7 +1838,7 @@ async function vImprimirListado() {
 // Harold 13-oct: la ODT que se le entrega al maestro es UNA lista por taller (lo que está en cola y lo que se está fabricando, por fecha
 // de entrega); marcar FABRICANDO no la cambia, solo dice qué se está haciendo hoy. [clave, título, área, etapa de trabajo, acabado]
 /* Orden de la ODT, fuente única de la prioridad del taller (Harold 25-oct): la fecha para el maestro (o la entrega si la pieza no tiene)
-   y, dentro del mismo día, el orden en que Harold arrastró las filas (orden_taller). La Lista solo muestra este lugar. */
+   y, dentro del mismo día, el orden en que Harold arrastró las filas (orden_taller). Desde el 05-nov también se arrastra en la Lista, que escribe este mismo orden. */
 const diaOdt = (x, p) => x.fecha_taller || p.fecha_comprometida || p.fecha_estimada || null;
 const compararOdt = (a, b) => String(diaOdt(a.x, a.p) || '9').localeCompare(String(diaOdt(b.x, b.p) || '9')) || (a.x.orden_taller ?? Infinity) - (b.x.orden_taller ?? Infinity) || String(a.p.numero).localeCompare(String(b.p.numero)) || a.x.id - b.x.id;
 // Lugar de cada pieza en la ODT de su taller (Lista: "Carp. #3"); mismo filtro que la ODT de carpintería, soldadura y armado
@@ -1965,6 +1968,92 @@ function activarArrastreOdt(tb, lista, despues) {
       } catch (e) { aviso(errorDe(e), true); }
     };
     document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar);
+  });
+}
+
+/* Arrastrar en la Lista (Harold 05-nov: "en el listado principal de pendientes, desplazar porque ahí también se va priorizando"; "sí, en las dos").
+   No es otro orden: escribe en el mismo orden_taller de la ODT (R-343). La unidad es el cliente en ese día (sus pedidos del día van juntos,
+   como en la Lista). Soltar en el mismo día: el pedido queda antes o después del otro en cada lista de la ODT donde los dos tienen piezas.
+   Soltar en otro día: primero pregunta y cambia la fecha de entrega al cliente (los unidos se mueven solos, 0091), después se ubica igual.
+   Solo Harold; Alexis sigue proponiendo fechas. Se puede deshacer. */
+function listasOdt() {
+  const activos = cache.pedidos.filter(p => !['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado) && !p.pago_pendiente && !p.soloMov);
+  return ODT_ETAPAS.map(([, , area, etapa]) => activos.flatMap(p => (p.piezas || []).filter(x => x.area && (area ? x.area === area && (x.etapa === 'En cola' || x.etapa === etapa) : x.etapa === etapa)).map(x => ({ p, x }))).sort(compararOdt));
+}
+function comparadorOdtLista(entradas) {
+  const pos = {}; listasOdt().forEach((l, li) => l.forEach((r, i) => { pos[r.x.id] = [li, i]; }));
+  const min = {};
+  entradas.forEach(e => { if (e.m || e.mp || !e.p) return; const c = e.k + '|' + e.p.cliente_id; min[c] = min[c] || [];
+    (e.p.piezas || []).forEach(x => { const q = pos[x.id]; if (q && (min[c][q[0]] == null || q[1] < min[c][q[0]])) min[c][q[0]] = q[1]; }); });
+  return (a, b) => {
+    if (a.m || a.mp || b.m || b.mp || !a.p || !b.p || a.p.cliente_id === b.p.cliente_id) return 0;
+    const ma = min[a.k + '|' + a.p.cliente_id] || [], mb = min[b.k + '|' + b.p.cliente_id] || [];
+    for (let i = 0; i < ODT_ETAPAS.length; i++) if (ma[i] != null && mb[i] != null && ma[i] !== mb[i]) return ma[i] - mb[i];
+    return 0;
+  };
+}
+// Ubica en la ODT los pedidos `mover` justo antes o después de los pedidos `junto` (ids); devuelve los items y su reversa para reordenar_odt
+function ubicarEnOdt(mover, junto, antesDe) {
+  const items = [], antes = [], mv = new Set(mover), jt = new Set(junto); let dia = null;
+  listasOdt().forEach(lista => {
+    const grupo = lista.filter(r => mv.has(r.p.id)), resto = lista.filter(r => !mv.has(r.p.id)), ix = resto.map((r, i) => jt.has(r.p.id) ? i : -1).filter(i => i >= 0);
+    if (!grupo.length || !ix.length) return;
+    const t = antesDe ? ix[0] : ix[ix.length - 1] + 1, ref = resto[antesDe ? ix[0] : ix[ix.length - 1]], d = diaOdt(ref.x, ref.p);
+    resto.slice(0, t).concat(grupo, resto.slice(t)).forEach((r, i) => {
+      const orden = (i + 1) * 10, cambiaDia = mv.has(r.p.id) && d && diaOdt(r.x, r.p) !== d, it = { id: r.x.id, orden };
+      if (cambiaDia) { it.fecha_taller = d; dia = d; }
+      if (r.x.orden_taller !== orden || cambiaDia) { items.push(it); antes.push({ id: r.x.id, orden: r.x.orden_taller ?? null, ...(cambiaDia ? { fecha_taller: r.x.fecha_taller || null } : {}) }); }
+    });
+  });
+  return { items, antes, dia };
+}
+function activarArrastreLista(tb, entradas) {
+  if (!tb) return;
+  const unidad = e => entradas.filter(o => !o.m && !o.mp && o.p && o.k === e.k && o.p.cliente_id === e.p.cliente_id);
+  const deFila = tr => { const id = Number(tr.dataset.id); return entradas.find(e => !e.m && !e.mp && e.p && e.p.id === id); };
+  tb.querySelectorAll('.asa[data-asa]').forEach(asa => {
+    asa.onclick = ev => ev.stopPropagation();
+    asa.onpointerdown = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const sel = deFila(asa.closest('tr')); if (!sel) return;
+      const grupo = unidad(sel), gIds = new Set(grupo.map(e => e.p.id));
+      const filasG = [...tb.querySelectorAll('tr.fila:not(.mov-fila)')].filter(tr => gIds.has(Number(tr.dataset.id)));
+      filasG.forEach(tr => tr.classList.add('arrastrando'));
+      let destino = null, antesDe = true;
+      const limpiar = () => tb.querySelectorAll('.drop-antes,.drop-despues').forEach(tr => tr.classList.remove('drop-antes', 'drop-despues'));
+      const mover = e => {
+        const tr = document.elementFromPoint(e.clientX, e.clientY)?.closest('tr.fila:not(.mov-fila)'); limpiar();
+        if (!tr || !tb.contains(tr) || gIds.has(Number(tr.dataset.id)) || !deFila(tr)) { destino = null; return; }
+        const r = tr.getBoundingClientRect(); antesDe = e.clientY < r.top + r.height / 2; destino = deFila(tr);
+        tr.classList.add(antesDe ? 'drop-antes' : 'drop-despues');
+      };
+      const soltar = async () => {
+        document.removeEventListener('pointermove', mover); document.removeEventListener('pointerup', soltar); document.removeEventListener('pointercancel', soltar);
+        limpiar(); filasG.forEach(tr => tr.classList.remove('arrastrando'));
+        if (!destino) return;
+        const otroDia = destino.k !== sel.k && destino.k !== '9999', junto = unidad(destino).map(e => e.p.id);
+        // a otro día se mueve solo este pedido y sus unidos (los demás del cliente se quedan en su fecha)
+        const ids = otroDia ? [sel.p.id, ...((sel.p.grupo && sel.p.grupo.pedidos) || []).map(x => x.id).filter(id => id !== sel.p.id)] : grupo.map(e => e.p.id);
+        const quien = `${sel.p.numero} (${abrev(sel.p.cliente)})`;
+        let revertirFecha = null;
+        try {
+          if (otroDia) {
+            const p = sel.p, antesF = p.fecha_comprometida;
+            if (!confirm(`¿Mover la entrega al cliente de ${quien} al ${fecha(destino.k, true)}?${antesF ? ' Hoy está para el ' + fecha(antesF, true) + '.' : ''}${p.grupo && p.grupo.n > 1 ? ' Sus pedidos unidos se mueven con él.' : ''}`)) return;
+            const { error } = await sb.from('pedido').update({ fecha_comprometida: destino.k, despacho_propuesto: null }).eq('id', p.id); if (error) throw error;
+            revertirFecha = () => sb.from('pedido').update({ fecha_comprometida: antesF, despacho_propuesto: p.despacho_propuesto }).eq('id', p.id).then(r => { if (r.error) throw r.error; });
+            datosSucios(); await cargarPedidos();
+          }
+          const { items, antes, dia } = ubicarEnOdt(ids, junto, antesDe);
+          if (items.length) (await rpc('reordenar_odt', { p_items: items })).forEach(actualizarPiezas);
+          if (!items.length && !revertirFecha) return aviso('Sin cambios: no comparten taller en la ODT');
+          aviso(`${quien}: ${revertirFecha ? 'entrega ' + fecha(destino.k, true) + conUnidos(sel.p, destino.k) + '; ' : ''}${items.length ? 'orden del taller guardado' + (dia ? ', fecha para el maestro ' + fecha(dia, true) : '') : 'sin cambio en la ODT'}`);
+          anotarCambio(`arrastre en la Lista (${quien})`, async () => { if (antes.length) (await rpc('reordenar_odt', { p_items: antes })).forEach(actualizarPiezas); if (revertirFecha) await revertirFecha(); });
+        } catch (e) { aviso(errorDe(e), true); }
+        vLista();
+      };
+      document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar);
+    };
   });
 }
 
