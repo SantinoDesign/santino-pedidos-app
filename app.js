@@ -624,7 +624,7 @@ function pintarLista() {
   const dos = (a, b) => `<div class="l1">${esc(a || '-')}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
   const sal = p => esOp ? p.saldo_por_cobrar : p.saldo;   // Alexis ve el saldo por cobrar como Harold (Harold 14-oct: "él entrega")
   const filaMov = (m, p) => `<tr class="fila mov-fila ${m.fecha < hoy ? 'atrasado' : ''}" data-mov="${m.id}" data-id="${p.id}">
-      <td class="c-est"><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="c-num"><a class="num ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a></td>
+      <td class="c-est"><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="c-num">${p.sinPedido ? '<span class="num">sin pedido</span>' : `<a class="num ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a>`}</td>
       <td class="c-cli">${esRetProv(m) ? `<div class="l1">${esc(provDeMov(m))}</div>` : `<div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div>`}<div class="l2"><span class="chip inst">${esc(movCorto(m.tipo))}</span></div></td>
       <td colspan="4"><div class="l1">${esc(m.nota || m.tipo)}</div><div class="l2">${esc(m.direccion || (esRetProv(m) ? '' : p.direccion) || 'dirección pendiente')}</div></td>
       <td class="c-ent fecha-mov" data-mov-id="${m.id}" title="${esOp ? 'Clic para proponer otro día' : 'Clic para cambiar la fecha'}">${movFechaTxt(m)}</td><td class="c-com">${dos(esRetProv(m) ? comunaDeDir(m.direccion) : p.comuna || '', '')}</td>
@@ -636,6 +636,7 @@ function pintarLista() {
   const movDelPedido = p => sinPiezas(p) ? (cache.movs || []).filter(m => m.pedido_id === p.id).sort((a, b) => a.fecha.localeCompare(b.fecha))[0] : null;
   entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha; } });
   if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.soloMov || !sinPiezas(p)); }).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
+  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => !m.pedido_id).forEach(m => entradas.push({ k: m.fecha, m, p: { id: '', numero: '', cliente: m.cliente_nombre || '', comuna: comunaDeDir(m.direccion), direccion: m.direccion, sinPedido: true } }));   // visita de venta sin pedido (0093)
   else lista.forEach(p => { if (sinPiezas(p) && movDelPedido(p)) return; movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })); });   // sin piezas: el movimiento ya va dentro de su fila (Harold 16-oct, Dina W3153 salía dos veces)
   /* El día de hoy (Harold 30-oct): primero los que retiran en el taller, después la ruta de mesas y la de proyectos a medida
      (pedidos programados y movimientos) en el orden guardado de la Ruta, luego regiones y al final lo demás con entrega hoy.
@@ -723,6 +724,7 @@ function pintarLista() {
   });
   // Proyecto plegado: el primer clic despliega sus piezas; el siguiente abre el detalle, y al cerrarlo vuelve a plegarse
   $$('#tabla tr.fila').forEach(tr => tr.onclick = () => {
+    if (!tr.dataset.id) return;   // visita de venta sin pedido: no hay ficha que abrir
     const id = Number(tr.dataset.id);
     if (tr.querySelector('.celda-pieza.resumen')) { PROY_ABIERTOS.add(id); return pintarLista(); }
     const abierto = tr.nextElementSibling && tr.nextElementSibling.classList.contains('detalle');
