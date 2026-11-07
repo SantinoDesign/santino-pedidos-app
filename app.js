@@ -1164,7 +1164,7 @@ async function vFicha(id) {
   const { data: p, error } = await sb.from(vista).select('*').eq('id', id).maybeSingle(); if (error) throw error;
   await cargarModelos();
   if (!p) { app.innerHTML = barra('') + `<div class="contenido"><div class="seccion">Este pedido no está disponible en tu vista.</div></div>`; return; }
-  const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }, { data: movs }, { data: casos }, { data: garantia }] = await Promise.all([
+  const [{ data: docs }, { data: hist }, { data: abonos }, { data: guias }, { data: movs }, { data: casos }, { data: garantia }, { data: comRow }] = await Promise.all([
     sb.from('documento').select('*').eq('pedido_id', id).order('subido_en', { ascending: false }),
     esOp ? Promise.resolve({ data: [] }) : sb.from('historial').select('*').eq('pedido_id', id).order('cuando', { ascending: false }).limit(60),
     sb.from('abono').select('*').eq('pedido_id', id).order('fecha'),
@@ -1172,7 +1172,10 @@ async function vFicha(id) {
     sb.from('movimiento').select('*').eq('pedido_id', id).order('fecha'),
     sb.from('v_caso').select('*').eq('pedido_id', id).order('abierto_en', { ascending: false }),
     p.estado === 'ENTREGADO' ? sb.rpc('garantia_de', { p_id: Number(id) }) : Promise.resolve({ data: null }),
+    // Comisión del arquitecto, diseñador o contratista (migración 0094, R-388): solo Harold la ve
+    esOp ? Promise.resolve({ data: null }) : sb.from('pedido').select('comision_pct, comision_monto, comision_nota, comision_pagada_en, beneficiario:cliente!pedido_comision_beneficiario_fk(nombre)').eq('id', id).maybeSingle(),
   ]);
+  const com = comRow && comRow.comision_monto != null ? comRow : null;
   p.movimientos = movs || [];
   const r = rasgos(p); const aMedida = A_MEDIDA.includes(p.tipo_pedido);
   const piezas = (p.piezas || []);
@@ -1228,6 +1231,7 @@ async function vFicha(id) {
         <div class="fila-dato"><span>Recibe</span><span>${p.hora_desde || p.hora_hasta ? `${hhmm(p.hora_desde) || '…'} a ${hhmm(p.hora_hasta) || '…'}` : 'sin restricción de horario'}${esOp ? '' : ` <button class="btn chico borde" id="b-horario" style="margin-left:6px">Cambiar</button>`}</span></div>
         ${p.estado === 'DESPACHO PROGRAMADO' ? `<div class="fila-dato"><span>Cliente confirmó</span><span>${p.despacho_confirmado_en ? '<span class="chip ok">SÍ · ' + fechaHora(p.despacho_confirmado_en) + '</span>' : '<span class="chip saldo">POR CONFIRMAR</span>' + (esOp ? ' <small class="gris">Harold confirma</small>' : ` <a class="btn chico" target="_blank" href="${waLink(p, 'despacho')}">WhatsApp</a> <button class="btn chico primario" id="b-conf2">Confirmó</button>`)}</span></div>` : ''}
         ${p.cotizacion_numero ? `<div class="fila-dato"><span>Cotización</span><span>${esc(p.cotizacion_numero)}</span></div>` : ''}
+        ${com ? `<div class="fila-dato"><span>Comisión</span><span title="${esc(com.comision_nota || '')}">${esc((com.beneficiario && com.beneficiario.nombre) || '')} · ${com.comision_pct != null ? Number(com.comision_pct) + '% · ' : ''}${pesos(com.comision_monto)} ${com.comision_pagada_en ? `<span class="chip ok">PAGADA ${fecha(com.comision_pagada_en)}</span>` : `<span class="chip saldo">PENDIENTE</span> <button class="btn chico borde" id="b-com-pagada">Marcar pagada</button>`}</span></div>` : ''}
         ${garantia ? garantiaHtml(garantia) : ''}
         ${p.estado === 'POR FABRICAR' ? `<div class="fila-dato"><span>Lugar en la ODT</span><span>${esc(Object.entries(lugaresOdt(cache.pedidos || [p])).filter(([id]) => (p.piezas || []).some(x => x.id === Number(id))).map(([, l]) => ODT_CORTO[l.area] + ' #' + l.n).join(' / ') || '-')}</span></div>` : ''}
         ${esOp && p.saldo_por_cobrar > 0 ? `<div style="padding:10px;border-radius:8px;background:var(--ambar);color:var(--ambar-txt);font-weight:700">Cobrar ${pesos(p.saldo_por_cobrar)} al entregar</div>` : ''}
@@ -1265,6 +1269,7 @@ async function vFicha(id) {
     $('#s-tipo').onchange = async ev => { const nuevo = ev.target.value, antes = p.tipo_pedido; const { error } = await sb.from('pedido').update({ tipo_pedido: nuevo }).eq('id', id); aviso(error ? errorDe(error) : 'Tipo de pedido: ' + nuevo, !!error); if (!error) { anotarCambio(`tipo de ${p.numero} (volver a ${antes})`, () => sb.from('pedido').update({ tipo_pedido: antes }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); } };
     $('#c-urgente').onchange = async ev => { const nuevo = ev.target.checked; const { error } = await sb.from('pedido').update({ urgente: nuevo }).eq('id', id); aviso(error ? errorDe(error) : (nuevo ? 'Marcado urgente' : 'Ya no es urgente'), !!error); if (!error) anotarCambio(`urgente de ${p.numero}`, () => sb.from('pedido').update({ urgente: !nuevo }).eq('id', id).then(r => { if (r.error) throw r.error; })); };
     $('#i-comp').onchange = async ev => { const { error } = await sb.from('pedido').update({ fecha_comprometida: ev.target.value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Fecha comprometida guardada (queda en el historial)' + conUnidos(p, ev.target.value), !!error); if (!error) anotarCambio(`fecha de entrega de ${p.numero}`, () => sb.from('pedido').update({ fecha_comprometida: p.fecha_comprometida }).eq('id', id).then(r => { if (r.error) throw r.error; })); recargar(); };
+    on('#b-com-pagada', async () => { if (!confirm(`¿Marcar pagada hoy la comisión de ${pesos(com.comision_monto)}?`)) return; const { error } = await sb.from('pedido').update({ comision_pagada_en: hoyISO() }).eq('id', id); aviso(error ? errorDe(error) : 'Comisión marcada pagada', !!error); if (!error) { anotarCambio(`comisión pagada de ${p.numero}`, () => sb.from('pedido').update({ comision_pagada_en: null }).eq('id', id).then(r => { if (r.error) throw r.error; })); vFicha(id); } });
     on('#b-obs', async () => { const { error } = await sb.from('pedido').update({ observacion: $('#t-obs').value }).eq('id', id); aviso(error ? errorDe(error) : 'Observación guardada', !!error); if (!error) anotarCambio(`observación de ${p.numero}`, () => sb.from('pedido').update({ observacion: p.observacion }).eq('id', id).then(r => { if (r.error) throw r.error; })); });
     on('#b-doc', async () => { const { error } = await sb.from('pedido').update({ documento_tributario: $('#s-doc').value, documento_numero: $('#i-docnum').value || null, documento_fecha: $('#i-docfecha').value || null }).eq('id', id); aviso(error ? errorDe(error) : 'Documento guardado', !!error); recargar(); });
     on('#b-abono', () => formAbono(p, recargar));
