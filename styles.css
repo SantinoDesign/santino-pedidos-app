@@ -1,0 +1,587 @@
+/* Santino Pedidos · prototipo Fase 2. Colores del Manual de Marca: Azul #0081A6, Gris #474747, blanco. */
+:root{--azul:#0081A6;--azul-osc:#005F7A;--azul-claro:#CFE7EF;--azul-suave:#E6F3F7;--gris:#474747;--gris-2:#5E6B70;--gris-3:#7A868B;--linea:#DDE3E6;--fondo:#F4F6F7;--panel:#E9EDEF;--rojo:#C0392B;--rojo-txt:#9B2C1F;--rojo-fondo:#FDECEA;--ambar:#FFF4D6;--ambar-txt:#7A5A00;--verde:#1E7F4F;--verde-fondo:#E3F4EA}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--fondo);color:var(--gris);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.35}
+a{color:var(--azul)}a:hover{color:var(--azul-osc)}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit;color:var(--gris);padding:8px 10px;border:1px solid #CCD4D8;border-radius:6px;background:#fff;min-height:40px}
+textarea{min-height:70px}
+.oculto{display:none!important}
+.cargando{padding:40px;text-align:center;color:var(--gris-3)}
+
+/* Barra superior */
+.barra{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:10px 20px;background:#fff;border-bottom:1px solid var(--linea);position:sticky;top:0;z-index:5}
+.marca{font-size:18px;font-weight:700;color:var(--azul);letter-spacing:.5px;text-decoration:none}
+.nav{display:flex;gap:4px;flex-wrap:wrap}
+.nav a{padding:9px 14px;border-radius:6px;color:var(--gris);text-decoration:none;font-size:14px;min-height:40px;display:inline-flex;align-items:center}
+.nav a.activo{background:var(--azul);color:#fff;font-weight:600}
+.tablet .nav a{font-size:16px;padding:11px 18px;min-height:46px}
+.espacio{flex:1 1 120px}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--gris);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;border:none}
+.contenido{padding:14px 20px 40px}
+.sub{padding:8px 20px;font-size:13px;color:var(--gris-2);display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+
+/* Botones */
+.btn{padding:9px 14px;border:1px solid #CCD4D8;border-radius:6px;background:#fff;color:var(--gris);font-size:13px;min-height:40px;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn.primario{background:var(--azul);border-color:var(--azul);color:#fff;font-weight:600}
+.btn.borde{border-color:var(--azul);color:var(--azul);font-weight:600}
+.btn.peligro{border-color:var(--rojo);color:var(--rojo-txt)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.chico{padding:5px 9px;min-height:30px;font-size:12px}
+.tablet .btn{font-size:15px;min-height:46px;padding:11px 16px}
+
+/* Chips y etiquetas */
+.chip{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;background:var(--panel);color:var(--gris);line-height:1.4}
+.chip.urgente,.chip.atrasado{background:var(--rojo-fondo);color:var(--rojo-txt)}
+.chip.saldo,.chip.pago{background:var(--ambar);color:var(--ambar-txt)}
+.chip.inst,.chip.medida,.chip.prop{background:var(--azul-suave);color:var(--azul-osc)}
+.chip.ok{background:var(--verde-fondo);color:var(--verde)}
+.estado{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;line-height:1.4}
+.e-POR_FABRICAR,.e-VISITA_TÉCNICA,.e-DIBUJO_3D,.e-DISEÑO_APROBADO{background:var(--panel);color:var(--gris)}
+.e-EN_FABRICACIÓN{background:var(--azul-claro);color:var(--azul-osc)}
+.e-LISTO_EN_TALLER{background:var(--azul);color:#fff}
+.e-DESPACHO_PROGRAMADO{background:var(--azul-osc);color:#fff}
+.e-ENTREGADO{background:var(--gris);color:#fff}
+.e-CANCELADO,.e-DEVUELTO{background:var(--panel);color:var(--gris-3);text-decoration:line-through}
+
+/* Piezas */
+.piezas{display:flex;gap:6px;flex-wrap:wrap}
+.pieza{border:2px solid #CCD4D8;background:#fff;color:var(--gris);border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600;min-height:36px;line-height:1.2;text-align:left}
+.pieza.proceso{border-color:var(--azul);color:var(--azul)}
+.pieza.lista{background:var(--azul);border-color:var(--azul);color:#fff}
+.pieza small{display:block;font-weight:400;font-size:11px;opacity:.85}
+.tablet .pieza{font-size:15px;min-height:46px;padding:8px 14px}
+
+/* Lista compacta (Harold 12-oct-2026): celdas en dos líneas, códigos cortos, menos aire */
+table.lista.compacta{font-size:12px}
+table.lista.compacta th{padding:7px 6px}
+table.lista.compacta td{padding:5px 6px;line-height:1.25}
+table.lista.compacta td.cliente{min-width:110px;max-width:150px}
+table.lista.compacta td.modelo{min-width:90px;max-width:120px;white-space:normal;overflow-wrap:anywhere}
+table.lista.compacta td.sillas,table.lista.compacta td.comuna{max-width:110px}
+table.lista.compacta td.etiq .chip{margin:1px 0}
+table.lista.compacta .l1{font-weight:600;white-space:nowrap}
+table.lista.compacta .l2{color:var(--gris-2);font-size:11px;white-space:nowrap}
+.cod{display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;background:var(--azul-suave);color:var(--azul-osc);white-space:nowrap}
+.ficha-link{display:inline-block;padding:3px 7px;border:1px solid var(--azul);border-radius:4px;color:var(--azul);font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap}
+.ficha-link:hover{background:var(--azul);color:#fff}
+.fgrupo{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+.fgrupo-t{color:var(--gris-3);margin-right:2px}
+.ftog{padding:4px 8px;border:1px solid #CCD4D8;border-radius:12px;background:#fff;color:var(--gris);font-size:11px;font-weight:700;min-height:26px}
+.ftog.on{background:var(--azul);border-color:var(--azul);color:#fff}
+.sub.leyenda{padding-top:0;font-size:11px;color:var(--gris-3)}
+.piezas-caja{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:8px 10px;min-width:320px}
+.piezas-titulo{font-size:11px;color:var(--gris-2);margin-bottom:4px}
+.piezas-tabla{border-collapse:collapse;font-size:12px}
+.piezas-tabla td{padding:3px 8px 3px 0;vertical-align:middle}
+.piezas-tabla .gris{color:var(--gris-2)}
+.pieza.chica{min-height:28px;padding:3px 8px;font-size:11px;border-width:1px}
+.estado-pieza{font-size:11px;color:var(--gris-2)}
+.estado-pieza.lista{color:var(--azul);font-weight:700}
+
+/* Tablas */
+.tabla-env{overflow-x:auto;background:#fff;border:1px solid var(--linea);border-radius:8px}
+table.lista{border-collapse:collapse;width:100%;font-size:12px}
+table.lista th{position:sticky;top:0;background:var(--panel);text-align:left;padding:9px 8px;font-weight:700;white-space:nowrap;z-index:1}
+table.lista td{padding:7px 8px;border-top:1px solid #EEF1F3;vertical-align:top}
+table.lista tr.fila{cursor:pointer}
+@media (hover:hover){table.lista tr.fila:hover{background:#FAFBFC}}
+table.lista tr.atrasado td:first-child{box-shadow:inset 3px 0 0 var(--rojo)}
+table.lista tr.semana td{background:var(--azul-suave);color:var(--azul-osc);font-weight:700;font-size:13px;padding:8px}
+table.lista tr.detalle td{background:#F8FAFB;padding:12px 14px}
+.tablet table.lista{font-size:14px}
+.tablet table.lista td{padding:10px 8px}
+.nw{white-space:nowrap}
+.num{color:var(--azul);font-weight:700;white-space:nowrap}
+.der{text-align:right}
+.mono{font-variant-numeric:tabular-nums}
+
+/* Tarjetas / secciones */
+.seccion{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.seccion h2{margin:0;font-size:15px;font-weight:700}
+.seccion .cab{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.grid-ficha{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+.columna{display:flex;flex-direction:column;gap:14px;min-width:0}
+.fila-dato{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0;border-bottom:1px solid #EEF1F3}
+.fila-dato span:first-child{color:var(--gris-2)}
+.cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.cifra{background:var(--fondo);border-radius:8px;padding:10px 12px}
+.cifra div:first-child{font-size:12px;color:var(--gris-2)}
+.cifra div:last-child{font-size:18px;font-weight:700}
+.cifra.grande div:last-child{font-size:30px;color:var(--azul)}
+.encabezado{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 12px}
+.encabezado h1{margin:0;font-size:22px}
+.historial{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.historial div{display:flex;gap:10px}
+.historial time{color:var(--gris-3);white-space:nowrap;min-width:92px}
+.docs{display:flex;flex-direction:column;gap:6px}
+.doc{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--linea);border-radius:8px;font-size:13px}
+.doc .tipo{color:var(--gris-3);font-size:11px}
+
+/* Tablero */
+.tablero{display:grid;grid-template-columns:repeat(5,minmax(220px,1fr));gap:12px;align-items:start;overflow-x:auto}
+.col{display:flex;flex-direction:column;gap:8px;min-height:200px}
+.col-cab{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:700}
+.col-cab .n{background:#fff;color:var(--gris);padding:1px 8px;border-radius:10px;font-size:12px}
+.col.sobre{outline:2px dashed var(--azul);outline-offset:2px;border-radius:8px}
+.tarjeta{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:5px;box-shadow:0 1px 2px rgba(0,0,0,.04);cursor:grab;font-size:12px}
+.tarjeta.atrasado{border:2px solid var(--rojo)}
+.tarjeta .t1{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tarjeta .nombre{font-size:14px;font-weight:600}
+.tarjeta .gris{color:var(--gris-2)}
+.tarjeta.arrastrando{opacity:.4}
+
+/* Panel */
+.barras{display:flex;gap:8px;align-items:flex-end;height:160px;padding:10px 4px 0}
+.barra-mes{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--gris-2)}
+.barra-mes .par{display:flex;gap:2px;align-items:flex-end;height:120px;width:100%;justify-content:center}
+.barra-mes .b{width:40%;border-radius:3px 3px 0 0;background:#B8C4C9}
+.barra-mes .b.actual{background:var(--azul)}
+.progreso{height:10px;border-radius:5px;background:var(--panel);overflow:hidden}
+.progreso div{height:100%;background:var(--azul)}
+
+/* Ruta */
+.parada{display:grid;grid-template-columns:36px 1fr 1fr auto auto;gap:12px;align-items:center;padding:12px;border:1px solid var(--linea);border-radius:8px;background:#fff}
+.parada .n{width:32px;height:32px;border-radius:50%;background:var(--azul);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.parada .gris{color:var(--gris-2);font-size:13px}
+.prop{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--linea);border-radius:8px;background:#fff}
+.prop input[type=checkbox]{width:24px;height:24px}
+.pasos{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--gris-2)}
+.pasos span{padding:4px 10px;border-radius:14px;background:var(--panel)}
+.pasos span.activo{background:var(--azul);color:#fff}
+
+/* Login */
+.login{max-width:380px;margin:60px auto;background:#fff;border:1px solid var(--linea);border-radius:10px;padding:28px;display:flex;flex-direction:column;gap:12px}
+.login h1{margin:0;font-size:20px;color:var(--azul)}
+.login label{display:flex;flex-direction:column;gap:4px;font-size:13px}
+
+/* Modal y avisos */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
+.modal .caja{background:#fff;border-radius:10px;padding:20px;max-width:560px;width:100%;max-height:90vh;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.modal h2{margin:0;font-size:17px}
+.campo{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.acciones{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.aviso{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--gris);color:#fff;padding:12px 18px;border-radius:8px;z-index:30;max-width:90vw;box-shadow:0 4px 14px rgba(0,0,0,.2)}
+.aviso.error{background:var(--rojo)}
+
+/* Impresión */
+@media print{
+  .barra,.sub,.no-imprimir,#aviso,#modal{display:none!important}
+  body{background:#fff;font-size:11px}
+  .contenido{padding:0}
+  .tabla-env{border:none}
+  table.lista th{position:static}
+  .etiqueta{page-break-after:always;border:3px solid #000;padding:30px;margin:0;height:95vh;display:flex;flex-direction:column;justify-content:center;gap:20px}
+  .etiqueta .fragil{font-size:72px;font-weight:900;text-align:center;letter-spacing:4px}
+  .etiqueta .dato{font-size:28px}
+}
+.etiquetas-print{display:none}
+@media print{.solo-impresion{display:block!important}}
+
+@media (max-width:900px){
+  .grid-ficha{grid-template-columns:1fr}
+  .tablero{grid-template-columns:repeat(5,260px)}
+  .parada{grid-template-columns:36px 1fr;gap:8px}
+  .contenido{padding:10px 12px 40px}
+}
+
+/* Listado operacional imprimible */
+.listado-print{font-size:11px}
+.titulo-print{font-weight:700;font-size:13px;margin:4px 0 8px}
+.listado-print h3{font-size:12px;margin:12px 0 4px}
+table.impresion{border:1px solid #999}
+table.impresion th,table.impresion td{border:1px solid #BBB;padding:3px 5px;font-size:10px;vertical-align:middle}
+table.impresion th{background:#E9EDEF;position:static}
+table.impresion tr.atrasado td{color:var(--rojo-txt);font-weight:600}
+@media print{
+  @page{size:letter landscape;margin:12mm}
+  .listado-print{padding:0}
+  .listado-print h3.salto{page-break-before:always}
+  table.impresion{width:100%}
+}
+
+/* Guía de despacho (diseño aprobado de la skill guia-despacho-sd, trasladado a la app el 12-oct-2026) */
+.guia{background:#fff;max-width:816px;margin:14px auto;padding:12mm 16mm;font-family:sans-serif;font-size:11px;color:#1a1a1a;border:1px solid var(--linea)}
+.guia .header{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:.5px solid #ddd;margin-bottom:12px}
+.guia .logo{height:200px}
+.guia .header-right{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.guia .doc-type{font-size:7px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#0081A6}
+.guia .doc-number{font-size:26px;font-weight:200;color:#1a1a1a;letter-spacing:3px;line-height:1}
+.guia .doc-fecha{font-size:9px;color:#aaa}
+.guia .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:10px}
+.guia .party-label{font-size:7px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#0081A6;margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid #eee}
+.guia .party-row{margin-bottom:3px;line-height:1.4;font-size:12px}
+.guia .pf{font-size:10px;color:#aaa;display:inline-block;width:56px}
+.guia .envio-box{background:#f0f8fc;border:.5px solid #c8e8f4;border-radius:4px;padding:8px 14px;margin-bottom:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.guia .envio-label{font-size:7px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#0081A6;margin-bottom:2px}
+.guia .envio-val{font-size:13px;font-weight:500}
+.guia .prod-label{font-size:7px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#0081A6;margin-bottom:4px}
+.guia table{width:100%;border-collapse:collapse}
+.guia thead tr{background:#0081A6;color:#fff}
+.guia thead th{padding:7px 10px;text-align:left;font-size:8px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
+.guia thead th:last-child{text-align:right}
+.guia .dr td{padding:7px 10px;border-bottom:.5px solid #eee;font-size:12px}
+.guia .er td{padding:5px 10px;border-bottom:.5px solid #f5f5f5;color:#e0e0e0;font-size:11px}
+.guia td:last-child{text-align:right}
+.guia .total-row td{background:#0081A6;color:#fff;padding:9px 10px;font-weight:600;font-size:13px}
+.guia .firma{margin-top:20px;text-align:right}
+.guia .firma-line{display:inline-block;width:200px;border-top:1px solid #bbb;margin-bottom:4px}
+.guia .firma-label{font-size:8px;color:#aaa}
+@media print{.guia{border:none;margin:0;padding:0;max-width:none}.guia .total-row td,.guia thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+.sin-fecha{color:var(--gris-3);font-style:italic}
+table.lista td.fecha-ent{cursor:pointer}
+@media (hover:hover){table.lista td.fecha-ent:hover{background:var(--azul-suave)}}
+/* Barra horizontal siempre visible y arrastre de la tabla */
+.tabla-env{overflow-x:scroll;cursor:grab}
+.tabla-env.arrastrando{cursor:grabbing;user-select:none}
+.tabla-env::-webkit-scrollbar{height:12px}
+.tabla-env::-webkit-scrollbar-track{background:var(--panel);border-radius:6px}
+.tabla-env::-webkit-scrollbar-thumb{background:#AEB9BF;border-radius:6px;border:2px solid var(--panel)}
+.tabla-env::-webkit-scrollbar-thumb:hover{background:var(--azul)}
+table.lista.compacta td.celda-lineas{width:96px;min-width:96px;max-width:96px}  /* ancho fijo e igual en Cubierta y Base: cabe ENCHAPADO (Harold 12-oct) */
+table.lista.compacta td.celda-lineas .l1,table.lista.compacta td.celda-lineas .l2{white-space:normal;overflow-wrap:anywhere}
+
+/* Etapa por pieza (12-oct-2026): chip = tipo de pieza + etapa actual; toque avanza, clic derecho o mantener vuelve */
+.etapas{display:flex;flex-wrap:wrap;gap:4px;min-width:120px;max-width:260px}
+.etapa-chip{border:1.5px solid #CCD4D8;background:#fff;color:var(--gris);border-radius:8px;padding:3px 8px;font-size:11px;font-weight:700;line-height:1.15;text-align:left;cursor:pointer;min-height:30px}
+.etapa-chip small{display:block;font-weight:400;font-size:10px;color:var(--gris-2)}
+.etapa-chip.proceso{border-color:var(--azul);color:var(--azul)}
+.etapa-chip.proceso small{color:var(--azul-osc)}
+.etapa-chip.lista{background:var(--azul);border-color:var(--azul);color:#fff}
+.etapa-chip.lista small{color:#E6F3F7}
+.tablet .etapa-chip{font-size:13px;min-height:42px;padding:5px 10px}
+.tablet .etapa-chip small{font-size:12px}
+.tablet .etapas{max-width:340px}
+table.lista.compacta td.piezas-col{min-width:130px}
+/* Logo real de Santino Design (Harold 12-oct) */
+.logo-login{display:block;width:240px;margin:0 auto 8px}
+.logo-barra{height:30px;display:block}
+.tablet .logo-barra{height:34px}
+.l2.parcial{color:var(--rojo-txt);font-weight:700;font-size:11px}
+/* Tanda 19 (12-oct): despliegue útil, acabado por pieza, ODT */
+.despliegue{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.desp-col{display:flex;flex-direction:column;gap:8px;font-size:13px}
+.desp-datos{max-width:360px}
+.desp-datos .gris,.despliegue .gris{color:var(--gris-2)}
+.desp-estado{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--gris-2)}
+.desp-estado select{font-size:13px;font-weight:700;color:var(--gris)}
+.sel-acabado{font-size:12px;padding:2px 4px;min-height:26px}
+.sel-acabado.falta{border:1.5px solid var(--rojo-txt);color:var(--rojo-txt);font-weight:700}
+.etapa-chip.falta-acabado{border-color:var(--rojo-txt)}
+.etapa-chip.falta-acabado small{color:var(--rojo-txt)}
+table.odt td{vertical-align:middle}
+.caja-ok{width:84px}
+@media print{.caja-ok{border:1.5px solid #333!important}}
+@media print{th.solo-impresion,td.solo-impresion{display:table-cell!important}span.solo-impresion{display:inline!important}}
+.solo-impresion{display:none}
+
+/* Títulos de columna que siguen al bajar (tanda 20): sombra cuando flotan; nunca en impresión */
+table.lista thead.flotando th{box-shadow:0 2px 4px rgba(0,0,0,.14)}
+@media print{table.lista th{transform:none!important}}
+/* Aviso de girar en celular vertical (la app está pensada en horizontal, Harold 12-oct); no sale en tablet ni en el Mac */
+.gira-aviso{display:none;background:var(--azul);color:#fff;text-align:center;font-size:13px;font-weight:600;padding:6px 10px}
+@media (orientation:portrait) and (max-width:700px) and (pointer:coarse){.gira-aviso{display:block}}
+@media print{.gira-aviso{display:none!important}}
+/* ODT por taller (tanda 23): la fila que se está fabricando hoy se marca; movimientos pendientes y paradas de movimiento en la Ruta */
+table.lista tr.fabricando td{background:var(--azul-suave)}
+@media print{table.impresion tr.fabricando td{font-weight:700;background:#E6F3F7!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+.parada.mov{border-left:4px solid var(--azul)}
+/* Movimiento como fila propia en la Lista y en el listado impreso (tanda 24) */
+.estado.e-MOV{background:var(--azul-suave);color:var(--azul-osc)}
+table.lista tr.mov-fila td{background:#F3F9FB;border-top:1px solid var(--azul-claro)}
+table.lista tr.mov-fila td:first-child{box-shadow:inset 3px 0 0 var(--azul)}
+table.lista tr.mov-fila.atrasado td:first-child{box-shadow:inset 3px 0 0 var(--rojo)}
+table.impresion tr.mov td{background:#EEF6F9;font-style:italic}
+@media print{table.impresion tr.mov td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+
+/* ODT (tanda 25): formato de Harold, anchos fijos por columna, impresión en OFICIO HORIZONTAL con letra legible y sin palabras cortadas.
+   Reglas: table-layout fijo con <colgroup>; el texto corta solo en espacios (nunca dentro de una palabra); una fila nunca se parte entre páginas. */
+.falta-dato{color:var(--rojo-txt);font-weight:700}
+table.odt{font-size:12px;table-layout:fixed;width:100%;min-width:1080px}
+table.odt th,table.odt td{padding:4px 6px;white-space:normal;overflow-wrap:normal;word-break:normal;hyphens:none;vertical-align:top;line-height:1.3}
+table.odt th{white-space:normal}
+table.odt .l2{color:var(--gris-2);font-size:11px;font-weight:400}
+table.odt td.ctd{text-align:center}
+table.odt a.cli-edit{color:var(--azul-osc);font-weight:600;text-decoration:underline dotted;cursor:pointer}
+table.odt a.cli-edit:hover{color:var(--azul)}
+table.odt input.f-taller{min-height:26px;padding:1px 3px;font-size:11px;width:100%;max-width:120px}
+col.c-fecha{width:9.5%}col.c-num{width:5%}col.c-cli{width:11%}col.c-pieza{width:10%}col.c-madera{width:9%}col.c-medidas{width:14%}col.c-forma{width:5%}col.c-ctd{width:3.5%}col.c-term{width:8%}col.c-indic{width:13.5%}col.c-mover{width:2.5%}col.c-estado{width:9%}
+.odt-print{page:odt}
+@page odt{size:8.5in 13in landscape;margin:8mm 7mm}
+@media print{
+  .odt-print table.odt{font-size:12px;min-width:0;width:100%}
+  .odt-print table.odt th,.odt-print table.odt td{padding:3px 4px;line-height:1.25;font-size:12px;color:#000}
+  .odt-print table.odt .l2{color:#333;font-size:10.5px}
+  .odt-print table.odt td.num{color:#000}
+  .odt-print table.odt tr{break-inside:avoid;page-break-inside:avoid}
+  .odt-print table.odt thead{display:table-header-group}
+  .odt-print table.odt a.cli-edit{color:#000;text-decoration:none;font-weight:600}
+  .odt-print col.c-fecha{width:7%}.odt-print col.c-num{width:4.5%}.odt-print col.c-cli{width:11.5%}.odt-print col.c-pieza{width:11%}.odt-print col.c-madera{width:8.5%}.odt-print col.c-medidas{width:15%}.odt-print col.c-forma{width:4.5%}.odt-print col.c-ctd{width:3%}.odt-print col.c-term{width:8%}.odt-print col.c-indic{width:17%}.odt-print col.c-hecho{width:4%}.odt-print col.c-rev{width:6%}
+  .odt-print col.c-estado,.odt-print col.no-imprimir{display:none}
+  .odt-print .caja-ok{border:1.5px solid #333!important}
+  .odt-print .titulo-print{font-size:13px;margin:0 0 6px}
+}
+
+/* ===== Lista v2 (Harold 13-oct-2026, variante B aprobada): anchos fijos, dos líneas por celda, semanas, celdas-botón por pieza ===== */
+table.lista.v2{font-size:12.5px;table-layout:fixed;width:100%;min-width:1180px}
+table.lista.v2 th{white-space:normal;padding:7px 6px;line-height:1.2}
+table.lista.v2 td{padding:5px 6px;line-height:1.25;overflow-wrap:normal;word-break:normal;hyphens:none;vertical-align:top}
+table.lista.v2 .l1{font-weight:600}
+table.lista.v2 .l2{color:var(--gris-2);font-size:11px}
+table.lista.v2 .l2.parcial{color:var(--rojo-txt);font-weight:700}
+table.lista.v2 .rojo{color:var(--rojo-txt)}
+table.lista.v2 .gris{color:var(--gris-3)}
+table.lista.v2 td.c-saldo{text-align:right}
+table.lista.v2 tr.semana td{background:#F4F6F7;color:var(--gris-2);font-weight:700;font-size:11.5px;padding:5px 8px;letter-spacing:.3px}
+/* Subgrupos de un día con ruta (Harold 30-oct): retiros en taller, ruta de mesas, ruta de proyectos, regiones, otros */
+table.lista.v2 tr.dia-grupo td{background:#fff;color:var(--azul-osc);font-weight:700;font-size:11.5px;padding:6px 8px 3px;border-bottom:2px solid rgba(0,129,166,.35)}
+table.lista.v2 tr.dia-grupo.g0 td{color:var(--gris-2);border-bottom-color:rgba(71,71,71,.35)}
+table.lista.v2 tr.dia-grupo.g4 td{color:var(--gris-3);border-bottom-color:#E3E6E8;font-weight:600}
+table.lista.v2 tr.mov-fila td{background:#FBFDFE}
+table.lista.v2 a.ficha-num{color:var(--azul);font-weight:700;text-decoration:none}
+table.lista.v2 a.ficha-num:hover{text-decoration:underline}
+table.lista.v2 .falta-dato{color:var(--rojo-txt);font-weight:700}
+table.lista.v2 col.c-est{width:5%}table.lista.v2 col.c-num{width:4.8%}table.lista.v2 col.c-cli{width:13.5%}table.lista.v2 col.c-mod{width:8.5%}table.lista.v2 col.c-cub{width:8.5%}table.lista.v2 col.c-base{width:7.5%}table.lista.v2 col.c-med{width:8.5%}table.lista.v2 col.c-sillas{width:10.5%}table.lista.v2 col.c-ent{width:7.5%}table.lista.v2 col.c-com{width:8.5%}table.lista.v2 col.c-pz{width:11.5%}table.lista.v2 col.c-saldo{width:5.7%}
+table.lista.v2.b col.c-cli{width:14%}table.lista.v2.b col.c-cub{width:12%}table.lista.v2.b col.c-base{width:10.5%}table.lista.v2.b col.c-sillas{width:12%}table.lista.v2.b col.c-med{width:9%}table.lista.v2.b col.c-mod{width:9%}table.lista.v2.b col.c-saldo{width:7%}
+table.lista.v2.b td{padding:4px 5px}
+.celda-pieza{display:block;width:100%;text-align:left;border:1.5px solid #CCD4D8;border-radius:8px;background:#fff;color:var(--gris);padding:4px 7px 3px;font:inherit;line-height:1.2;margin:1px 0;cursor:pointer}
+.celda-pieza .l1{font-weight:600}.celda-pieza .l2{color:var(--gris-2);font-size:11px}
+.celda-pieza .etapa-tag{display:block;margin-top:3px;font-size:10.5px;font-weight:700;color:var(--gris-3);border-top:1px dashed #E3E8EB;padding-top:2px}
+.celda-pieza.proceso{border-color:var(--azul)}.celda-pieza.proceso .etapa-tag{color:var(--azul-osc)}
+.celda-pieza.lista{background:var(--azul);border-color:var(--azul);color:#fff}
+/* Harold 13-oct: la segunda línea no se leía sobre el azul (table.lista.v2 .l2 ganaba por especificidad): blanco casi puro */
+table.lista.v2 .celda-pieza.lista .l2,.celda-pieza.lista .l2,.celda-pieza.lista .etapa-tag{color:#F4FAFC;border-top-color:rgba(255,255,255,.4)}
+.celda-pieza.falta{border-color:var(--rojo-txt)}.celda-pieza.falta .etapa-tag{color:var(--rojo-txt)}
+.tablet table.lista.v2{font-size:13px;min-width:1080px}.tablet table.lista.v2 .l2{font-size:11.5px}.tablet .celda-pieza{padding:7px 9px 5px;min-height:52px}.tablet .celda-pieza .etapa-tag{font-size:12px}
+
+/* Lista v2: filtros, menú Más, leyenda y despliegue en 4 bloques */
+.sub.filtros-v2{gap:8px 14px}
+.acciones-lista{display:inline-flex;gap:8px;white-space:nowrap}
+.sub.filtros-v2 .fgrupo-t{font-weight:600;color:var(--gris-2)}
+.ftog.alerta.on{background:var(--rojo-txt);border-color:var(--rojo-txt)}
+.ayuda{display:inline-flex;width:26px;height:26px;border-radius:50%;border:1px solid #CCD4D8;background:#fff;align-items:center;justify-content:center;font-size:13px;color:var(--gris-2);cursor:help;padding:0}
+.menu-mas{position:relative;display:inline-block}
+.menu-lista{display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--linea);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:240px;z-index:8;padding:6px 0;flex-direction:column}
+.menu-lista.abierto{display:flex}
+/* Harold 22-oct (captura): el menú Más de la Lista abría hacia la izquierda y quedaba cortado fuera de la pantalla */
+#m-mas{left:0;right:auto}
+.menu-lista>button,.menu-lista>a{display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;color:var(--gris);font-size:13px;text-decoration:none;cursor:pointer}
+.menu-lista>button:hover,.menu-lista>a:hover{background:var(--azul-suave)}
+.desp2{display:grid;grid-template-columns:250px minmax(0,1fr) 230px;gap:12px;align-items:start}
+.d-bloque{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.d-bloque h4{margin:0 0 2px;font-size:12px;color:var(--azul-osc);text-transform:uppercase;letter-spacing:.4px}
+.d-bloque h4 small{text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px}
+.d-fila{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.d-fila span:first-child{color:var(--gris-2);min-width:78px}
+.d-acciones{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center}
+.d-tabla{border-collapse:collapse;width:100%;font-size:12px}.d-tabla th{text-align:left;color:var(--gris-2);font-weight:600;padding:2px 6px;border-bottom:1px solid var(--linea);white-space:nowrap;font-size:11px}.d-tabla td{padding:4px 6px;vertical-align:top;border-bottom:1px solid #EEF1F3}
+.d-tabla td:nth-child(8){min-width:140px}
+.d-piezas,.d-obs{grid-column:1/-1}
+.d-tabla .l2{color:var(--gris-2);font-size:11px}
+.d-tabla input.f-taller{min-height:26px;padding:1px 3px;font-size:11px;width:120px}
+.d-tabla .falta-dato,.d-bloque .falta-dato{color:var(--rojo-txt);font-weight:700}
+.d-bloque .rojo{color:var(--rojo-txt)}
+.cli-edit{color:var(--azul-osc);font-weight:600;text-decoration:underline dotted;cursor:pointer}
+@media (max-width:1100px){.desp2{grid-template-columns:1fr 1fr}}
+.celda-pieza.mov{border-style:dashed;border-color:var(--azul)}.celda-pieza.mov .etapa-tag{color:var(--azul-osc)}
+.d-mov{grid-column:1/-1;padding:0;border:none;background:none}.d-mov .seccion{padding:10px 12px}.d-mov .seccion h2{font-size:12px;color:var(--azul-osc);text-transform:uppercase;letter-spacing:.4px}
+table.lista.v2 .l2.propone{color:var(--azul-osc);font-weight:700}
+table.lista td.fecha-mov{cursor:pointer}@media (hover:hover){table.lista td.fecha-mov:hover{background:var(--azul-suave)}}
+.prog-desp{display:inline-flex;gap:6px;align-items:center}.prog-desp input{min-height:30px;padding:2px 6px;font-size:12px}
+
+/* Orden de compra (tanda 26, 13-oct-2026): estados de la OC, pieza devuelta al proveedor, ventana ancha, recepción */
+.etapa-chip.devuelta,.celda-pieza.devuelta{border-color:var(--rojo);color:var(--rojo-txt)}
+.etapa-chip.devuelta small,.celda-pieza.devuelta .etapa-tag{color:var(--rojo-txt)}
+.chip.oc-estado{font-weight:700}
+.chip.oc-Enviada{background:var(--panel);color:var(--gris)}
+.chip.oc-Cotizada{background:var(--azul-suave);color:var(--azul-osc)}
+.chip.oc-Pagada{background:var(--azul-claro);color:var(--azul-osc)}
+.chip.oc-Recibida{background:var(--verde-fondo);color:var(--verde)}
+.chip.oc-Con_devolución{background:var(--rojo-fondo);color:var(--rojo-txt)}
+.chip.oc-Cerrada{background:var(--gris);color:#fff}
+.modal .caja.ancha{max-width:900px}
+.oc-texto{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;width:100%;white-space:pre-wrap}
+.oc-dinero{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;align-items:center}
+.oc-dinero>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+table.lista tr.fila-oc{cursor:pointer}
+@media (hover:hover){table.lista tr.fila-oc:hover td{background:var(--azul-suave)}}
+table.lista.oc-tabla td{vertical-align:top}
+.recibir-fila{display:grid;grid-template-columns:1fr minmax(240px,320px);gap:6px 14px;align-items:start;padding:8px 0;border-bottom:1px solid var(--linea);font-size:13px}
+.recibir-opc{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.recibir-opc label{display:flex;gap:6px;align-items:center}
+.recibir-opc input[type=text],.recibir-opc input:not([type]){min-height:30px;padding:3px 6px;font-size:12px}
+@media (max-width:640px){.recibir-fila{grid-template-columns:1fr}}
+
+/* Casos de servicio (tanda 28, 14-oct-2026) y % abonado sutil */
+.chip.caso-Abierto{background:var(--ambar);color:var(--ambar-txt)}
+.chip.caso-Esperando_cliente{background:var(--azul-suave);color:var(--azul-osc)}
+.chip.caso-Esperando_revisión{background:var(--azul-claro);color:var(--azul-osc)}
+.chip.caso-Cerrado{background:var(--panel);color:var(--gris-3)}
+table.lista tr.fila-caso{cursor:pointer}@media (hover:hover){table.lista tr.fila-caso:hover td{background:var(--azul-suave)}}
+.caso-notas{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.caso-nota{padding:6px 10px;border-left:3px solid var(--azul-claro);background:var(--fondo);border-radius:0 6px 6px 0;font-size:13px}
+.caso-nota .l2{color:var(--gris-3);font-size:11px}
+.pct-abono{font-size:11px;font-weight:400;color:var(--gris-3);white-space:nowrap}
+.cifra .pct-abono{display:block;margin-top:2px}
+
+/* Entrega con cobro (tanda 29) y deslizar fila en la tablet */
+.entrega-cobro{display:flex;flex-direction:column;gap:6px;font-size:14px}.entrega-cobro label{display:flex;gap:8px;align-items:center}
+table.lista tr.fila{transition:transform .08s linear}
+
+/* Pedidos unidos (tanda 30) */
+.grupo-caja{border:1px solid var(--azul-claro);border-radius:8px;padding:8px 10px;background:#F7FBFC;display:flex;flex-direction:column;gap:6px}
+.grupo-caja table.lista{font-size:12px}.grupo-caja tr.fila-actual td{background:var(--azul-suave)}.grupo-caja tr.total-row td{border-top:2px solid var(--azul-claro)}
+
+/* Tablet (Harold 15-oct): al tocar una etiqueta de pieza se pintaba toda la fila de azul (resalte de toque de Android sobre la fila, que tiene
+   el gesto de deslizar, y el :hover que queda pegado tras un toque). Ahora solo reacciona la etiqueta; los :hover van solo con mouse. */
+table.lista tr.fila,table.lista td,.celda-pieza,.etapa-chip,.btn{-webkit-tap-highlight-color:transparent}
+.celda-pieza:active,.etapa-chip:active{filter:brightness(.9);transform:scale(.98)}
+/* Ruta (tanda 33): una columna, paradas con hora estimada, confirmación del cliente y acciones */
+.contenido.ruta{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.ruta-cab{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0 10px}
+.ruta-cab .espacio{flex:1}
+.ruta-lista{display:flex;flex-direction:column;gap:8px}
+.parada{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:4px 12px;align-items:start;padding:10px 12px;border:1px solid var(--linea);border-radius:8px;background:#fff}
+.parada .cuerpo{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:13.5px}
+.parada .cuerpo .num{font-weight:700;font-size:15px}
+.parada .cuerpo .num a{color:inherit;text-decoration:none}.parada .cuerpo .num a:hover{text-decoration:underline}
+.parada .acc{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-self:center;max-width:300px}
+.parada.tarde{border-color:var(--rojo)}
+.prop .acc{display:flex;gap:4px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.ambar-txt{color:var(--ambar-txt)}.rojo{color:var(--rojo-txt)}
+details.plegable>summary{cursor:pointer;font-weight:700;font-size:15px;list-style:none;display:flex;gap:8px;align-items:center}
+details.plegable>summary::before{content:'▸';color:var(--azul);font-size:13px}details.plegable[open]>summary::before{content:'▾'}
+details.plegable>summary::-webkit-details-marker{display:none}
+details.plegable .prop{margin-top:6px}
+.tablet .parada .acc .btn{min-height:42px}
+@media (max-width:900px){.parada{grid-template-columns:36px minmax(0,1fr)}.parada .acc{grid-column:2;justify-content:flex-start;max-width:none}}
+@media print{.contenido.ruta{max-width:none}.parada{break-inside:avoid;padding:6px 8px}.parada .cuerpo{font-size:12px}}
+.parada .menu-lista,.prop .menu-lista{min-width:280px;left:0;right:auto}
+@media (max-width:900px){.parada .menu-lista{left:auto;right:0}}
+.menu-lista.mover{padding:8px 0}.menu-lista.mover label{display:flex;flex-direction:column;gap:4px;padding:4px 12px 8px;font-size:12px;color:var(--gris-2)}.menu-lista.mover input{min-height:36px}
+/* Aviso a Alexis de ruta confirmada (tanda 33) */
+.aviso-ruta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 20px;background:var(--ambar);color:var(--ambar-txt);font-size:14px;font-weight:600;border-bottom:1px solid #E8D9A8}
+.aviso-ruta.lista{background:var(--verde-fondo);color:var(--verde)}
+.aviso-ruta span{flex:1}
+@media print{.aviso-ruta{display:none}}
+.aviso-version{position:fixed;top:0;left:0;right:0;z-index:40;display:flex;gap:12px;align-items:center;justify-content:center;padding:8px 16px;background:var(--ambar);color:var(--ambar-txt);font-weight:600;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+@media print{.aviso-version{display:none}}
+
+/* Indicaciones del maestro: celda editable con un clic (16-oct) */
+.ind-edit{cursor:text}
+@media (hover:hover){.ind-edit:hover{background:var(--azul-suave);outline:1px dashed var(--gris-3)}}
+/* Proveedores y pagos (Compras v2, 16-oct-2026) */
+.chip.oc-Abonada{background:var(--ambar);color:var(--ambar-txt)}
+.verde-txt{color:var(--verde)}
+.kpis{display:flex;gap:12px;flex-wrap:wrap}.kpi{background:#fff;border:1px solid var(--linea);border-radius:10px;padding:8px 14px;min-width:130px}.kpi b{display:block;font-size:11px;color:var(--gris-3);font-weight:600}.kpi span{font-size:18px;font-weight:700}.kpi small{display:block;font-size:11px;color:var(--gris-3)}
+.ficha-prov .datos{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 18px;font-size:13px}.dato b{display:block;font-size:11px;color:var(--gris-3);font-weight:600}
+table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila-prov:hover td{background:var(--azul-suave)}}table.lista tr.fila-prov.inactivo td{color:var(--gris-3)}
+.aplicar{display:flex;flex-direction:column;gap:6px;margin-top:6px}.aplicar-fila{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px solid var(--linea);border-radius:8px;padding:6px 10px;font-size:13px;background:#fff}.aplicar-fila label{display:flex;gap:6px;align-items:flex-start;flex:1;cursor:pointer}
+/* ---- Cotizador (tanda 36, 18-oct-2026) ---- */
+.cot-grid{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:14px;align-items:start}
+@media (max-width:1100px){.cot-grid{grid-template-columns:1fr}}
+.cot-motor{position:sticky;top:60px;max-height:calc(100vh - 80px);overflow:auto}
+.cot-motor .seg{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.cot-motor .seg button{padding:5px 9px;border:1px solid #CCD4D8;border-radius:6px;background:#fff;font-size:12px;cursor:pointer;min-height:30px}.cot-motor .seg button.on{background:var(--azul);border-color:var(--azul);color:#fff;font-weight:600}
+.cot-motor .campo>span:first-child{font-size:13px}
+.motor-res{background:var(--fondo);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;font-size:13px}.motor-res .fila{display:flex;justify-content:space-between;gap:10px}.motor-res .fila.total{border-top:1px solid var(--linea);padding-top:5px;margin-top:3px;font-size:14px}.motor-res .interno,.cot-totales .interno{color:var(--gris-2);font-size:12px}
+.cot-lineas td{vertical-align:top}.cot-lineas input,.cot-lineas select{min-height:30px;padding:2px 6px;font-size:12px}
+.cot-totales{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:13px}.cot-totales>div{display:flex;justify-content:space-between;gap:16px;min-width:300px;padding:2px 10px}.cot-totales .total{background:var(--azul);color:#fff;font-weight:700;border-radius:6px;padding:6px 10px}.cot-totales .ahorro{color:var(--azul);font-weight:600}
+.cot-tabla tr.fila-cot{cursor:pointer}.cot-tabla tr.fila-cot:hover td{background:var(--azul-suave)}
+.chip.cot-Borrador{background:var(--panel);color:var(--gris)}.chip.cot-Emitida{background:var(--azul-suave);color:var(--azul-osc)}.chip.cot-Enviada{background:var(--azul-claro);color:var(--azul-osc)}.chip.cot-Aceptada{background:var(--verde-fondo);color:var(--verde)}.chip.cot-Rechazada{background:var(--rojo-fondo);color:var(--rojo-txt)}.chip.cot-Vencida{background:var(--ambar);color:var(--ambar-txt)}.chip.cot-Convertida{background:var(--gris);color:#fff}
+.cot-preview{background:#eee;padding:10px;overflow:auto;max-height:75vh}.cot-preview .sdc-doc{box-shadow:0 2px 12px rgba(0,0,0,.15)}
+.modal .caja.ancha .cot-preview{margin:-4px}
+/* seguimiento de cotizaciones (tanda 40) */
+.cot-tabla tr.por-contactar td:first-child{box-shadow:inset 3px 0 0 var(--rojo)}
+.seccion .seg{display:flex;gap:4px}.seccion .seg button{padding:5px 9px;border:1px solid #CCD4D8;border-radius:6px;background:#fff;font-size:12px;cursor:pointer;min-height:30px}.seccion .seg button.on{background:var(--azul);border-color:var(--azul);color:#fff;font-weight:600}
+
+/* 19-oct-2026 (paso 3 Compras): la caja del modal es flex en columna con max-height; sin esto la tabla de líneas de la OC se encoge a la cabecera cuando el texto es largo */
+.modal .caja .tabla-env{flex:none}
+
+/* Enlace al plano en la ODT y la ficha (Harold 20-oct-2026) */
+.plano-ok { font-weight: 700; letter-spacing: .3px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; color: inherit; }
+
+/* Visor de planos dentro de la app, con botón Imprimir (Harold 21-oct-2026: en la tablet de Alexis el PDF abría fuera de la app sin opción de imprimir) */
+#visor-plano{position:fixed;inset:0;z-index:9999;background:#E9E9E9;display:flex;flex-direction:column}
+#visor-plano .vp-barra{display:flex;gap:8px;align-items:center;padding:8px 12px;background:#fff;border-bottom:1px solid #ccc;flex-wrap:wrap}
+#visor-plano .vp-tabs{display:flex;gap:6px;flex-wrap:wrap}#visor-plano .vp-esp{flex:1}
+#visor-plano .vp-paginas{flex:1;overflow:auto;padding:12px;-webkit-overflow-scrolling:touch}
+#visor-plano .vp-paginas img{display:block;width:100%;max-width:1200px;height:auto;margin:0 auto 12px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+#visor-plano .vp-msg{padding:40px;text-align:center;color:#444}
+@media print{
+  @page{size:A4 landscape;margin:0}
+  body>*:not(#visor-plano){display:none!important}
+  #visor-plano{position:static;display:block;background:#fff}
+  #visor-plano .vp-barra{display:none!important}
+  #visor-plano .vp-paginas{overflow:visible;padding:0}
+  #visor-plano .vp-paginas img{width:100%;max-width:none;max-height:208mm;object-fit:contain;margin:0;box-shadow:none;break-after:page;page-break-after:always}
+  #visor-plano .vp-paginas img:last-child{break-after:auto;page-break-after:auto}
+}
+
+/* Solicitudes de compra (21-oct-2026): casillas grandes para la tablet de Alexis */
+.sol .sol-acciones{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.sol-cat{font-size:14px;margin:12px 0 4px;color:var(--azul-osc)}
+.sol-tabla td{vertical-align:middle}
+.sol-grupo td{background:var(--azul-suave);font-size:12px;padding:5px 8px}
+.sol-check{width:44px;text-align:center}.sol-check input{width:26px;height:26px;cursor:pointer;accent-color:var(--verde)}
+.sol-cant{width:110px}
+.sol-item.comprado td{color:var(--gris-3)}.sol-item.comprado .sol-cant b,.sol-item.comprado td:nth-child(3){text-decoration:line-through}
+.sol-item.comprado .l2{text-decoration:none}
+.sol-item.descartado td{opacity:.55}
+.sol-cerrada{opacity:.75}
+.chip.verde{background:var(--verde-fondo);color:var(--verde)}.chip.ambar{background:var(--ambar);color:var(--ambar-txt)}.ambar-txt{color:var(--ambar-txt)}
+.sol-linea{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.sol-linea input,.sol-linea select{min-height:34px}
+
+.sol-total td{background:#fff}.sol-total.comprado td{color:var(--gris-3)}.sol-total.comprado td:nth-child(2) b,.sol-total.comprado td:nth-child(3) > b{text-decoration:line-through}
+.sol-desglose td{background:var(--fondo);font-size:12px}.sol-desglose td:first-child{padding-left:14px}.sol-desglose .sol-check input{width:20px;height:20px}
+.sol-hoja{background:#fff;border:1px solid var(--linea);border-radius:6px;padding:18px;margin-bottom:16px}.sol-hoja-cab{display:flex;gap:14px;align-items:center;margin-bottom:12px}
+.sol-firma{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-top:36px;font-size:13px}
+@media print{.sol-hoja{border:none;margin:0;padding:0;page-break-after:always}.sol-hoja:last-child{page-break-after:auto}}
+
+/* Arrastrar en la ODT (25-oct-2026) */
+table.odt td.mover{padding:4px 0;text-align:center}
+table.odt .asa{cursor:grab;touch-action:none;user-select:none;font-size:18px;line-height:1;color:var(--gris-3);display:inline-block;padding:4px 6px}
+table.odt .asa:hover{color:var(--azul)}
+table.odt tr.arrastrando td{opacity:.45}
+table.odt tr.drop-antes td{box-shadow:inset 0 3px 0 var(--azul)}
+table.odt tr.drop-despues td{box-shadow:inset 0 -3px 0 var(--azul)}
+/* Arrastrar en la Lista (05-nov-2026): mismo orden que la ODT */
+table.lista .asa{cursor:grab;touch-action:none;user-select:none;font-size:15px;line-height:1;color:var(--gris-3);background:none;border:0;padding:2px 4px 2px 0;vertical-align:middle}
+table.lista .asa:hover{color:var(--azul)}
+table.lista tr.arrastrando td{opacity:.45}
+table.lista tr.drop-antes td{box-shadow:inset 0 3px 0 var(--azul)}
+table.lista tr.drop-despues td{box-shadow:inset 0 -3px 0 var(--azul)}
+/* Aviso chico mientras se actualizan los datos por detrás (25-oct-2026) */
+.actualizando{position:fixed;right:14px;bottom:14px;z-index:60;background:var(--panel,#fff);border:1px solid var(--linea,#ddd);color:var(--gris-2,#666);font-size:12px;padding:4px 10px;border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:0;transition:opacity .2s;pointer-events:none}
+.actualizando.on{opacity:1}
+
+/* Otros > Vehículos (10-nov-2026) */
+.badge-alerta{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--rojo);color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.chip.veh-falta{background:#fff;color:var(--rojo-txt);border:1px dashed var(--rojo)}
+.otros-modulos{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.modulo{display:flex;flex-direction:column;gap:8px;background:#fff;border:1px solid var(--linea);border-radius:8px;padding:16px;color:inherit;text-decoration:none}
+.modulo:hover{border-color:var(--azul)}
+.modulo-t{font-size:17px;font-weight:700}
+.modulo .gris,.veh-fichas .gris,.seccion .gris{color:var(--gris-2);font-size:12px}
+.veh-alertas ul{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.veh-tabla td.veh-celda{cursor:pointer;white-space:nowrap}
+.veh-tabla td.veh-celda:hover{background:var(--azul-suave)}
+.veh-tabla .l2,.veh-cal .l2{font-size:11px;color:var(--gris-2)}
+.veh-cal td.veh-mes{min-width:86px;vertical-align:top}
+.veh-cal td.veh-mes .chip{display:block;margin-bottom:3px;white-space:normal}
+.veh-fichas{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;align-items:start}
+.veh-fichas .inactivo{opacity:.6}
+.veh-papeles{display:flex;flex-direction:column;gap:10px}
+.veh-papeles .btn{min-height:52px;font-size:15px;justify-content:flex-start}
+#veh-cont .l2,.veh-papeles .l2,#f-vdoc .l2{display:block;font-size:11px;color:var(--gris-2);font-weight:400}
+.chip.veh-prop{background:var(--azul-suave);color:var(--azul-osc)}
+/* Fecha acordada con el cliente (Harold 11-nov, 0102) */
+.chip.ac{font-size:9.5px;padding:1px 4px;margin-left:3px;vertical-align:1px;letter-spacing:.02em}
+.ed-ac{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:400;color:var(--gris-2);margin-top:4px;cursor:pointer;white-space:nowrap}
+.ed-ac input{min-height:0;width:14px;height:14px;padding:0;margin:0}
+.ed-ac.en-ficha{display:inline-flex;margin:0 0 0 8px}
+/* 11-nov: la entrega lleva debajo «compra 06-oct · 36 días» (solo Harold); se ensancha sin cambiar el total */
+table.lista.v2 col.c-ent{width:10%}table.lista.v2 col.c-pz{width:10%}table.lista.v2 col.c-cli{width:12.5%}
+table.lista.v2.b col.c-ent{width:11%}table.lista.v2.b col.c-cli{width:13%}table.lista.v2.b col.c-sillas{width:11%}table.lista.v2.b col.c-base{width:10%}table.lista.v2.b col.c-mod{width:8.5%}
+/* ODT 11-nov: fecha sugerida (entrega menos días de terminación) y aviso «no alcanza» */
+table.odt .l2.sugerida{color:var(--gris-3);font-style:italic}
+table.odt .l2.rojo,table.lista.v2 .l2.rojo{color:var(--rojo-txt);font-weight:700}
