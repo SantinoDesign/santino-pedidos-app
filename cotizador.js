@@ -519,7 +519,7 @@ function filasDocumento(c) {
     const p = Number(l.precio) || 0, n = Number(l.cantidad) || 1, pn = Number(l.precio_normal) || 0, ivai = l.iva_incluido !== false;
     const unit = emp ? (ivai ? Math.round(p / 1.19) : p) : p, ltot = emp ? (ivai ? Math.round(p * n / 1.19) : p * n) : p * n;
     const unitDisp = pn > 0 ? (emp ? (ivai ? Math.round(pn / 1.19) : pn) : pn) : unit;
-    filas.push({ n: rn++, desc: l.descripcion || '', sub: l.sub || '', ctd: n, unit: unitDisp, total: ltot, dcto: pn > 0 ? Math.round((1 - p / pn) * 100) + '%' : '', gris: p === 0 });
+    filas.push({ n: rn++, desc: l.descripcion || '', sub: l.sub || '', ctd: n, unit: unitDisp, total: ltot, dcto: pn > 0 ? Math.round((1 - p / pn) * 100) + '%' : '', gris: p === 0 && !(pn > 0) });   // $0 con precio normal = regalo visible al 100% (Harold, 13-nov-2026)
   }
   while (rn <= 5) filas.push({ n: rn++, blank: true });
   return { filas, hayDcto, emp };

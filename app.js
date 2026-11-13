@@ -106,6 +106,7 @@ function rasgos(p) {
   if (!modeloTxt) modeloTxt = sinMedidas(cub.descripcion).slice(0, 28);
   return {
     modelo: ((cub.cantidad || 1) > 1 ? cub.cantidad + ' x ' : '') + modeloTxt, parcial, descripcion: cub.descripcion || '',
+    especial: !!(cub.especial || base.especial),   // ESPECIAL bajo el modelo: catálogo con especificaciones distintas, lleva 3D o plano (Harold 13-nov, Lorena W3173, migración 0104)
     color: cub.color || base.color || '-', pers: cub.personas || '-', forma: cub.forma || '-',
     cubierta: cub.material_cubierta || '-', base: base.material_base || '-', esp: cub.espesor_mm || '-',
     // Dos líneas por celda: material arriba, color o tono abajo (Harold 12-oct: distinguir color de base y de cubierta)
@@ -266,7 +267,8 @@ function formEditarPieza(lineaId, despues) {
     ${esOp ? '' : `<label class="campo">Tipo de pieza <select name="tipo_linea">${TIPOS_LINEA.map(v => `<option value="${v}" ${v === x.tipo ? 'selected' : ''}>${esc(TXT_TIPO_PIEZA[v] || v)}</option>`).join('')}</select></label>
     <label class="campo">Cantidad <input name="cantidad" inputmode="numeric" value="${x.cantidad || 1}" style="width:70px"></label>
     ${conModelo ? `<label class="campo">Modelo <select name="modelo"><option value="">(sin modelo)</option><option value="ESPECIAL" ${modActual === 'ESPECIAL' ? 'selected' : ''}>A medida</option>${modelosOp.map(([c, n]) => `<option value="${esc(c)}" ${c === modActual ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
-    <label class="campo">Tipo de mueble <select name="tipo_mueble"><option value="">(sin definir)</option>${op(tiposMueble, x.tipo_mueble)}</select></label>` : ''}
+    <label class="campo">Tipo de mueble <select name="tipo_mueble"><option value="">(sin definir)</option>${op(tiposMueble, x.tipo_mueble)}</select></label>
+    <label class="campo" style="display:flex;gap:6px;align-items:center" title="Modelo de catálogo con especificaciones distintas (lleva 3D o plano especial): la Lista y la ODT muestran ESPECIAL bajo el modelo"><input type="checkbox" name="especial" ${x.especial ? 'checked' : ''}> Especial (catálogo con cambios)</label>` : ''}
     <label class="campo">Descripción <input name="descripcion" value="${esc(x.descripcion || '')}"></label>
     <label class="campo">Dónde se hace <select name="area_taller"><option value="">(no pasa por el taller)</option>${AREAS_TALLER.map(a => `<option value="${esc(a)}" ${a === x.area ? 'selected' : ''}>${esc(a === 'Vidrio/compras' ? 'Compra a proveedor (vidrio, sillas, sofás)' : a)}</option>`).join('')}</select></label>`}
     <label class="campo">Acabado <select name="acabado"><option value="">Por definir</option>${op(ACABADOS, x.acabado)}</select></label>
@@ -299,6 +301,7 @@ function formEditarPieza(lineaId, despues) {
       const m = f.get('modelo');
       if (m !== modActual) Object.assign(cambios, x.tipo === 'Base' ? { modelo_base: m } : { modelo_cubierta: m, modelo_base: m });
       if ((f.get('tipo_mueble') || '') !== (x.tipo_mueble || '')) cambios.tipo_mueble = f.get('tipo_mueble');
+      if (f.has('especial') !== !!x.especial) cambios.especial = f.has('especial');
     }
     if (!esOp && f.has('cantidad') && Number(f.get('cantidad')) !== (x.cantidad || 1)) cambios.cantidad = f.get('cantidad').trim();
     if (!esOp && f.has('material') && (f.get('material') || '') !== matActual) {
@@ -699,7 +702,7 @@ function pintarLista() {
     return sep + `<tr class="fila ${p.atrasado ? 'atrasado' : ''}" data-id="${p.id}">
       <td class="c-est">${mp ? `<span class="estado e-MOV" title="${esc(p.tipo_pedido)}: ${esc(mp.tipo)}, no se fabrica nada">${esc(COD_MOV[mp.tipo] || 'MOV')}</span>` : estadoHtml(p.estado, true)}</td><td class="c-num">${pend && !esOp && !mp ? `<button type="button" class="asa" data-asa="${p.id}" title="Arrastra para cambiar el orden del día (y de la ODT donde comparten taller) o, soltando en otro día, la fecha de entrega">⠿</button>` : ''}<a class="num ficha-num" href="#/pedido/${p.id}" title="Abrir la ficha">${esc(p.numero)}</a>${mp ? '' : lugarHtml(p)}</td>
       <td class="c-cli"><div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div><div class="l2">${tipoHtml(p.tipo_pedido)} ${alertasPedido(p)} ${planoInstHtml(p)}</div></td>
-      <td class="c-mod" title="${esc(r.descripcion || '')}"><div class="l1">${esc(r.modelo)}</div>${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td>
+      <td class="c-mod" title="${esc(r.descripcion || '')}"><div class="l1">${esc(r.modelo)}</div>${r.especial ? '<div class="l2 parcial" title="Modelo de catálogo con especificaciones distintas: lleva 3D o plano especial">ESPECIAL</div>' : ''}${r.parcial ? `<div class="l2 parcial">${r.parcial}</div>` : ''}</td>
       <td class="c-med">${medL1 ? dos(medL1, medL2) : (r.cub.area === 'Carpintería' && ['En cola', 'Fabricación'].includes(r.cub.etapa) ? '<span class="falta-dato">por definir</span>' : '-')}</td>
       <td class="c-cub">${celdaCub}</td><td class="c-base">${celdaBase}</td>
       <td class="c-sillas">${celdaSil}</td>
@@ -1979,7 +1982,7 @@ async function vOdt() {
     const fab = area && x.etapa === etapa, tarde = ANTES_DE_TERMINAR.includes(x.etapa) ? (diaOdt(x, p) || '9999') < hoyI : !!p.atrasado;   // ya en barniz o pintura: solo la entrega atrasada la pinta (Harold 11-nov, María Isidora)
     const ind = [x.indicaciones].filter(Boolean);
     return `<tr class="${tarde ? 'atrasado' : ''}${fab ? ' fabricando' : ''}" data-pz="${x.id}"><td class="mover no-imprimir">${arrastre ? '<span class="asa" title="Arrastra para cambiar el orden del taller">⠿</span>' : ''}</td>${filaFecha(x, p)}<td class="num">${esc(p.numero)}</td><td class="cli"><a class="cli-edit" data-editar-pieza="${x.id}" title="Editar esta pieza (medidas, formato, indicaciones, fecha para el maestro)">${esc(p.cliente)}</a>${esOp || !p.fecha_compra ? '' : `<div class="l2 no-imprimir">${esperaTxt(p)}</div>`}</td>
-    <td class="pieza"><strong>${esc(nombrePieza(x))}</strong><div class="l2">${aMedidaTxt(x) ? (detalleAMedidaHtml(x, p) || esc(x.tipo)) : [esc(x.tipo), detalleAMedidaHtml(x, p)].filter(Boolean).join(' · ')}</div></td>
+    <td class="pieza"><strong>${esc(nombrePieza(x))}</strong>${x.especial ? '<div class="l2 parcial">ESPECIAL</div>' : ''}<div class="l2">${aMedidaTxt(x) ? (detalleAMedidaHtml(x, p) || esc(x.tipo)) : [esc(x.tipo), detalleAMedidaHtml(x, p)].filter(Boolean).join(' · ')}</div></td>
     <td class="madera">${maderaHtml(x)}</td><td class="medidas">${tamanoHtml(x, p)}</td><td class="forma">${esc(formatoTxt(x))}</td><td class="ctd">${x.cantidad || 1}</td><td class="term">${esc(terminacion(x))}</td><td class="indic${esOp ? '' : ' ind-edit'}" ${esOp ? '' : `data-ind="${x.id}" title="Clic para cambiar las indicaciones del maestro"`}>${ind.map(esc).join(' · ')}</td>
     <td class="estado no-imprimir">${conChip ? etapaChip(x, p.id) : esc(x.etapa)}</td><td class="hecho solo-impresion caja-ok"></td><td class="rev solo-impresion caja-ok"></td></tr>`; }).join('')}</tbody></table>`;
   const hoy = new Date();
