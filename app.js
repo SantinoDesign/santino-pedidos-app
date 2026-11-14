@@ -648,10 +648,10 @@ function pintarLista() {
   const entradas = lista.filter(p => !p.soloMov).map(p => ({ k: feP(p), p }));
   // Un pedido SIN piezas de taller (postventa: visita técnica, retiro) se muestra como una sola fila con su movimiento adentro, en la fecha del movimiento (Harold 13-oct, W3142)
   const sinPiezas = p => !(p.piezas || []).some(x => x.area);
-  const movDelPedido = p => sinPiezas(p) ? (cache.movs || []).filter(m => m.pedido_id === p.id).sort((a, b) => a.fecha.localeCompare(b.fecha))[0] : null;
-  entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha; } });
-  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.soloMov || !sinPiezas(p)); }).forEach(m => entradas.push({ k: m.fecha, m, p: lista.find(p => p.id === m.pedido_id) }));
-  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => !m.pedido_id).forEach(m => entradas.push({ k: m.fecha, m, p: { id: '', numero: '', cliente: m.cliente_nombre || '', comuna: comunaDeDir(m.direccion), direccion: m.direccion, sinPedido: true } }));   // visita de venta sin pedido (0093)
+  const movDelPedido = p => sinPiezas(p) ? (cache.movs || []).filter(m => m.pedido_id === p.id).sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999'))[0] : null;   // sin fecha = pendiente al final (Harold 14-nov, Macarena W3159)
+  entradas.forEach(e => { const m = movDelPedido(e.p); if (m) { e.mp = m; e.k = m.fecha || '9999'; } });
+  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => { const p = lista.find(q => q.id === m.pedido_id); return p && (p.soloMov || !sinPiezas(p)); }).forEach(m => entradas.push({ k: m.fecha || '9999', m, p: lista.find(p => p.id === m.pedido_id) }));
+  if (cache.filtro === 'pendientes') (cache.movs || []).filter(m => !m.pedido_id).forEach(m => entradas.push({ k: m.fecha || '9999', m, p: { id: '', numero: '', cliente: m.cliente_nombre || '', comuna: comunaDeDir(m.direccion), direccion: m.direccion, sinPedido: true } }));   // visita de venta sin pedido (0093)
   else lista.forEach(p => { if (sinPiezas(p) && movDelPedido(p)) return; movsDe(p.id).forEach(m => entradas.push({ k: feP(p), m, p })); });   // sin piezas: el movimiento ya va dentro de su fila (Harold 16-oct, Dina W3153 salía dos veces)
   /* El día de hoy (Harold 30-oct; regiones arriba desde el 08-nov): primero regiones, después los que retiran en el taller, la ruta de mesas y la de
      proyectos a medida (pedidos programados y movimientos) en el orden guardado de la Ruta, y al final lo demás con entrega hoy.
@@ -689,7 +689,8 @@ function pintarLista() {
     const cubL2 = r.cubierta2.slice(1).filter(Boolean).join(' · ');
     const conBase = r.base.tipo || ['Cubierta', 'Mesa'].includes(r.cub.tipo);  // un mueble, banca o servicio no tiene base: la celda queda vacía
     const baseL1 = conBase ? r.base2[0] : '-', baseL2 = conBase ? r.base2.slice(1).filter(Boolean).join(' · ') : '';
-    const medL1 = r.medida !== '-' ? r.medida.replace(/ x /g, ' × ') : (r.cub.medida_texto || ''), medL2 = [{ RECT: 'Rect', CUA: 'Cuad', CIRC: 'Circ', OVAL: 'Oval' }[r.cub.forma], r.cub.personas ? r.cub.personas + 'P' : ''].filter(Boolean).join(' · ');
+    const tallaB = r.parcial === 'solo bases' && /\.(MOS|LIN)\.([A-Z]+)$/.exec(r.base.color || '');   // solo bases de catálogo: el porte es la medida (Harold 14-nov, Francisco W3151)
+    const medL1 = r.medida !== '-' ? r.medida.replace(/ x /g, ' × ') : (r.cub.medida_texto || (tallaB ? 'Talla ' + tallaB[2] : '')), medL2 = [{ RECT: 'Rect', CUA: 'Cuad', CIRC: 'Circ', OVAL: 'Oval' }[r.cub.forma], r.cub.personas ? r.cub.personas + 'P' : ''].filter(Boolean).join(' · ');
     const celdaMov = mp ? `<button class="celda-pieza mov ${mp.fecha < hoy ? 'falta' : ''}" data-mov-hecho="${mp.id}" title="${esc(mp.nota || '')}. Toca cuando esté hecho."><div class="l1">${esc(mp.tipo)}</div><div class="l2">${esc(mp.nota || mp.direccion || '')}</div><span class="etapa-tag">${mp.fecha_propuesta ? 'Alexis propone ' + fecha(mp.fecha_propuesta) + ' · ' : ''}toca: hecho</span></button>` : '';
     // Proyecto plegado (Harold 30-oct): una sola tarjeta resumen hasta el primer clic en la fila, porque sus piezas llenan la Lista
     const pzProy = p.tipo_pedido === 'Proyecto' ? (p.piezas || []).filter(x => x.area) : [];
@@ -1762,9 +1763,9 @@ function movFechaCelda(m) {
   const chico = 'min-height:28px;padding:2px 4px;font-size:12px';
   if (m.hecho) return fecha(m.fecha, true);
   if (yo.rol === 'operacion') return `<span style="${rojo}">${fecha(m.fecha, true)}</span> ${movChip(m)}<div><small class="gris">Proponer otro día:</small> <input type="date" value="${m.fecha_propuesta || ''}" data-mov-prop="${m.id}" title="Propón otro día; Harold lo acepta" style="${chico}"></div>`;
-  return `<input type="date" value="${m.fecha}" data-mov-fecha="${m.id}" title="Fecha del movimiento (clic para cambiarla)" style="${chico};${rojo}">${m.fecha_propuesta ? ` ${movChip(m)} <button class="btn chico borde" data-mov-conf="${m.id}" title="Dejar la fecha que propone Alexis">Aceptar</button>` : ''}`;
+  return `<input type="date" value="${m.fecha || ''}" data-mov-fecha="${m.id}" title="Fecha del movimiento (clic para cambiarla)" style="${chico};${rojo}">${m.fecha_propuesta ? ` ${movChip(m)} <button class="btn chico borde" data-mov-conf="${m.id}" title="Dejar la fecha que propone Alexis">Aceptar</button>` : ''}`;
 }
-const movFechaTxt = m => { const tarde = m.fecha < hoyISO() && !m.hecho; return `<div class="l1 ${tarde ? 'rojo' : ''}">${fecha(m.fecha)}</div>${m.fecha_propuesta ? `<div class="l2">Alexis propone ${fecha(m.fecha_propuesta)}</div>` : m.hecho ? '<div class="l2">hecho</div>' : ''}`; };
+const movFechaTxt = m => { const tarde = m.fecha < hoyISO() && !m.hecho; return `<div class="l1 ${tarde ? 'rojo' : ''}">${m.fecha ? fecha(m.fecha) : '<span class="sin-fecha">sin fecha</span>'}</div>${m.fecha_propuesta ? `<div class="l2">Alexis propone ${fecha(m.fecha_propuesta)}</div>` : m.hecho ? '<div class="l2">hecho</div>' : ''}`; };
 const MOV_TIPOS = ['Retiro en cliente', 'Retiro en proveedor', 'Entrega', 'Visita técnica', 'Instalación', 'Otro'];
 // Etiqueta de estado de un pedido sin piezas (postventa): lo que hay que hacer, no "POR FABRICAR" (Harold 16-oct, Dina W3153)
 const COD_MOV = { 'Retiro en cliente': 'RETIRO', 'Retiro en proveedor': 'RET.PROV', 'Entrega': 'ENTREGA', 'Visita técnica': 'VISITA', 'Instalación': 'INSTAL', 'Visita de venta': 'V.VENTA', 'Otro': 'MOV' };
@@ -1773,7 +1774,7 @@ const movCorto = t => t === 'Retiro en cliente' ? 'RETIRO' : t === 'Retiro en pr
 const esRetProv = m => m && m.tipo === 'Retiro en proveedor';
 const provDeMov = m => ((m.nota || '').match(/^([^:.]{2,40}):/) || [])[1] || 'Proveedor';
 const comunaDeDir = d => (String(d || '').split(',').pop() || '').trim();
-const movEtiqueta = m => `${movCorto(m.tipo)} ${fecha(m.fecha)}`;
+const movEtiqueta = m => `${movCorto(m.tipo)} ${m.fecha ? fecha(m.fecha) : 'sin fecha'}`;
 async function cargarMovimientos() { const { data } = await sb.from('movimiento').select('*').eq('hecho', false).order('fecha'); cache.movs = data || []; }
 const movsDe = id => (cache.movs || []).filter(m => m.pedido_id === id);
 function movimientosHtml(p, esOp) {
@@ -1884,7 +1885,7 @@ async function vImprimirListado() {
   const movsAct = (cache.movs || []).map(m => ({ m, p: activos.find(p => p.id === m.pedido_id) || cache.pedidos.find(p => p.id === m.pedido_id && ['ENTREGADO', 'CANCELADO', 'DEVUELTO'].includes(p.estado)) })).filter(e => e.p);   // movimiento de un pedido cerrado también se imprime (Harold 25-oct)
   const filaDe = e => e.m ? movFila(e.m, e.p) : fila(e.p);
   const tabla = lista => `<table class="lista impresion"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${lista.map(e => `<tr class="${(e.m ? e.m.fecha < hoyISO() : e.p.atrasado) ? 'atrasado' : ''}${e.m ? ' mov' : ''}">${filaDe(e).map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-  const conE = con.map(p => ({ p, k: fe(p) })).concat(movsAct.map(e => ({ ...e, k: e.m.fecha }))).sort((a, b) => a.k.localeCompare(b.k)), sinE = sin.map(p => ({ p }));
+  const conE = con.map(p => ({ p, k: fe(p) })).concat(movsAct.filter(e => e.m.fecha).map(e => ({ ...e, k: e.m.fecha }))).sort((a, b) => a.k.localeCompare(b.k)), sinE = sin.map(p => ({ p })).concat(movsAct.filter(e => !e.m.fecha));
   let cuerpo = '';
   if (activos.length < UMBRAL_PLANO) { cuerpo = tabla(conE) + (sinE.length ? `<h3 class="salto">Pedidos sin fecha de entrega</h3>${tabla(sinE)}` : ''); }
   else {
@@ -2303,7 +2304,7 @@ async function vRuta() {
   /* Harold 03-nov: W3146 programado el 2-nov no salió y al armar la ruta del 3 aparecía mezclado con Liliana (del jueves) sin forma de
      traerlo. Los atrasados (programados para un día que ya pasó) van arriba en rojo con "Traer a este día"; los de días futuros, plegados. */
   const atrasados = otrosDias.filter(p => p.fecha_comprometida < hoy), proximos = otrosDias.filter(p => p.fecha_comprometida >= hoy);
-  const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && (!m.pedido_id || cache.pedidos.some(x => x.id === m.pedido_id))).filter(movEnG).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const movsOtros = (cache.movs || []).filter(m => m.fecha !== f && (!m.pedido_id || cache.pedidos.some(x => x.id === m.pedido_id))).filter(movEnG).sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999'));
   const paradas = programados.filter(p => !regiones.includes(p) && !retiros.includes(p)).map(paradaDePedido).concat(movsDia.map(paradaDeMov));
   const nuevas = await ubicar(paradas);
   const guardadas = paradas.filter(x => x.orden != null).sort((a, b) => a.orden - b.orden), libres = paradas.filter(x => x.orden == null);
