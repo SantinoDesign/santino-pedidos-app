@@ -637,7 +637,10 @@ function pintarLista() {
   const lugarHtml = p => { const por = {}; (p.piezas || []).forEach(x => { const l = lugar[x.id]; if (l && (!por[l.area] || l.n < por[l.area].n)) por[l.area] = { ...l, f: x.fecha_taller }; });
     const t = Object.values(por).map(l => `${ODT_CORTO[l.area]} #${l.n}${l.f ? ' · ' + fecha(l.f) : ''}`); return t.length ? `<div class="l2 odt-lugar" title="Lugar en la ODT de cada taller y fecha para el maestro; se cambia arrastrando en la pestaña ODT">${esc(t.join(' / '))}</div>` : ''; };
   const dos = (a, b) => `<div class="l1">${esc(a || '-')}</div>${b ? `<div class="l2">${esc(b)}</div>` : ''}`;
-  const sal = p => esOp ? p.saldo_por_cobrar : p.saldo;   // Alexis ve el saldo por cobrar como Harold (Harold 14-oct: "él entrega")
+  const sal = p => esOp ? p.saldo_por_cobrar : p.saldo;
+  // Total al pie, solo para Harold (Harold 14-nov): número de pedidos y, bajo la columna Saldo, la suma de los saldos por cobrar
+  const pieTotal = () => { if (esOp) return ''; const peds = lista.filter(p => !p.soloMov && p.id), conSaldo = peds.filter(p => !sinMontos(p) && sal(p) > 0), tot = conSaldo.reduce((s, p) => s + Number(sal(p)), 0);
+    return `<tfoot><tr class="total-lista"><td colspan="${nCols - 1}">${peds.length} pedido${peds.length === 1 ? '' : 's'} · ${conSaldo.length} con saldo</td><td class="c-saldo mono">${pesos(tot)}</td></tr></tfoot>`; };   // Alexis ve el saldo por cobrar como Harold (Harold 14-oct: "él entrega")
   const filaMov = (m, p) => `<tr class="fila mov-fila ${m.fecha < hoy ? 'atrasado' : ''}" data-mov="${m.id}" data-id="${p.id}">
       <td class="c-est"><span class="estado e-MOV" title="Movimiento: no es un pedido">MOV</span></td><td class="c-num">${p.sinPedido ? '<span class="num">sin pedido</span>' : `<a class="num ficha-num" href="#/pedido/${p.id}">${esc(p.numero)}</a>`}</td>
       <td class="c-cli">${esRetProv(m) ? `<div class="l1">${esc(provDeMov(m))}</div>` : `<div class="l1" title="${esc(p.cliente)}">${esc(abrev(p.cliente))}</div>`}<div class="l2"><span class="chip inst">${esc(movCorto(m.tipo))}</span></div></td>
@@ -711,7 +714,7 @@ function pintarLista() {
       <td class="c-com">${dos(p.comuna || (p.tipo_entrega === 'Retiro en taller' ? 'Taller' : ''), envio).replace('<div class="l1">-</div>', '<div class="l1 falta-dato">¿comuna?</div>')}</td>
       ${celdas ? '' : `<td class="c-pz">${etapasHtml(p)}</td>`}<td class="c-saldo mono ${sal(p) > 0 ? 'rojo' : ''}">${sinMontos(p) ? `<span class="gris">${TXT_SIN_MONTOS}</span>` : sal(p) > 0 ? pesos(sal(p)) : '<span class="gris">pagado</span>'}</td></tr>`;
   }).join('');
-  $('#tabla').innerHTML = `<table class="lista v2 ${celdas ? 'b' : ''}"><colgroup>${cab.map(([c]) => `<col class="c-${c}">`).join('')}</colgroup><thead><tr>${cab.map(([c, t, tt]) => `<th class="c-${c}" title="${esc(tt)}">${t}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody></table>`;
+  $('#tabla').innerHTML = `<table class="lista v2 ${celdas ? 'b' : ''}"><colgroup>${cab.map(([c]) => `<col class="c-${c}">`).join('')}</colgroup><thead><tr>${cab.map(([c, t, tt]) => `<th class="c-${c}" title="${esc(tt)}">${t}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody>${pieTotal()}</table>`;
   $$('#tabla a.ficha-num').forEach(a => a.onclick = ev => ev.stopPropagation());
   const recargarMovs = async () => { await cargarMovimientos(); pintarLista(); };
   activarMovimientos($('#tabla'), {}, recargarMovs);

@@ -585,3 +585,7 @@ table.lista.v2.b col.c-ent{width:11%}table.lista.v2.b col.c-cli{width:13%}table.
 /* ODT 11-nov: fecha sugerida (entrega menos días de terminación) y aviso «no alcanza» */
 table.odt .l2.sugerida{color:var(--gris-3);font-style:italic}
 table.odt .l2.rojo,table.lista.v2 .l2.rojo{color:var(--rojo-txt);font-weight:700}
+
+/* Total al pie de la Lista, solo Harold (14-nov-2026) */
+table.lista tfoot tr.total-lista td { font-weight: 600; border-top: 2px solid #474747; padding-top: 8px; padding-bottom: 8px; }
+table.lista tfoot tr.total-lista td.c-saldo { white-space: nowrap; }
