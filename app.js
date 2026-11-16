@@ -344,6 +344,7 @@ async function iniciar() {
   if (!location.hash || location.hash === '#/') location.hash = yo.rol === 'operacion' ? '#/taller' : '#/lista';
   render(); if (!window.__vigilando) { window.__vigilando = true; vigilarVersion(); }
   vehContarAlertas();   // número rojo en la pestaña Otros (documentos de vehículos vencidos o por vencer)
+  tarContarPendientes();   // y tareas del día sin hacer (tareas.js, 16-nov-2026)
 }
 function pantallaLogin() {
   document.body.classList.remove('tablet');
@@ -448,6 +449,7 @@ async function render() {
     else if (h === '#/imprimir-listado' && !esOp) await vImprimirListado();
     else if (h === '#/otros') await vOtros();                       // Otros > módulos (vehiculos.js, 10-nov-2026), Harold y Alexis
     else if (h === '#/otros/vehiculos') await vVehiculos();
+    else if (h === '#/otros/tareas') await vTareas();               // Otros > Tareas del día (tareas.js, 16-nov-2026): conteo de stock y más
     else if (h === '#/taller' || esOp) await vLista();
     else if (h === '#/clave') vClave();
     else await vLista();

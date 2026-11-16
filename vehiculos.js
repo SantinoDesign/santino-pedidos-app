@@ -44,7 +44,9 @@ async function vehContarAlertas() {
     if (a.error || b.error) return; VEH.alertas = (a.data || []).length + (b.data || []).length; vehPintarBadge();
   } catch (e) { /* sin módulo o sin permiso: no muestra número */ }
 }
-const vehEtiquetaOtros = () => 'Otros' + (VEH.alertas ? ` <span class="badge-alerta" title="Documentos de vehículos vencidos o por vencer y mantenciones vencidas">${VEH.alertas}</span>` : '');
+// Número rojo de Otros: avisos de vehículos más tareas del día sin hacer (tareas.js, 16-nov-2026)
+const vehEtiquetaOtros = () => { const t = (typeof TAR !== 'undefined' && TAR.pend) || 0, n = (VEH.alertas || 0) + t;
+  return 'Otros' + (n ? ` <span class="badge-alerta" title="${[t && `${t} tarea${t > 1 ? 's' : ''} del día sin hacer`, VEH.alertas && `${VEH.alertas} aviso${VEH.alertas > 1 ? 's' : ''} de vehículos`].filter(Boolean).join(' · ')}">${n}</span>` : ''); };
 function vehPintarBadge() { const a = document.querySelector('.nav a[href="#/otros"]'); if (a) a.innerHTML = vehEtiquetaOtros(); }
 
 async function vehAbrirPdf(path) {
@@ -64,7 +66,8 @@ async function vOtros() {
     resumen = [n('VENCIDO') && `<span class="chip urgente">${n('VENCIDO')} vencido${n('VENCIDO') > 1 ? 's' : ''}</span>`, n('POR VENCER') && `<span class="chip saldo">${n('POR VENCER')} por vencer</span>`, n('FALTA') && `<span class="chip veh-falta">${n('FALTA')} sin documento</span>`].filter(Boolean).join(' ') || '<span class="chip ok">todo al día</span>';
     resumen = `<div class="gris">${D.veh.filter(v => v.activo).length} vehículos</div><div>${resumen}</div>`;
   } catch (e) { resumen = `<div class="gris">${esc(errorDe(e))}</div>`; }
-  $('.contenido').innerHTML = `<div class="otros-modulos">
+  const tareas = typeof tarTarjeta === 'function' ? await tarTarjeta() : '';   // Tareas del día primero (16-nov-2026)
+  $('.contenido').innerHTML = `<div class="otros-modulos">${tareas}
     <a class="modulo" href="#/otros/vehiculos"><div class="modulo-t">🚚 Vehículos</div><div class="gris">Papeles de cada vehículo, vencimientos, calendario y mantenciones</div>${resumen}</a>
   </div>`;
 }

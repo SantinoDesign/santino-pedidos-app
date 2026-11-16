@@ -589,3 +589,34 @@ table.odt .l2.rojo,table.lista.v2 .l2.rojo{color:var(--rojo-txt);font-weight:700
 /* Total al pie de la Lista, solo Harold (14-nov-2026) */
 table.lista tfoot tr.total-lista td { font-weight: 600; border-top: 2px solid #474747; padding-top: 8px; padding-bottom: 8px; }
 table.lista tfoot tr.total-lista td.c-saldo { white-space: nowrap; }
+
+/* Tareas del día (Otros, 16-nov-2026, tareas.js) */
+.tar{display:flex;flex-direction:column;gap:12px;max-width:1000px}
+.tar-h{font-size:14px;margin:6px 0 0;color:var(--azul-osc);text-transform:uppercase;letter-spacing:.4px}
+.tar-tarea>summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;list-style:none;font-size:15px}
+.tar-tarea>summary::-webkit-details-marker{display:none}
+.tar-tarea>summary::before{content:'▸';color:var(--azul);font-size:13px}
+.tar-tarea[open]>summary::before{content:'▾'}
+.tar-tit{font-weight:700}
+.tar-tarea.hecha .tar-tit{color:var(--gris-2)}
+.tar-cuerpo{display:flex;flex-direction:column;gap:12px;margin-top:10px}
+.tar-detalle{margin:0;font-size:13px;color:var(--gris-2);white-space:pre-line}
+.tar-pie{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid var(--linea);padding-top:10px}
+.tar-form{background:var(--azul-suave);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.tar-segm{display:flex;flex-wrap:wrap;gap:6px}
+.tar-campos{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;align-items:end}
+.tar-campos label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--gris-2)}
+.tar-campos .tar-nota{grid-column:span 2}
+.tar-lxa{display:flex;align-items:center;gap:6px}.tar-lxa input{width:100%;min-width:0}
+.tar-grupo{margin:4px 0 0;font-size:14px}
+.tar-tabla td,.tar-tabla th{padding:7px 10px}
+.tar-tabla .l2{font-size:11px;color:var(--gris-2);font-weight:400}
+.tar-tabla th.num,.tar-tabla td.num{text-align:right;width:90px}
+.tar-hechas>summary{cursor:pointer;color:var(--gris-2);font-size:13px;padding:6px 0}
+.tar-hechas[open]{display:flex;flex-direction:column;gap:12px}
+.tar-campos-tarea .ancho{grid-column:1/-1}
+.tablet .tar-campos label{font-size:14px}.tablet .tar-tabla{font-size:15px}
+@media (max-width:600px){.tar-campos .tar-nota{grid-column:auto}}
+.tar-campos .tar-med{grid-column:span 2}
+.btn.tar-borrar{color:var(--rojo-txt);border-color:var(--rojo)}
+@media (max-width:600px){.tar-campos .tar-med{grid-column:auto}}
