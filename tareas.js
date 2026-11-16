@@ -21,7 +21,7 @@ const tarEsMia = t => !t.responsable || t.responsable === yo.id || tarAdmin();
 /* ---------- datos ---------- */
 async function tarCargar() {
   const desde = hoyISO(-30);
-  const { data, error } = await sb.from('v_tarea_dia').select('*').or(`fecha.gte.${desde},hecha_en.is.null`).order('fecha').order('id');
+  const { data, error } = await sb.from('v_tarea_dia').select('*').or(`fecha.gte.${desde},hecha_en.is.null`).order('fecha').order('hora', { nullsFirst: false }).order('id');
   if (error) throw error;
   const tareas = data || [];
   const conteos = tareas.filter(t => t.tipo === 'conteo_stock').map(t => t.id);
@@ -81,12 +81,15 @@ function tarHtml(t, D) {
   const h = hoyISO(), hecha = !!t.hecha_en, atrasada = !hecha && t.fecha < h;
   const quien = t.responsable_nombre ? esc(t.responsable_nombre) : 'cualquiera';
   const estado = hecha ? `<span class="chip ok">HECHA</span>` : atrasada ? `<span class="chip urgente">ATRASADA</span>` : '';
-  const cuando = t.fecha === h ? '' : ` · ${fecha(t.fecha, true)}`;
+  const cuando = (t.fecha === h ? '' : ` · ${fecha(t.fecha, true)}`) + (t.hora ? ` · ${t.hora.slice(0, 5)}` : '');
+  const nueva = tarSinLeer(t) ? '<span class="chip tar-nueva">NUEVA</span>' : '';
+  const lectura = tarAdmin() && t.responsable && t.responsable !== yo.id && !hecha ? (t.leida_responsable_en ? ` · leída ${fechaHora(t.leida_responsable_en)}` : ' · <b>sin leer</b>') : '';
   const n = t.tipo === 'conteo_stock' ? D.lineas.filter(l => l.tarea_id === t.id).reduce((a, l) => a + l.cantidad, 0) : 0;
   return `<details class="seccion tar-tarea ${hecha ? 'hecha' : ''}" data-tarea="${t.id}" ${TAR.abiertas.has(t.id) ? 'open' : ''}>
-    <summary><span class="tar-tit">${esc(t.titulo)}</span> ${estado}<span class="gris">${quien}${cuando}${n ? ` · ${n} contadas` : ''}</span></summary>
+    <summary>${nueva}<span class="tar-tit">${esc(t.titulo)}</span> ${estado}<span class="gris">${quien}${cuando}${n ? ` · ${n} contadas` : ''}${lectura}</span></summary>
     <div class="tar-cuerpo">
       ${t.detalle ? `<p class="tar-detalle">${esc(t.detalle)}</p>` : ''}
+      ${tarItemsHtml(t)}
       ${t.tipo === 'conteo_stock' ? tarConteoHtml(t, D) : ''}
       <div class="tar-pie">
         ${hecha ? `<span class="gris">Hecha por ${esc(t.hecha_por_nombre || '-')} el ${fechaHora(t.hecha_en)}${t.nota_cierre ? ' · ' + esc(t.nota_cierre) : ''}</span>
@@ -96,6 +99,55 @@ function tarHtml(t, D) {
         ${tarAdmin() ? `<button class="btn chico borde" data-editar="${t.id}">Editar</button> <button class="btn chico borde" data-borrar="${t.id}">Borrar</button>` : ''}
       </div>
     </div></details>`;
+}
+
+/* ---------- casillas y lectura (migración 0108) ---------- */
+// Sin leer = no la creé yo, es mía o de cualquiera, no está hecha y no la he abierto
+const tarSinLeer = t => !t.hecha_en && !t.leida_en && t.creada_por !== yo.id && (!t.responsable || t.responsable === yo.id);
+function tarItemsHtml(t) {
+  const items = t.items || []; if (!items.length) return '';
+  const puede = tarAdmin() || (tarEsMia(t) && !t.hecha_en);
+  return `<ul class="tar-items">${items.map(i => `<li class="${i.hecho_en ? 'hecho' : ''}"><label><input type="checkbox" data-item="${i.id}" ${i.hecho_en ? 'checked' : ''} ${puede ? '' : 'disabled'}>
+    <span>${esc(i.texto)}</span>${i.hecho_en ? `<span class="l2">${esc(i.hecho_por || '')} ${fechaHora(i.hecho_en)}</span>` : ''}</label></li>`).join('')}</ul>`;
+}
+async function tarMarcarLeida(t) {
+  if (!tarSinLeer(t)) return;
+  t.leida_en = new Date().toISOString();
+  try { await sb.rpc('tarea_leer', { p_id: t.id }); } catch (e) { /* si falla, vuelve a salir como nueva */ }
+  const d = $(`details[data-tarea="${t.id}"] .tar-nueva`); if (d) d.remove();
+  tarAvisoSinLeer(location.hash.split('?')[0]).catch(() => {});
+}
+
+/* Aviso a quien tiene tareas sin leer (Harold 16-nov: "cada vez que no haya leído alguna tarea, que le salga un mensaje… que le
+   tome atención"): una franja azul fija bajo la barra en todas las pantallas y, una vez por sesión, una ventana con la lista.
+   La primera vez (nunca ha leído una tarea) la ventana explica cómo funcionan las tareas. */
+async function tarAvisoSinLeer(h) {
+  const { data, error } = await sb.from('v_tarea_dia').select('id, titulo, fecha, hora, responsable, creada_por, hecha_en, leida_en').is('hecha_en', null).is('leida_en', null).order('fecha').order('hora', { nullsFirst: false });
+  const viejo = $('.aviso-tareas'); if (viejo) viejo.remove();
+  if (error) return;
+  const sin = (data || []).filter(tarSinLeer); if (!sin.length) return;
+  const n = sin.length, txtN = `${n} tarea${n > 1 ? 's' : ''} sin leer`;
+  const cuando = t => (t.fecha === hoyISO() ? 'hoy' : fecha(t.fecha, true)) + (t.hora ? ' ' + t.hora.slice(0, 5) : '');
+  if (h !== '#/otros/tareas') {
+    const d = document.createElement('div'); d.className = 'aviso-tareas no-imprimir';
+    d.innerHTML = `<span class="tar-campana">📋</span><span><b>Tienes ${txtN}</b> · ${sin.slice(0, 3).map(t => `${esc(t.titulo)} (${cuando(t)})`).join(' · ')}${n > 3 ? ' …' : ''}</span><button class="btn" id="b-ver-tareas">Ver mis tareas</button>`;
+    const barraEl = $('.barra'); if (barraEl) barraEl.after(d); else app.prepend(d);
+    $('#b-ver-tareas', d).onclick = () => { location.hash = '#/otros/tareas'; };
+  }
+  const clave = 'tar-ventana-' + sin.map(t => t.id).join(',');
+  let vista = false; try { vista = !!sessionStorage.getItem(clave); } catch (e) { }
+  if (vista || h === '#/otros/tareas' || !$('#modal').classList.contains('oculto')) return;
+  try { sessionStorage.setItem(clave, '1'); } catch (e) { }
+  const { count } = await sb.from('tarea_lectura').select('tarea_id', { count: 'exact', head: true }).eq('perfil_id', yo.id);
+  const primeraVez = !count;
+  modal(`<div class="tar-ventana"><div class="tar-ventana-ico">📋</div><h2>Tienes ${txtN}</h2>
+    ${primeraVez ? `<p>Desde ahora, en <b>Otros › Tareas del día</b> vas a tener tareas y objetivos asignados. Cada uno tiene su día, y a veces su hora, para hacerlo.</p>
+      <ol><li>Ábrela para leerla completa.</li><li>Si tiene casillas, márcalas a medida que avanzas.</li><li>Al terminar, toca <b>Marcar hecha</b>.</li></ol>
+      <p class="gris">Si no puedes hacerla ese día, avísale a Harold.</p>` : ''}
+    <ul class="tar-ventana-lista">${sin.map(t => `<li><b>${esc(t.titulo)}</b><span>${cuando(t)}</span></li>`).join('')}</ul>
+    <div class="acciones"><button class="btn" id="tv-despues">Después</button><button class="btn primario" id="tv-ver">Ver mis tareas</button></div></div>`);
+  $('#tv-despues').onclick = cerrarModal;
+  $('#tv-ver').onclick = () => { cerrarModal(); location.hash = '#/otros/tareas'; };
 }
 
 /* ---------- conteo de stock ---------- */
@@ -192,7 +244,15 @@ function tarActivarCampos(cont, getV, setV) {
 /* ---------- eventos ---------- */
 function tarEventos(D) {
   const tarea = id => D.tareas.find(t => t.id === Number(id));
-  $$('details.tar-tarea').forEach(d => d.ontoggle = () => { const id = Number(d.dataset.tarea); d.open ? TAR.abiertas.add(id) : TAR.abiertas.delete(id); });
+  $$('details.tar-tarea').forEach(d => {
+    d.ontoggle = () => { const id = Number(d.dataset.tarea); if (d.open) { TAR.abiertas.add(id); tarMarcarLeida(tarea(id)); } else TAR.abiertas.delete(id); };
+    if (d.open) tarMarcarLeida(tarea(d.dataset.tarea));   // la que se abre sola también cuenta como leída
+  });
+  $$('[data-item]').forEach(c => c.onchange = async () => {
+    c.disabled = true;
+    try { await rpc('tarea_item_marcar', { p_id: Number(c.dataset.item), p_hecho: c.checked }); await vTareas(); }
+    catch (e) { aviso(errorDe(e), true); c.checked = !c.checked; c.disabled = false; }
+  });
   $$('form.tar-form').forEach(f => {
     const id = Number(f.dataset.form);
     const getV = () => ({ ...tarRecordar(f, (TAR.form[id] || {}).grupo || 'estructura'), cantidad: f.elements.cantidad.value, nota: f.elements.nota.value });
@@ -214,6 +274,8 @@ function tarEventos(D) {
   $$('[data-hecha]').forEach(b => b.onclick = async () => {
     const t = tarea(b.dataset.hecha);
     if (t.tipo === 'conteo_stock' && !t.lineas && !D.lineas.some(l => l.tarea_id === t.id) && !confirm('No hay nada contado. ¿Marcarla hecha igual?')) return;
+    const faltan = (t.items || []).filter(i => !i.hecho_en).length;
+    if (faltan && !confirm(`Quedan ${faltan} casilla${faltan > 1 ? 's' : ''} sin marcar. ¿Marcarla hecha igual?`)) return;
     b.disabled = true;
     try { await rpc('tarea_marcar', { p_id: t.id, p_hecha: true, p_nota: null }); TAR.abiertas.delete(t.id); aviso('Tarea hecha. Gracias'); await vTareas(); }
     catch (e) { aviso(errorDe(e), true); b.disabled = false; }
@@ -267,7 +329,9 @@ function tarFormTarea(t) {
   modal(`<h2>${t ? 'Editar tarea' : 'Nueva tarea'}</h2><form id="f-tarea" class="campos tar-campos-tarea">
     <label class="campo ancho">Qué hay que hacer <input name="titulo" value="${esc(x.titulo || '')}" required placeholder="Ej. Ordenar las cubiertas de pino"></label>
     <label class="campo ancho">Detalle (opcional) <textarea name="detalle" placeholder="Cómo hacerlo, para qué es">${esc(x.detalle || '')}</textarea></label>
+    <label class="campo ancho">Casillas para marcar (opcional, una por línea) <textarea name="items" placeholder="Vesto Morel 18 mm&#10;Durolac">${esc((x.items || []).map(i => i.texto).join('\n'))}</textarea></label>
     <label class="campo">Día <input type="date" name="fecha" value="${esc(x.fecha)}" required></label>
+    <label class="campo">Hora (opcional) <input type="time" name="hora" value="${esc((x.hora || '').slice(0, 5))}"></label>
     <label class="campo">Quién <select name="responsable">${PERSONAS.map(([id, n]) => `<option value="${id}" ${String(x.responsable || '') === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
     <label class="campo">Tipo <select name="tipo"><option value="texto" ${x.tipo === 'texto' ? 'selected' : ''}>Tarea simple</option><option value="conteo_stock" ${x.tipo === 'conteo_stock' ? 'selected' : ''}>Conteo de stock de mesas</option></select></label>
     <div class="acciones ancho"><button type="button" class="btn" id="tt-cerrar">Cancelar</button><button class="btn primario" type="submit">Guardar</button></div></form>`, 'ancha');
@@ -276,9 +340,15 @@ function tarFormTarea(t) {
   $('#tt-cerrar').onclick = cerrarModal;
   f.onsubmit = async ev => {
     ev.preventDefault();
-    const fila = { titulo: f.titulo.value.trim(), detalle: f.detalle.value.trim() || null, fecha: f.fecha.value, responsable: f.responsable.value || null, tipo: f.tipo.value };
-    const { error } = t ? await sb.from('tarea_dia').update(fila).eq('id', t.id) : await sb.from('tarea_dia').insert(fila);
-    if (error) return aviso(errorDe(error), true);
+    const fila = { titulo: f.titulo.value.trim(), detalle: f.detalle.value.trim() || null, fecha: f.fecha.value, hora: f.hora.value || null, responsable: f.responsable.value || null, tipo: f.tipo.value };
+    const r = t ? await sb.from('tarea_dia').update(fila).eq('id', t.id).select('id') : await sb.from('tarea_dia').insert(fila).select('id');
+    if (r.error) return aviso(errorDe(r.error), true);
+    // Casillas: las que siguen igual se mantienen (con su marca), las quitadas se borran y las nuevas se agregan
+    const id = t ? t.id : r.data[0].id, nuevas = f.items.value.split('\n').map(x => x.trim()).filter(Boolean), antes = (t && t.items) || [];
+    const borrar = antes.filter(i => !nuevas.includes(i.texto)).map(i => i.id);
+    if (borrar.length) { const e = await sb.from('tarea_item').delete().in('id', borrar); if (e.error) return aviso(errorDe(e.error), true); }
+    const agregar = nuevas.map((texto, k) => ({ tarea_id: id, texto, orden: k + 1 })).filter(x => !antes.some(i => i.texto === x.texto));
+    if (agregar.length) { const e = await sb.from('tarea_item').insert(agregar); if (e.error) return aviso(errorDe(e.error), true); }
     cerrarModal(); aviso(t ? 'Tarea guardada' : 'Tarea creada'); await vTareas(); tarContarPendientes();
   };
 }

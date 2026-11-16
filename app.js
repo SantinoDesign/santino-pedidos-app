@@ -457,6 +457,7 @@ async function render() {
   const bs = $('#btn-salir'); if (bs) bs.onclick = () => menuUsuario().catch(e => aviso(errorDe(e), true));
   pintarDeshacer();
   if (esOp) avisoRutaAlexis(h).catch(() => {});
+  tarAvisoSinLeer(h).catch(() => {});   // tareas del día sin leer: franja azul y ventana (tareas.js, 16-nov-2026)
 }
 /* Harold 15-oct: "cuando esté la ruta confirmada, que a Alexis le salga un mensaje de que se confirmó la ruta para mañana y lo lleve con un botón
    Ir a la ruta". Se calcula de los datos (sin columna nueva): paradas DESPACHO PROGRAMADO de mañana (o de hoy antes de las 12) todas con

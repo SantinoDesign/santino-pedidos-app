@@ -620,3 +620,26 @@ table.lista tfoot tr.total-lista td.c-saldo { white-space: nowrap; }
 .tar-campos .tar-med{grid-column:span 2}
 .btn.tar-borrar{color:var(--rojo-txt);border-color:var(--rojo)}
 @media (max-width:600px){.tar-campos .tar-med{grid-column:auto}}
+
+/* Tareas sin leer y casillas (16-nov-2026, migración 0108) */
+.aviso-tareas{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:var(--azul);color:#fff;font-size:15px;border-bottom:3px solid var(--azul-osc)}
+.aviso-tareas span:nth-child(2){flex:1}
+.aviso-tareas .btn{background:#fff;color:var(--azul-osc);border-color:#fff;font-weight:700}
+.tar-campana{font-size:22px;display:inline-block;animation:tar-sacude 2.4s ease-in-out infinite}
+@keyframes tar-sacude{0%,80%,100%{transform:rotate(0)}84%{transform:rotate(-14deg)}88%{transform:rotate(12deg)}92%{transform:rotate(-8deg)}96%{transform:rotate(5deg)}}
+@media (prefers-reduced-motion:reduce){.tar-campana{animation:none}}
+@media print{.aviso-tareas{display:none}}
+.chip.tar-nueva{background:var(--azul);color:#fff}
+.tar-items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tar-items label{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px;padding:8px 10px;border:1px solid var(--linea);border-radius:6px;background:#fff;cursor:pointer}
+.tar-items input{width:22px;height:22px;min-height:0;accent-color:var(--azul)}
+.tar-items li.hecho span:first-of-type{text-decoration:line-through;color:var(--gris-2)}
+.tar-items .l2{font-size:11px;color:var(--gris-2)}
+.tar-ventana{display:flex;flex-direction:column;gap:10px}
+.tar-ventana-ico{font-size:40px;text-align:center}
+.tar-ventana h2{text-align:center;font-size:20px!important;color:var(--azul-osc)}
+.tar-ventana p,.tar-ventana ol{margin:0;font-size:14px}
+.tar-ventana-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tar-ventana-lista li{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;background:var(--azul-suave);border-radius:6px;font-size:14px}
+.tar-ventana-lista li span{color:var(--azul-osc);font-weight:600;white-space:nowrap}
+.tablet .tar-items label,.tablet .tar-ventana p,.tablet .tar-ventana ol,.tablet .tar-ventana-lista li{font-size:16px}
