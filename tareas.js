@@ -31,6 +31,8 @@ async function tarCargar() {
     const r = await sb.from('v_stock_conteo').select('*').in('tarea_id', conteos).order('grupo_orden').order('creado_en');
     if (r.error) throw r.error; lineas = r.data || [];
   }
+  // 17-nov: medidas de referencia de las estructuras por madera de la cubierta (migración 0110); si falla, el conteo sigue igual
+  try { const m = await sb.from('estructura_medida').select('modelo, personas, para_madera, largo_cm'); TAR.estMed = m.data || []; } catch (e) { TAR.estMed = []; }
   TAR.pend = tarPendientes(tareas); tarPintarBadge();
   return { tareas, lineas };
 }
@@ -154,6 +156,8 @@ async function tarAvisoSinLeer(h) {
 /* ---------- conteo de stock ---------- */
 const tarPuedeLinea = (l, t) => tarAdmin() || (!t.hecha_en && l.contado_por === yo.nombre.split(' ')[0]);
 const tarMedidaTxt = l => l.largo ? `${l.largo} x ${l.ancho}` : '';
+// Largo de la estructura según su madera (Venecia 6: pino 142, lenga 152), si Harold ya lo dio
+const tarEstMedidaTxt = l => { const m = (TAR.estMed || []).find(x => x.modelo === l.modelo && x.personas === l.personas && x.para_madera === l.madera); return m && m.largo_cm ? `<span class="l2"> · ${esc(m.largo_cm)} de largo</span>` : ''; };
 const tarPersonasTxt = l => l.personas ? `${l.personas} personas` : '';
 
 function tarConteoHtml(t, D) {
@@ -167,9 +171,9 @@ function tarConteoHtml(t, D) {
     if (!abierta) { const m = new Map(); ls.forEach(l => { const k = [l.modelo, l.personas, l.color, l.madera, l.largo, l.ancho, l.tono, l.nota].join('|'); m.has(k) ? (m.get(k).cantidad += l.cantidad) : m.set(k, { ...l }); }); ls = [...m.values()]; }
     ls.sort((a, b) => String(a.modelo || a.madera).localeCompare(String(b.modelo || b.madera)) || (a.personas || 99) - (b.personas || 99) || (a.largo || 0) - (b.largo || 0) || String(a.color || a.tono).localeCompare(String(b.color || b.tono)));
     const total = ls.reduce((a, l) => a + l.cantidad, 0), est = g === 'estructura', barn = g === 'cubierta_barnizada';
-    const cab = est ? '<th>Modelo</th><th>Personas</th><th>Color</th>' : `<th>Madera</th><th>Medida (cm)</th>${barn ? '<th>Tono</th>' : ''}`;
+    const cab = est ? '<th>Modelo</th><th>Personas</th><th>Color</th><th>Para cubierta de</th>' : `<th>Madera</th><th>Medida (cm)</th>${barn ? '<th>Tono</th>' : ''}`;
     const fila = l => `<tr><td><b>${esc(est ? l.modelo : l.madera)}</b>${l.nota ? `<div class="l2">${esc(l.nota)}</div>` : ''}</td>
-      ${est ? `<td>${esc(l.personas || '-')}</td><td>${esc(l.color)}</td>` : `<td class="nw">${esc(tarMedidaTxt(l))}${l.personas ? `<span class="l2"> · ${l.personas} p.</span>` : ''}</td>${barn ? `<td>${esc(l.tono)}</td>` : ''}`}
+      ${est ? `<td>${esc(l.personas || '-')}</td><td>${esc(l.color)}</td><td>${l.madera ? esc(l.madera) + tarEstMedidaTxt(l) : '<span class="rojo">sin dato</span>'}</td>` : `<td class="nw">${esc(tarMedidaTxt(l))}${l.personas ? `<span class="l2"> · ${l.personas} p.</span>` : ''}</td>${barn ? `<td>${esc(l.tono)}</td>` : ''}`}
       <td class="num"><b>${l.cantidad}</b></td>
       <td class="nw">${abierta && tarPuedeLinea(l, t) ? `<button class="btn chico borde" data-linea="${l.id}" title="Corregir o borrar">✎</button>` : ''}</td></tr>`;
     return `<h3 class="tar-grupo">${nombre} <span class="gris">· ${total}</span></h3>
@@ -192,7 +196,8 @@ function tarCamposLinea(v) {
       ${est ? `<label>Modelo ${sel('modelo', TAR_MODELOS, modeloAct)}</label>
         <label class="tar-otro ${modeloAct === 'Otro' ? '' : 'oculto'}">¿Cuál? <input name="modelo_otro" value="${esc(modeloAct === 'Otro' ? (v.modelo === 'Otro' ? '' : v.modelo || '') : '')}" placeholder="Ej. Roma"></label>
         <label>Personas ${sel('personas', [4, 6, 8], v.personas ?? (modeloAct === 'Bancas' ? '' : 6), '—')}</label>
-        <label>Color ${sel('color', TAR_COLORES, v.color || 'Negra')}</label>`
+        <label>Color ${sel('color', TAR_COLORES, v.color || 'Negra')}</label>
+        <label title="La de lenga es más larga (cubierta estándar más grande)">Para cubierta de ${sel('madera_est', ['Pino', 'Lenga'], v.madera_est || (['Pino', 'Lenga'].includes(v.madera) ? v.madera : 'Pino'))}</label>`
       : `<label>Madera ${sel('madera', ['Pino', 'Lenga', 'Roble Americano', 'Roble Chileno'], madera)}</label>
         <label class="tar-med">Medida ${sel('medida', medOps, medAct)}</label>
         <label class="tar-otra ${medAct === 'otra' ? '' : 'oculto'}">Largo x ancho (cm) <span class="tar-lxa"><input type="number" name="largo" min="20" max="400" value="${esc(medAct === 'otra' ? v.largo || '' : '')}" placeholder="170"> x <input type="number" name="ancho" min="20" max="300" value="${esc(medAct === 'otra' ? v.ancho || '' : '')}" placeholder="90"></span></label>
@@ -214,6 +219,7 @@ function tarLeerLinea(f, grupo) {
     fila.modelo = val('modelo') === 'Otro' ? val('modelo_otro') : val('modelo');
     if (!fila.modelo) throw new Error('Escribe cuál es el modelo');
     fila.personas = val('personas') ? Number(val('personas')) : null; fila.color = val('color');
+    fila.madera = val('madera_est') || null;   // 17-nov: para qué cubierta es la estructura (la de lenga es más larga)
   } else {
     fila.madera = val('madera');
     if (val('medida') === 'otra') { fila.largo = Number(val('largo')); fila.ancho = Number(val('ancho')); if (!fila.largo || !fila.ancho) throw new Error('Falta el largo y el ancho'); }
@@ -227,7 +233,7 @@ function tarLeerLinea(f, grupo) {
 function tarRecordar(f, grupo) {
   const val = n => f.elements[n] ? f.elements[n].value : undefined;
   const v = { grupo };
-  ['modelo', 'personas', 'color', 'madera', 'medida', 'tono'].forEach(n => { if (val(n) !== undefined) v[n] = val(n); });
+  ['modelo', 'personas', 'color', 'madera', 'madera_est', 'medida', 'tono'].forEach(n => { if (val(n) !== undefined) v[n] = val(n); });
   if (v.modelo === 'Otro') v.modelo = val('modelo_otro') || 'Otro';
   if (v.personas !== undefined) v.personas = v.personas ? Number(v.personas) : '';
   if (v.medida === 'otra') { v.largo = Number(val('largo')) || ''; v.ancho = Number(val('ancho')) || ''; }

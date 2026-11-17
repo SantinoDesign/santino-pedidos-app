@@ -643,3 +643,5 @@ table.lista tfoot tr.total-lista td.c-saldo { white-space: nowrap; }
 .tar-ventana-lista li{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;background:var(--azul-suave);border-radius:6px;font-size:14px}
 .tar-ventana-lista li span{color:var(--azul-osc);font-weight:600;white-space:nowrap}
 .tablet .tar-items label,.tablet .tar-ventana p,.tablet .tar-ventana ol,.tablet .tar-ventana-lista li{font-size:16px}
+
+.tar-tabla .rojo{color:var(--rojo-txt)}
