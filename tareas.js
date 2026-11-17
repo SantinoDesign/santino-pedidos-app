@@ -15,6 +15,7 @@ const TAR_COLORES = ['Negra', 'Blanca', 'En bruto'];
 const TAR_TONOS = ['1', '2', '3', '4', '5', 'Negro', 'Nogal'];
 // Medidas de catálogo de las cubiertas de 4, 6 y 8 personas (motor_precios.js, Venecia rectangular: pino 3,2 y lenga 3,4)
 const TAR_MEDIDAS = { Pino: [[4, 120, 80], [6, 160, 90], [8, 190, 90]], Lenga: [[4, 130, 90], [6, 170, 90], [8, 210, 100]] };
+TAR_MEDIDAS['Roble Americano'] = TAR_MEDIDAS.Lenga; TAR_MEDIDAS['Roble Chileno'] = TAR_MEDIDAS.Lenga; // 17-nov: mismas medidas de lenga, más Otra medida
 const tarAdmin = () => yo && yo.rol === 'admin';
 const tarEsMia = t => !t.responsable || t.responsable === yo.id || tarAdmin();
 
@@ -192,7 +193,7 @@ function tarCamposLinea(v) {
         <label class="tar-otro ${modeloAct === 'Otro' ? '' : 'oculto'}">¿Cuál? <input name="modelo_otro" value="${esc(modeloAct === 'Otro' ? (v.modelo === 'Otro' ? '' : v.modelo || '') : '')}" placeholder="Ej. Roma"></label>
         <label>Personas ${sel('personas', [4, 6, 8], v.personas ?? (modeloAct === 'Bancas' ? '' : 6), '—')}</label>
         <label>Color ${sel('color', TAR_COLORES, v.color || 'Negra')}</label>`
-      : `<label>Madera ${sel('madera', ['Pino', 'Lenga'], madera)}</label>
+      : `<label>Madera ${sel('madera', ['Pino', 'Lenga', 'Roble Americano', 'Roble Chileno'], madera)}</label>
         <label class="tar-med">Medida ${sel('medida', medOps, medAct)}</label>
         <label class="tar-otra ${medAct === 'otra' ? '' : 'oculto'}">Largo x ancho (cm) <span class="tar-lxa"><input type="number" name="largo" min="20" max="400" value="${esc(medAct === 'otra' ? v.largo || '' : '')}" placeholder="170"> x <input type="number" name="ancho" min="20" max="300" value="${esc(medAct === 'otra' ? v.ancho || '' : '')}" placeholder="90"></span></label>
         ${g === 'cubierta_barnizada' ? `<label>Tono ${sel('tono', TAR_TONOS, v.tono || '1')}</label>` : ''}`}
