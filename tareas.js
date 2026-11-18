@@ -42,6 +42,7 @@ async function tarCargar() {
   // 17-nov: medidas de referencia de las estructuras por madera de la cubierta (migración 0110); si falla, el conteo sigue igual
   try { const m = await sb.from('estructura_medida').select('modelo, personas, para_madera, largo_cm'); TAR.estMed = m.data || []; } catch (e) { TAR.estMed = []; }
   const compras = await tarCargarCompras();
+  try { TAR.comprasOrden = await rpc('tareas_compras_orden', {}); } catch (e) { TAR.comprasOrden = null; }
   TAR.pend = tarPendientes(tareas) + tarComprasPend(compras); tarPintarBadge();
   return { tareas, lineas, compras };
 }
@@ -80,8 +81,8 @@ async function vTareas() {
       <span class="espacio"></span>${tarAdmin() ? '<button class="btn chico primario" id="tar-nueva">+ Nueva tarea</button>' : ''}</div>
     <div class="contenido tar">
       <h2 class="tar-h">Hoy · ${fecha(h, true)}</h2>
-      ${abiertas.length || comprasAbiertas ? abiertas.map(t => tarHtml(t, D)).join('') : hechasHoy.length || compras.length ? '' : '<div class="seccion gris">No hay tareas pendientes.</div>'}
-      ${comprasAbiertas ? tarComprasHtml(compras) : ''}
+      <div id="tar-hoy">${tarListaHoy(abiertas, comprasAbiertas).map(e => e.k === 'compras' ? tarComprasHtml(compras) : tarHtml(e.t, D)).join('')}</div>
+      ${abiertas.length || comprasAbiertas || hechasHoy.length || compras.length ? '' : '<div class="seccion gris">No hay tareas pendientes.</div>'}
       ${hechasHoy.map(t => tarHtml(t, D)).join('')}${compras.length && !comprasAbiertas ? tarComprasHtml(compras) : ''}
       ${proximas.length ? `<h2 class="tar-h">Próximas</h2>${proximas.map(t => tarHtml(t, D)).join('')}` : ''}
       ${hechas.length ? `<details class="tar-hechas" ${TAR.verHechas ? 'open' : ''}><summary>Hechas (últimos 30 días) · ${hechas.length}</summary>${hechas.map(t => tarHtml(t, D)).join('')}</details>` : ''}
@@ -89,6 +90,61 @@ async function vTareas() {
   const nueva = $('#tar-nueva'); if (nueva) nueva.onclick = () => tarFormTarea(null);
   const dh = $('.tar-hechas'); if (dh) dh.ontoggle = () => { TAR.verHechas = dh.open; };
   tarEventos(D);
+}
+
+/* Prioridad (Harold 18-nov: "las tareas del día se deben poder correr, como para priorizar, y también reagendar"): orden arrastrado
+   (tarea_dia.orden; Compras de hoy en config_app vía tareas_compras_orden()), y sin orden por fecha, hora e id. Solo Harold arrastra. */
+function tarListaHoy(abiertas, conCompras) {
+  const h = hoyISO(), co = TAR.comprasOrden && TAR.comprasOrden.fecha === h ? TAR.comprasOrden.orden : null;
+  const lista = abiertas.map(t => ({ k: 't' + t.id, t, orden: t.orden, fecha: t.fecha, hora: t.hora, id: t.id }));
+  if (conCompras) lista.push({ k: 'compras', orden: co, fecha: h, hora: null, id: 1e12 });
+  const ok = e => e.orden == null ? 1e9 : e.orden;
+  return lista.sort((a, b) => ok(a) - ok(b) || a.fecha.localeCompare(b.fecha) || (a.hora || '99').localeCompare(b.hora || '99') || a.id - b.id);
+}
+const tarAsa = () => tarAdmin() ? '<span class="tar-asa" title="Arrastra para cambiar la prioridad">⠿</span>' : '';
+function tarArrastre() {
+  const cont = $('#tar-hoy'); if (!cont) return;
+  const clave = d => d.dataset.compras ? 'compras' : 't' + d.dataset.tarea;
+  cont.querySelectorAll('.tar-asa').forEach(asa => {
+    asa.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); };
+    asa.onpointerdown = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const yoD = asa.closest('details'); yoD.classList.add('arrastrando');
+      let destino = null, antes = true;
+      const limpiar = () => cont.querySelectorAll('.drop-antes,.drop-despues').forEach(d => d.classList.remove('drop-antes', 'drop-despues'));
+      const mover = e => {
+        limpiar(); const d = document.elementFromPoint(e.clientX, e.clientY)?.closest('#tar-hoy > details');
+        if (!d || d === yoD) { destino = null; return; }
+        const r = d.getBoundingClientRect(); antes = e.clientY < r.top + r.height / 2; destino = d; d.classList.add(antes ? 'drop-antes' : 'drop-despues');
+      };
+      const soltar = async () => {
+        document.removeEventListener('pointermove', mover); document.removeEventListener('pointerup', soltar); document.removeEventListener('pointercancel', soltar);
+        limpiar(); yoD.classList.remove('arrastrando'); if (!destino) return;
+        const orden = [...cont.children].filter(d => d !== yoD); orden.splice(orden.indexOf(destino) + (antes ? 0 : 1), 0, yoD);
+        try {
+          for (const [i, d] of orden.entries()) {
+            const n = (i + 1) * 10, k = clave(d);
+            if (k === 'compras') { const r = await sb.from('config_app').upsert({ clave: 'tareas_compras_orden', valor: { fecha: hoyISO(), orden: n } }); if (r.error) throw r.error; }
+            else { const r = await sb.from('tarea_dia').update({ orden: n }).eq('id', Number(d.dataset.tarea)); if (r.error) throw r.error; }
+          }
+          aviso('Prioridad guardada'); await vTareas();
+        } catch (e) { aviso(errorDe(e), true); await vTareas(); }
+      };
+      document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar);
+    };
+  });
+}
+function tarReagendar(t) {
+  modal(`<h2>Reagendar</h2><p>${esc(t.titulo)}</p><form id="f-reag"><label class="campo">Nueva fecha <input type="date" name="fecha" value="${t.fecha < hoyISO() ? hoyISO() : t.fecha}" required></label>
+    <label class="campo">Hora (opcional) <input type="time" name="hora" value="${t.hora ? t.hora.slice(0, 5) : ''}"></label>
+    <div class="acciones"><button type="button" class="btn" id="reag-x">Cancelar</button><button class="btn primario">Guardar</button></div></form>`);
+  $('#reag-x').onclick = cerrarModal;
+  $('#f-reag').onsubmit = async ev => {
+    ev.preventDefault(); const f = ev.target;
+    const { error } = await sb.from('tarea_dia').update({ fecha: f.fecha.value, hora: f.hora.value || null, orden: null }).eq('id', t.id);
+    if (error) return aviso(errorDe(error), true);
+    cerrarModal(); aviso('Reagendada para el ' + fecha(f.fecha.value, true)); await vTareas();
+  };
 }
 
 function tarHtml(t, D) {
@@ -100,7 +156,7 @@ function tarHtml(t, D) {
   const lectura = tarAdmin() && t.responsable && t.responsable !== yo.id && !hecha ? (t.leida_responsable_en ? ` · leída ${fechaHora(t.leida_responsable_en)}` : ' · <b>sin leer</b>') : '';
   const n = t.tipo === 'conteo_stock' ? D.lineas.filter(l => l.tarea_id === t.id).reduce((a, l) => a + l.cantidad, 0) : 0;
   return `<details class="seccion tar-tarea ${hecha ? 'hecha' : ''}" data-tarea="${t.id}" ${TAR.abiertas.has(t.id) ? 'open' : ''}>
-    <summary>${nueva}<span class="tar-tit">${esc(t.titulo)}</span> ${estado}<span class="gris">${quien}${cuando}${n ? ` · ${n} contadas` : ''}${lectura}</span></summary>
+    <summary>${hecha ? '' : tarAsa()}${nueva}<span class="tar-tit">${esc(t.titulo)}</span> ${estado}<span class="gris">${quien}${cuando}${n ? ` · ${n} contadas` : ''}${lectura}</span></summary>
     <div class="tar-cuerpo">
       ${t.detalle ? `<p class="tar-detalle">${esc(t.detalle)}</p>` : ''}
       ${tarItemsHtml(t)}
@@ -110,7 +166,7 @@ function tarHtml(t, D) {
             ${tarAdmin() || (t.hecha_por === yo.id && t.hecha_en.slice(0, 10) >= hoyISO(-1)) ? `<button class="btn chico borde" data-reabrir="${t.id}">Reabrir</button>` : ''}`
           : tarEsMia(t) ? `<button class="btn primario" data-hecha="${t.id}">✓ Marcar hecha</button>` : `<span class="gris">Es de ${quien}</span>`}
         <span class="espacio"></span>
-        ${tarAdmin() ? `<button class="btn chico borde" data-editar="${t.id}">Editar</button> <button class="btn chico borde" data-borrar="${t.id}">Borrar</button>` : ''}
+        ${tarAdmin() ? `${hecha ? '' : `<button class="btn chico borde" data-reagendar="${t.id}">Reagendar</button> `}<button class="btn chico borde" data-editar="${t.id}">Editar</button> <button class="btn chico borde" data-borrar="${t.id}">Borrar</button>` : ''}
       </div>
     </div></details>`;
 }
@@ -120,7 +176,7 @@ function tarComprasHtml(compras) {
   const items = compras.flatMap(c => (c.items || []).filter(i => !i.descartado)), faltan = items.filter(i => i.pendiente).length;
   const provFaltan = compras.filter(c => !c.cerrada_en && c.pendientes > 0).length, hecha = !faltan;
   return `<details class="seccion tar-tarea tar-compras ${hecha ? 'hecha' : ''}" data-compras="1" ${TAR.abiertas.has('compras') ? 'open' : ''}>
-    <summary><span class="tar-tit">🛒 Compras de hoy</span> ${hecha ? '<span class="chip ok">TODO COMPRADO</span>' : ''}<span class="gris">Alexis · ${compras.length} proveedor${compras.length === 1 ? '' : 'es'}${hecha ? '' : ` · ${faltan} por comprar`}</span></summary>
+    <summary>${hecha ? '' : tarAsa()}<span class="tar-tit">🛒 Compras de hoy</span> ${hecha ? '<span class="chip ok">TODO COMPRADO</span>' : ''}<span class="gris">Alexis · ${compras.length} proveedor${compras.length === 1 ? '' : 'es'}${hecha ? '' : ` · ${faltan} por comprar`}</span></summary>
     <div class="tar-cuerpo">${compras.map(tarCompraHtml).join('')}</div></details>`;
 }
 function tarCompraHtml(c) {
@@ -303,6 +359,8 @@ function tarEventos(D) {
     try { await rpc('marcar_solicitud_comprada', { p_id: Number(b.dataset.compraTodo) }); aviso('Todo marcado como comprado'); await vTareas(); }
     catch (e) { aviso(errorDe(e), true); b.disabled = false; }
   });
+  tarArrastre();
+  $$('[data-reagendar]').forEach(b => b.onclick = () => tarReagendar(tarea(b.dataset.reagendar)));
   $$('details.tar-tarea[data-tarea]').forEach(d => {
     d.ontoggle = () => { const id = Number(d.dataset.tarea); if (d.open) { TAR.abiertas.add(id); tarMarcarLeida(tarea(id)); } else TAR.abiertas.delete(id); };
     if (d.open) tarMarcarLeida(tarea(d.dataset.tarea));   // la que se abre sola también cuenta como leída
