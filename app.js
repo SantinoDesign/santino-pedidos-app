@@ -996,10 +996,22 @@ async function abrirVisorPlanos(pedidoId, tipo = 'Plano') {
         const pag = await pdf.getPage(n); const vp0 = pag.getViewport({ scale: 1 });
         const vp = pag.getViewport({ scale: 2000 / vp0.width }); const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
         await pag.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-        const jpg = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88)); c.width = c.height = 0;
+        const jpg = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+        /* Hoja horizontal (Harold 18-nov: "todas las impresiones en horizontal… como predeterminado, Alexis no maneja las impresiones"):
+           para imprimir se gira 90° en una hoja vertical, que es lo que trae por defecto cualquier impresora, tablet o navegador; en
+           papel sale igual que impresa en horizontal y nadie tiene que cambiar la orientación. En pantalla se sigue viendo derecha. */
+        let jpgImp = null;
+        if (c.width > c.height) {
+          const r = document.createElement('canvas'); r.width = c.height; r.height = c.width; const cx = r.getContext('2d');
+          cx.translate(r.width, 0); cx.rotate(Math.PI / 2); cx.drawImage(c, 0, 0);
+          jpgImp = await new Promise(z => r.toBlob(z, 'image/jpeg', 0.88)); r.width = r.height = 0;
+        }
+        c.width = c.height = 0;
         if (mio !== turno) return;
         const u = URL.createObjectURL(jpg); urls.push(u); if (n === 1) cont.innerHTML = '';
-        cont.insertAdjacentHTML('beforeend', `<img src="${u}" alt="Hoja ${n} de ${pdf.numPages}">`);
+        const uImp = jpgImp ? URL.createObjectURL(jpgImp) : null; if (uImp) urls.push(uImp);
+        cont.insertAdjacentHTML('beforeend', uImp ? `<img class="vp-pant" src="${u}" alt="Hoja ${n} de ${pdf.numPages}"><img class="vp-imp" src="${uImp}" alt="">`
+          : `<img src="${u}" alt="Hoja ${n} de ${pdf.numPages}">`);
       }
     } catch (e) { if (mio === turno) $('.vp-paginas', v).innerHTML = `<div class="vp-msg">No se pudo mostrar el plano: ${esc(errorDe(e))}</div>`; }
   }

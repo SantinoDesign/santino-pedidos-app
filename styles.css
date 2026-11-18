@@ -507,13 +507,18 @@ table.lista tr.fila-prov{cursor:pointer}@media (hover:hover){table.lista tr.fila
 #visor-plano .vp-paginas{flex:1;overflow:auto;padding:12px;-webkit-overflow-scrolling:touch}
 #visor-plano .vp-paginas img{display:block;width:100%;max-width:1200px;height:auto;margin:0 auto 12px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25)}
 #visor-plano .vp-msg{padding:40px;text-align:center;color:#444}
+#visor-plano .vp-paginas img.vp-imp{display:none}
+/* 18-nov-2026: las hojas horizontales se imprimen giradas en hoja vertical (la orientación por defecto de todos), así salen bien sin
+   tocar nada en el cuadro de impresión; Carta o A4 caben las dos (alto útil 262 mm). Antes: @page A4 horizontal, que la tablet ignoraba. */
+@page visor{size:portrait;margin:8mm}
 @media print{
-  @page{size:A4 landscape;margin:0}
   body>*:not(#visor-plano){display:none!important}
   #visor-plano{position:static;display:block;background:#fff}
   #visor-plano .vp-barra{display:none!important}
-  #visor-plano .vp-paginas{overflow:visible;padding:0}
-  #visor-plano .vp-paginas img{width:100%;max-width:none;max-height:208mm;object-fit:contain;margin:0;box-shadow:none;break-after:page;page-break-after:always}
+  #visor-plano .vp-paginas{overflow:visible;padding:0;page:visor}
+  #visor-plano .vp-paginas img.vp-pant{display:none!important}
+  #visor-plano .vp-paginas img.vp-imp{display:block!important}
+  #visor-plano .vp-paginas img{width:auto;max-width:100%;max-height:262mm;object-fit:contain;margin:0 auto;box-shadow:none;break-after:page;page-break-after:always}
   #visor-plano .vp-paginas img:last-child{break-after:auto;page-break-after:auto}
 }
 
