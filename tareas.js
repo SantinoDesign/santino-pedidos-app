@@ -8,6 +8,11 @@
 'use strict';
 
 const TAR = { pend: 0, abiertas: new Set(), form: {}, verHechas: false, auto: true };
+/* Compras del día (Harold 18-nov: "el listado de compras… debería estar ahí en tareas del día para Alexis, y para mí también";
+   "cuando son compras como las que vamos a hacer ahora"): cada solicitud de Compras › Por comprar con fecha de hoy o anterior y algo
+   pendiente sale sola en Tareas del día, con las mismas casillas de Por comprar (marcar aquí marca allá: una sola vez). */
+const tarComprasPend = compras => { const h = hoyISO(); return (compras || []).filter(s => !s.cerrada_en && s.fecha <= h && s.pendientes > 0).length; };
+async function tarCargarCompras() { try { return (await rpc('solicitudes_json', { p_cerradas: false })) || []; } catch (e) { return []; } }
 const TAR_ALEXIS = 'fcf7fed2-795c-4d95-8878-1219e8311a48';   // perfil de Alexis (operacion)
 const TAR_GRUPOS = [['estructura', 'Estructuras'], ['cubierta_bruto', 'Cubiertas en bruto'], ['cubierta_barnizada', 'Cubiertas barnizadas']];
 const TAR_MODELOS = ['Venecia', 'Fiorella', 'Praga', 'Mesa lenga exterior', 'Bancas', 'Otro'];
@@ -33,14 +38,15 @@ async function tarCargar() {
   }
   // 17-nov: medidas de referencia de las estructuras por madera de la cubierta (migración 0110); si falla, el conteo sigue igual
   try { const m = await sb.from('estructura_medida').select('modelo, personas, para_madera, largo_cm'); TAR.estMed = m.data || []; } catch (e) { TAR.estMed = []; }
-  TAR.pend = tarPendientes(tareas); tarPintarBadge();
-  return { tareas, lineas };
+  const compras = await tarCargarCompras();
+  TAR.pend = tarPendientes(tareas) + tarComprasPend(compras); tarPintarBadge();
+  return { tareas, lineas, compras };
 }
 function tarPendientes(tareas) { const h = hoyISO(); return tareas.filter(t => !t.hecha_en && t.fecha <= h && (tarAdmin() || !t.responsable || t.responsable === yo.id)).length; }
 async function tarContarPendientes() {
   try {
     const { data, error } = await sb.from('tarea_dia').select('id, fecha, responsable, hecha_en').is('hecha_en', null).lte('fecha', hoyISO());
-    if (error) return; TAR.pend = tarPendientes(data || []); tarPintarBadge();
+    if (error) return; TAR.pend = tarPendientes(data || []) + tarComprasPend(await tarCargarCompras()); tarPintarBadge();
   } catch (e) { /* sin módulo o sin permiso: no muestra número */ }
 }
 function tarPintarBadge() { if (typeof vehPintarBadge === 'function') vehPintarBadge(); }
@@ -49,9 +55,9 @@ function tarPintarBadge() { if (typeof vehPintarBadge === 'function') vehPintarB
 async function tarTarjeta() {
   let resumen = '';
   try {
-    const { tareas } = await tarCargar(); const h = hoyISO();
-    const hoy = tareas.filter(t => t.fecha === h), pend = TAR.pend;
-    resumen = `<div>${pend ? `<span class="chip urgente">${pend} por hacer</span>` : '<span class="chip ok">todo hecho</span>'}${hoy.length ? ` <span class="gris">${hoy.map(t => esc(t.titulo)).join(' · ')}</span>` : ''}</div>`;
+    const { tareas, compras } = await tarCargar(); const h = hoyISO();
+    const hoy = tareas.filter(t => t.fecha === h).map(t => t.titulo).concat(compras.filter(c => !c.cerrada_en && c.fecha <= h && c.pendientes > 0).map(tarCompraTitulo)), pend = TAR.pend;
+    resumen = `<div>${pend ? `<span class="chip urgente">${pend} por hacer</span>` : '<span class="chip ok">todo hecho</span>'}${hoy.length ? ` <span class="gris">${hoy.map(esc).join(' · ')}</span>` : ''}</div>`;
   } catch (e) { resumen = `<div class="gris">${esc(errorDe(e))}</div>`; }
   return `<a class="modulo" href="#/otros/tareas"><div class="modulo-t">✅ Tareas del día</div><div class="gris">Lo que hay que hacer hoy en el taller. Toca una tarea para abrirla.</div>${resumen}</a>`;
 }
@@ -63,6 +69,8 @@ async function vTareas() {
   const hechasHoy = D.tareas.filter(t => t.hecha_en && (t.fecha === h || t.hecha_en.slice(0, 10) === h));   // lo hecho hoy sigue a la vista (Harold ve el resumen)
   const proximas = D.tareas.filter(t => !t.hecha_en && t.fecha > h);
   const hechas = D.tareas.filter(t => t.hecha_en && !hechasHoy.includes(t)).sort((a, b) => b.hecha_en.localeCompare(a.hecha_en));
+  const comprasHoy = D.compras.filter(c => !c.cerrada_en && c.fecha <= h), comprasHechas = D.compras.filter(c => c.cerrada_en && c.cerrada_en.slice(0, 10) === h);
+  const comprasProx = D.compras.filter(c => !c.cerrada_en && c.fecha > h);
   const deHoy = abiertas.length ? abiertas : hechasHoy;
   if (TAR.auto && deHoy.length === 1) TAR.abiertas.add(deHoy[0].id);   // la primera vez, si hay una sola, ya viene abierta
   TAR.auto = false;
@@ -70,9 +78,10 @@ async function vTareas() {
       <span class="espacio"></span>${tarAdmin() ? '<button class="btn chico primario" id="tar-nueva">+ Nueva tarea</button>' : ''}</div>
     <div class="contenido tar">
       <h2 class="tar-h">Hoy · ${fecha(h, true)}</h2>
-      ${abiertas.length ? abiertas.map(t => tarHtml(t, D)).join('') : hechasHoy.length ? '' : '<div class="seccion gris">No hay tareas pendientes.</div>'}
-      ${hechasHoy.map(t => tarHtml(t, D)).join('')}
-      ${proximas.length ? `<h2 class="tar-h">Próximas</h2>${proximas.map(t => tarHtml(t, D)).join('')}` : ''}
+      ${abiertas.length || comprasHoy.length ? abiertas.map(t => tarHtml(t, D)).join('') : hechasHoy.length || comprasHechas.length ? '' : '<div class="seccion gris">No hay tareas pendientes.</div>'}
+      ${comprasHoy.map(tarCompraHtml).join('')}
+      ${hechasHoy.map(t => tarHtml(t, D)).join('')}${comprasHechas.map(tarCompraHtml).join('')}
+      ${proximas.length || comprasProx.length ? `<h2 class="tar-h">Próximas</h2>${proximas.map(t => tarHtml(t, D)).join('')}${comprasProx.map(tarCompraHtml).join('')}` : ''}
       ${hechas.length ? `<details class="tar-hechas" ${TAR.verHechas ? 'open' : ''}><summary>Hechas (últimos 30 días) · ${hechas.length}</summary>${hechas.map(t => tarHtml(t, D)).join('')}</details>` : ''}
     </div>`;
   const nueva = $('#tar-nueva'); if (nueva) nueva.onclick = () => tarFormTarea(null);
@@ -101,6 +110,31 @@ function tarHtml(t, D) {
         <span class="espacio"></span>
         ${tarAdmin() ? `<button class="btn chico borde" data-editar="${t.id}">Editar</button> <button class="btn chico borde" data-borrar="${t.id}">Borrar</button>` : ''}
       </div>
+    </div></details>`;
+}
+
+/* ---------- compras del día (Por comprar) ---------- */
+const tarCompraTitulo = c => 'Comprar en ' + (c.proveedor || 'proveedor por definir');
+function tarCompraHtml(c) {
+  const h = hoyISO(), hecha = !!c.cerrada_en, atrasada = !hecha && c.fecha < h, k = 'c' + c.id;
+  const items = (c.items || []).filter(i => !i.descartado), faltan = items.filter(i => i.pendiente).length;
+  const estado = hecha ? '<span class="chip ok">COMPRADO</span>' : atrasada ? '<span class="chip urgente">ATRASADA</span>' : '';
+  const cuando = c.fecha === h ? '' : ` · ${fecha(c.fecha, true)}`;
+  const fila = i => {
+    const parcial = i.cantidad_comprada > 0 && i.pendiente, para = i.numero ? `${i.numero} ${corto(i.cliente || '')}` : 'Stock del taller';
+    const extra = (i.ambiente ? ' · ' + esc(i.ambiente) : '') + (i.nota ? ' · ' + esc(i.nota) : '') + (parcial ? ` · compradas ${esc(cantTxt(i.cantidad_comprada, i.unidad))}` : '')
+      + (!i.pendiente ? ` · comprado${i.comprado_por ? ' por ' + esc(i.comprado_por) : ''} ${fechaHora(i.comprado_en)}` : '');
+    return `<li class="${i.pendiente ? '' : 'hecho'}"><label><input type="checkbox" data-compra-item="${i.id}" ${i.pendiente ? '' : 'checked'}>
+        <span>${esc(cantTxt(i.cantidad, i.unidad))} · ${esc(i.descripcion)}</span><span class="l2">${esc(para)}${extra}</span></label></li>`;
+  };
+  const dir = c.proveedor_direccion && !(c.nota || '').includes(c.proveedor_direccion) ? `<p class="gris">${esc(c.proveedor_direccion)}</p>` : '';
+  return `<details class="seccion tar-tarea tar-compra ${hecha ? 'hecha' : ''}" data-compra="${c.id}" ${TAR.abiertas.has(k) ? 'open' : ''}>
+    <summary><span class="chip">🛒 COMPRA</span><span class="tar-tit">${esc(tarCompraTitulo(c))}</span> ${estado}<span class="gris">Alexis${cuando}${hecha ? '' : ` · ${faltan} de ${items.length} por comprar`}</span></summary>
+    <div class="tar-cuerpo">
+      ${c.nota ? `<p class="tar-detalle">${esc(c.nota)}</p>` : ''}${dir}
+      <ul class="tar-items">${items.map(fila).join('')}</ul>
+      <div class="tar-pie">${!hecha && faltan ? `<button class="btn primario" data-compra-todo="${c.id}">✓ Compré todo</button>` : ''}
+        <span class="espacio"></span><a class="btn chico borde" href="#/compras/solicitudes">Ver en Por comprar</a></div>
     </div></details>`;
 }
 
@@ -251,7 +285,18 @@ function tarActivarCampos(cont, getV, setV) {
 /* ---------- eventos ---------- */
 function tarEventos(D) {
   const tarea = id => D.tareas.find(t => t.id === Number(id));
-  $$('details.tar-tarea').forEach(d => {
+  $$('details.tar-compra').forEach(d => { d.ontoggle = () => { const k = 'c' + d.dataset.compra; if (d.open) TAR.abiertas.add(k); else TAR.abiertas.delete(k); }; });
+  $$('[data-compra-item]').forEach(c => c.onchange = async () => {
+    c.disabled = true;
+    try { await rpc('marcar_item_comprado', { p_item_id: Number(c.dataset.compraItem), p_cantidad: c.checked ? null : 0 }); await vTareas(); }
+    catch (e) { aviso(errorDe(e), true); c.checked = !c.checked; c.disabled = false; }
+  });
+  $$('[data-compra-todo]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await rpc('marcar_solicitud_comprada', { p_id: Number(b.dataset.compraTodo) }); aviso('Todo marcado como comprado'); await vTareas(); }
+    catch (e) { aviso(errorDe(e), true); b.disabled = false; }
+  });
+  $$('details.tar-tarea[data-tarea]').forEach(d => {
     d.ontoggle = () => { const id = Number(d.dataset.tarea); if (d.open) { TAR.abiertas.add(id); tarMarcarLeida(tarea(id)); } else TAR.abiertas.delete(id); };
     if (d.open) tarMarcarLeida(tarea(d.dataset.tarea));   // la que se abre sola también cuenta como leída
   });
