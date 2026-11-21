@@ -294,7 +294,7 @@ function filaLineaHtml(l, i, ed, emp) {
   const gris = p === 0 ? 'color:var(--gris-2)' : '';
   return `<tr data-i="${i}" style="${gris}"><td>${i + 1}${l.motor ? ` <span class="gris" title="Calculada por el motor: ${esc(l.motor.label || '')} ${esc(l.motor.vkRef || '')}${l.motor.publicado ? ' (precio publicado)' : ''}">⚙</span>` : ''}</td>
     <td><select data-k="rol" data-i="${i}" ${d}>${['producto', 'despacho', 'instalacion', 'info'].map(r => `<option value="${r}" ${l.rol === r ? 'selected' : ''}>${{ producto: 'Producto', despacho: 'Despacho', instalacion: 'Instalación', info: 'Informativa' }[r]}</option>`).join('')}</select></td>
-    <td><input data-k="descripcion" data-i="${i}" value="${esc(l.descripcion)}" ${d} style="width:100%;min-width:260px"><input data-k="sub" data-i="${i}" value="${esc(l.sub || '')}" placeholder="detalle en gris (opcional)" ${d} style="width:100%;min-width:260px;font-size:11px;margin-top:2px"></td>
+    <td><input data-k="descripcion" data-i="${i}" value="${esc(l.descripcion)}" ${d} style="width:100%;min-width:260px"><textarea data-k="sub" data-i="${i}" rows="4" placeholder="detalle en gris, un ítem por línea (opcional)" ${d} style="width:100%;min-width:260px;font-size:11px;margin-top:2px;font-family:inherit">${esc(l.sub || '')}</textarea></td>
     <td class="nw"><input data-k="precio" data-i="${i}" type="number" value="${p}" ${d} style="width:110px">${emp ? `<label style="display:block;font-size:11px"><input type="checkbox" data-k="iva_incluido" data-i="${i}" ${ivai ? 'checked' : ''} ${d}> IVA incl.</label>` : ''}</td>
     <td><input data-k="cantidad" data-i="${i}" type="number" min="1" value="${n}" ${d} style="width:56px"></td>
     <td><input data-k="precio_normal" data-i="${i}" type="number" value="${l.precio_normal || ''}" placeholder="sin dcto" ${d} style="width:110px" title="Precio de lista sin descuento: solo alimenta la línea Ahorro y la columna Dcto"></td>
@@ -503,7 +503,7 @@ const SDC_STYLE_COT = `.sdc-doc{background:#fff;margin:0 auto;padding:44px 50px;
 .sdc-totfinal{background:#0081A6;color:#fff;display:flex;justify-content:space-between;padding:7px 13px;font-size:12.5px;font-weight:600;margin-top:3px;letter-spacing:.3px;white-space:nowrap}.sdc-ahorro{color:#0081A6;display:flex;justify-content:space-between;gap:16px;padding:4px 13px;font-size:10.5px;margin-top:3px;font-weight:500;letter-spacing:.2px;white-space:nowrap}
 .sdc-spacer{min-height:14px}.sdc-foot{display:flex;gap:22px;margin-top:18px;padding-top:16px;border-top:.5px solid #d8d8d8}.sdc-fcol{flex:1 1 0;min-width:0}.sdc-foottitle{font-size:8.5px;letter-spacing:2px;text-transform:uppercase;font-weight:600;color:#999;margin-bottom:9px}
 .sdc-tyc{padding-left:14px;font-size:9.5px;line-height:1.9;color:#777;font-weight:300}.sdc-bank{font-size:10.5px;line-height:2;color:#555;font-weight:300}.sdc-bank strong{font-weight:600;color:#222}`;
-const mdBold = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+const mdBold = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
 function tycDe(c) {
   if (Array.isArray(c.tyc) && c.tyc.length) return c.tyc.slice();
   const mueble = c.categoria === 'proyectos' || /^Forma de pago: \d+% para (agendar el proyecto|iniciar el diseño)/.test(c.forma_pago || '');
@@ -562,7 +562,7 @@ function textoNegrita(doc, texto, x, y, maxW, tam, lh, color) {
   doc.setFontSize(tam); doc.setTextColor(...color); const partes = String(texto).split(/(\*\*.+?\*\*)/).filter(Boolean);
   const palabras = []; for (const p of partes) { const b = /^\*\*.+\*\*$/.test(p); for (const w of p.replace(/^\*\*|\*\*$/g, '').split(/(\s+)/)) if (w !== '') palabras.push({ w, b }); }
   let cx = x, cy = y, lineas = 1; const sp = doc.getTextWidth(' ');
-  for (const { w, b } of palabras) { if (/^\s+$/.test(w)) { cx += sp; continue; } doc.setFont('helvetica', b ? 'bold' : 'normal'); const ww = doc.getTextWidth(w); if (cx + ww > x + maxW && cx > x) { cx = x; cy += lh; lineas++; } doc.text(w, cx, cy); cx += ww; }
+  for (const { w, b } of palabras) { if (/^\s+$/.test(w)) { const nl = (w.match(/\n/g) || []).length; if (nl) { cx = x; cy += lh * nl; lineas += nl; } else cx += sp; continue; } doc.setFont('helvetica', b ? 'bold' : 'normal'); const ww = doc.getTextWidth(w); if (cx + ww > x + maxW && cx > x) { cx = x; cy += lh; lineas++; } doc.text(w, cx, cy); cx += ww; }
   doc.setFont('helvetica', 'normal'); return lineas * lh;
 }
 async function pdfCotizacion(c) {
