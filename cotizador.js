@@ -113,6 +113,14 @@ function lineasDesdeMotor(r) {
 
 /* Cantidad 0 es válida (adicional opcional que se muestra con su precio sin sumarlo, 0112); vacío o inválido sigue siendo 1. */
 const cantCot = v => (v === 0 || v === '0') ? 0 : (Number(v) || 1);
+/* R-332 (Harold, 20-oct-2026): el descuento se ve ANTES del total (columna Dcto de la línea); debajo del total nunca va una cifra de descuento, solo una frase.
+   El total ya lo incluye, así que mostrar el monto del ahorro bajo el total se puede leer como un descuento que se resta dos veces. */
+function fraseDcto(c) {
+  let sp = 0, sn = 0, regalo = false;
+  for (const l of c.lineas || []) { if (l.rol === 'separador') continue; const pn = Number(l.precio_normal) || 0, p = Number(l.precio) || 0, n = cantCot(l.cantidad); if (pn > 0) { if (p === 0) regalo = true; sp += p * n; sn += pn * n; } }
+  const pct = sn > 0 ? Math.round((1 - sp / sn) * 100) : 0;
+  return (regalo || pct <= 0) ? 'El total ya incluye el descuento indicado' : `El total ya incluye el ${pct}% de descuento`;
+}
 /* ---------- totales en pantalla (misma regla que privado.cotizacion_recalcular) ---------- */
 function totalesCot(c) {
   const emp = c.tipo_cliente === 'empresa'; let neto = 0, total = 0, ahorro = 0, costo = 0;
@@ -534,7 +542,7 @@ function htmlCotizacion(c, opt = {}) {
     : `<tr><td class="sdc-n">${f.n}</td><td class="sdc-desc">${mdBold(f.desc)}${f.sub ? `<br><span style="font-size:9.5px;color:#888;font-weight:300">${mdBold(f.sub)}</span>` : ''}</td><td>${fmtCot(f.unit)}</td>${hayDcto ? `<td>${f.dcto}</td>` : ''}<td>${f.ctd}</td><td>${fmtCot(f.total)}</td></tr>`).join('');
   let tot = emp ? `<div class="sdc-totrow"><span>Sub total neto</span><span>${fmtCot(t.neto)}</span></div><div class="sdc-totrow"><span>IVA 19%</span><span>${fmtCot(t.iva)}</span></div><div class="sdc-totfinal"><span>Total</span><span>${fmtCot(t.total)}</span></div>`
     : `<div class="sdc-totfinal"><span>${esc(c.total_label || 'Total')}</span><span>${fmtCot(t.total)}</span></div>`;
-  if (t.ahorro > 0) tot += `<div class="sdc-ahorro"><span>&#10003; ${esc(c.ahorro_label || 'Ahorro en esta cotización')}</span><span>&minus; ${fmtCot(t.ahorro)}</span></div>`;
+  if (t.ahorro > 0) tot += `<div class="sdc-ahorro"><span>&#10003; ${esc(fraseDcto(c))}</span></div>`;
   if (c.mostrar_total_final === false) tot = '';
   const cli = [[c.cliente_label || (emp ? 'Razón social' : 'Nombre'), c.cliente_nombre]]; if (c.proyecto) cli.push(['Proyecto', c.proyecto]);
   cli.push(['RUT', c.cliente_rut], ['Teléfono', c.cliente_telefono], ['E-mail', c.cliente_email], ['Dirección', c.cliente_direccion]);
@@ -611,7 +619,7 @@ async function pdfCotizacion(c) {
     if (emp) { doc.text('Sub total neto', bx + 4, y + 3.5); doc.text(fmtCot(t.neto), bx + bw - 4, y + 3.5, { align: 'right' }); y += 4.5; doc.text('IVA 19%', bx + 4, y + 3.5); doc.text(fmtCot(t.iva), bx + bw - 4, y + 3.5, { align: 'right' }); y += 5; }
     doc.setFillColor(...AZUL); doc.rect(bx, y, bw, 7.5, 'F'); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(255); doc.text(emp ? 'Total' : (c.total_label || 'Total'), bx + 4, y + 5); doc.text(fmtCot(t.total), bx + bw - 4, y + 5, { align: 'right' }); y += 7.5; doc.setFont('helvetica', 'normal');
     // Helvetica estándar no trae el símbolo de check ni el signo menos tipográfico: se usan texto plano y guion.
-    if (t.ahorro > 0) { doc.setFontSize(7.5); doc.setTextColor(...AZUL); doc.setFont('helvetica', 'bold'); doc.text(c.ahorro_label || 'Ahorro en esta cotización', bx + 4, y + 4); doc.text('- ' + fmtCot(t.ahorro), bx + bw - 4, y + 4, { align: 'right' }); doc.setFont('helvetica', 'normal'); y += 5; }
+    if (t.ahorro > 0) { doc.setFontSize(7.5); doc.setTextColor(...AZUL); doc.setFont('helvetica', 'bold'); doc.text(fraseDcto(c), bx + 4, y + 4); doc.setFont('helvetica', 'normal'); y += 5; }
   }
   if (c.nota) { doc.setFontSize(8); doc.setTextColor(...GRIS); const tn = doc.splitTextToSize(c.nota, A); doc.text(tn, M, y + 4); y += 4.5 * tn.length + 2; }
   /* pie: T&C y datos bancarios */
