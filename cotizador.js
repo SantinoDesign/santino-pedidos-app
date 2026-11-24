@@ -111,11 +111,13 @@ function lineasDesdeMotor(r) {
   return out;
 }
 
+/* Cantidad 0 es válida (adicional opcional que se muestra con su precio sin sumarlo, 0112); vacío o inválido sigue siendo 1. */
+const cantCot = v => (v === 0 || v === '0') ? 0 : (Number(v) || 1);
 /* ---------- totales en pantalla (misma regla que privado.cotizacion_recalcular) ---------- */
 function totalesCot(c) {
   const emp = c.tipo_cliente === 'empresa'; let neto = 0, total = 0, ahorro = 0, costo = 0;
   for (const l of c.lineas || []) {
-    if (l.rol === 'separador') continue; const p = Number(l.precio) || 0, n = Number(l.cantidad) || 1, pn = Number(l.precio_normal) || 0, ivai = l.iva_incluido !== false;
+    if (l.rol === 'separador') continue; const p = Number(l.precio) || 0, n = cantCot(l.cantidad), pn = Number(l.precio_normal) || 0, ivai = l.iva_incluido !== false;
     if (emp) { neto += ivai ? Math.round(p * n / 1.19) : p * n; if (pn > 0) ahorro += ((ivai ? pn : Math.round(pn * 1.19)) - (ivai ? p : Math.round(p * 1.19))) * n; }
     else { total += p * n; if (pn > 0) ahorro += (pn - p) * n; }
     costo += Number(l.costo_estimado) || 0;
@@ -289,14 +291,14 @@ function pintarCotizacion() {
 function filaLineaHtml(l, i, ed, emp) {
   const d = ed ? '' : 'disabled';
   if (l.rol === 'separador') return `<tr data-i="${i}" class="cot-sep"><td class="gris">${i + 1}</td><td colspan="6" class="gris">separador (fila vacía)</td><td>${ed ? `<button class="btn chico" data-del="${i}" title="Quitar">×</button>` : ''}</td></tr>`;
-  const p = Number(l.precio) || 0, n = Number(l.cantidad) || 1, ivai = l.iva_incluido !== false;
+  const p = Number(l.precio) || 0, n = cantCot(l.cantidad), ivai = l.iva_incluido !== false;
   const tot = emp ? (ivai ? Math.round(p * n / 1.19) : p * n) : p * n;
   const gris = p === 0 ? 'color:var(--gris-2)' : '';
   return `<tr data-i="${i}" style="${gris}"><td>${i + 1}${l.motor ? ` <span class="gris" title="Calculada por el motor: ${esc(l.motor.label || '')} ${esc(l.motor.vkRef || '')}${l.motor.publicado ? ' (precio publicado)' : ''}">⚙</span>` : ''}</td>
     <td><select data-k="rol" data-i="${i}" ${d}>${['producto', 'despacho', 'instalacion', 'info'].map(r => `<option value="${r}" ${l.rol === r ? 'selected' : ''}>${{ producto: 'Producto', despacho: 'Despacho', instalacion: 'Instalación', info: 'Informativa' }[r]}</option>`).join('')}</select></td>
     <td><input data-k="descripcion" data-i="${i}" value="${esc(l.descripcion)}" ${d} style="width:100%;min-width:260px"><textarea data-k="sub" data-i="${i}" rows="4" placeholder="detalle en gris, un ítem por línea (opcional)" ${d} style="width:100%;min-width:260px;font-size:11px;margin-top:2px;font-family:inherit">${esc(l.sub || '')}</textarea></td>
     <td class="nw"><input data-k="precio" data-i="${i}" type="number" value="${p}" ${d} style="width:110px">${emp ? `<label style="display:block;font-size:11px"><input type="checkbox" data-k="iva_incluido" data-i="${i}" ${ivai ? 'checked' : ''} ${d}> IVA incl.</label>` : ''}</td>
-    <td><input data-k="cantidad" data-i="${i}" type="number" min="1" value="${n}" ${d} style="width:56px"></td>
+    <td><input data-k="cantidad" data-i="${i}" type="number" min="0" value="${n}" ${d} style="width:56px"></td>
     <td><input data-k="precio_normal" data-i="${i}" type="number" value="${l.precio_normal || ''}" placeholder="sin dcto" ${d} style="width:110px" title="Precio de lista sin descuento: solo alimenta la línea Ahorro y la columna Dcto"></td>
     <td class="num nw">${p ? fmtCot(tot) : '<span class="gris">-</span>'}</td>
     <td class="nw">${ed ? `<button class="btn chico" data-up="${i}" title="Subir">↑</button><button class="btn chico" data-down="${i}" title="Bajar">↓</button><button class="btn chico" data-del="${i}" title="Quitar">×</button>` : ''}</td></tr>`;
@@ -367,7 +369,7 @@ async function guardarCotizacion(silencio) {
   const c = leerCabecera();
   if (!c.cliente_nombre) throw new Error('Falta el nombre del cliente');
   if (JSON.stringify(c).includes('—')) throw new Error('Hay un guion largo en el texto: reemplázalo por coma o punto (regla de la casa)');
-  const lineas = c.lineas.map(l => ({ rol: l.rol, descripcion: l.descripcion || '', sub: l.sub || '', precio: Number(l.precio) || 0, cantidad: Number(l.cantidad) || 1, iva_incluido: l.iva_incluido !== false, precio_normal: l.precio_normal || null, costo_estimado: l.costo_estimado || null, margen: l.margen || null, motor: l.motor || null, pieza: l.pieza || null }));
+  const lineas = c.lineas.map(l => ({ rol: l.rol, descripcion: l.descripcion || '', sub: l.sub || '', precio: Number(l.precio) || 0, cantidad: cantCot(l.cantidad), iva_incluido: l.iva_incluido !== false, precio_normal: l.precio_normal || null, costo_estimado: l.costo_estimado || null, margen: l.margen || null, motor: l.motor || null, pieza: l.pieza || null }));
   const r = await rpc('guardar_cotizacion', { p_id: c.id, p_datos: datosCabecera(c), p_lineas: lineas });
   COT.actual = r; COT.actual.lineas = r.lineas || [];
   if (!silencio) { aviso('Cotización guardada'); if (location.hash !== '#/cotizacion/' + r.id) { location.hash = '#/cotizacion/' + r.id; return r; } pintarCotizacion(); }
@@ -516,7 +518,7 @@ function filasDocumento(c) {
   const emp = c.tipo_cliente === 'empresa', hayDcto = (c.lineas || []).some(l => l.rol !== 'separador' && Number(l.precio_normal) > 0); const filas = []; let rn = 1;
   for (const l of c.lineas || []) {
     if (l.rol === 'separador') { filas.push({ n: rn++, blank: true }); continue; }
-    const p = Number(l.precio) || 0, n = Number(l.cantidad) || 1, pn = Number(l.precio_normal) || 0, ivai = l.iva_incluido !== false;
+    const p = Number(l.precio) || 0, n = cantCot(l.cantidad), pn = Number(l.precio_normal) || 0, ivai = l.iva_incluido !== false;
     const unit = emp ? (ivai ? Math.round(p / 1.19) : p) : p, ltot = emp ? (ivai ? Math.round(p * n / 1.19) : p * n) : p * n;
     const unitDisp = pn > 0 ? (emp ? (ivai ? Math.round(pn / 1.19) : pn) : pn) : unit;
     filas.push({ n: rn++, desc: l.descripcion || '', sub: l.sub || '', ctd: n, unit: unitDisp, total: ltot, dcto: pn > 0 ? Math.round((1 - p / pn) * 100) + '%' : '', gris: p === 0 && !(pn > 0) });   // $0 con precio normal = regalo visible al 100% (Harold, 13-nov-2026)
