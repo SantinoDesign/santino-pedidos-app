@@ -114,12 +114,13 @@ function lineasDesdeMotor(r) {
 /* Cantidad 0 es válida (adicional opcional que se muestra con su precio sin sumarlo, 0112); vacío o inválido sigue siendo 1. */
 const cantCot = v => (v === 0 || v === '0') ? 0 : (Number(v) || 1);
 /* R-332 (Harold, 20-oct-2026): el descuento se ve ANTES del total (columna Dcto de la línea); debajo del total nunca va una cifra de descuento, solo una frase.
-   El total ya lo incluye, así que mostrar el monto del ahorro bajo el total se puede leer como un descuento que se resta dos veces. */
+   El total ya lo incluye, así que mostrar el monto del ahorro bajo el total se puede leer como un descuento que se resta dos veces.
+   Harold 28-nov-2026 (Cot 3445): el monto del ahorro SÍ va, entre paréntesis y con «ya descontado», para que se valore el descuento sin que se lea como otra resta. */
 function fraseDcto(c) {
   let sp = 0, sn = 0, regalo = false;
   for (const l of c.lineas || []) { if (l.rol === 'separador') continue; const pn = Number(l.precio_normal) || 0, p = Number(l.precio) || 0, n = cantCot(l.cantidad); if (pn > 0) { if (p === 0) regalo = true; sp += p * n; sn += pn * n; } }
   const pct = sn > 0 ? Math.round((1 - sp / sn) * 100) : 0;
-  return (regalo || pct <= 0) ? 'El total ya incluye el descuento indicado' : `El total ya incluye el ${pct}% de descuento`;
+  return (regalo || pct <= 0) ? 'El total ya incluye el descuento indicado' : `El total ya incluye el ${pct}% de descuento (ahorro de ${fmtCot(sn - sp)}, ya descontado)`;
 }
 /* ---------- totales en pantalla (misma regla que privado.cotizacion_recalcular) ---------- */
 function totalesCot(c) {
@@ -619,13 +620,16 @@ async function pdfCotizacion(c) {
     if (emp) { doc.text('Sub total neto', bx + 4, y + 3.5); doc.text(fmtCot(t.neto), bx + bw - 4, y + 3.5, { align: 'right' }); y += 4.5; doc.text('IVA 19%', bx + 4, y + 3.5); doc.text(fmtCot(t.iva), bx + bw - 4, y + 3.5, { align: 'right' }); y += 5; }
     doc.setFillColor(...AZUL); doc.rect(bx, y, bw, 7.5, 'F'); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(255); doc.text(emp ? 'Total' : (c.total_label || 'Total'), bx + 4, y + 5); doc.text(fmtCot(t.total), bx + bw - 4, y + 5, { align: 'right' }); y += 7.5; doc.setFont('helvetica', 'normal');
     // Helvetica estándar no trae el símbolo de check ni el signo menos tipográfico: se usan texto plano y guion.
-    if (t.ahorro > 0) { doc.setFontSize(7.5); doc.setTextColor(...AZUL); doc.setFont('helvetica', 'bold'); doc.text(fraseDcto(c), bx + 4, y + 4); doc.setFont('helvetica', 'normal'); y += 5; }
+    if (t.ahorro > 0) { doc.setFontSize(7.5); doc.setTextColor(...AZUL); doc.setFont('helvetica', 'bold'); const fl = fraseDcto(c).replace(' (', '\n(').split('\n'); doc.text(fl, bx + 4, y + 4); doc.setFont('helvetica', 'normal'); y += 1.5 + 3.5 * fl.length; }   // el monto del ahorro va en su propia línea (28-nov-2026: se salía del margen)
   }
   if (c.nota) { doc.setFontSize(8); doc.setTextColor(...GRIS); const tn = doc.splitTextToSize(c.nota, A); doc.text(tn, M, y + 4); y += 4.5 * tn.length + 2; }
   /* pie: T&C y datos bancarios */
-  y = Math.max(y + 8, 228); if (y > 262) { doc.addPage(); y = 20; }
+  const colW = (A - 10) / 2; doc.setFontSize(7);
+  const hTyc = 11 + tycDe(c).reduce((h, tx, i) => h + 3.4 * doc.splitTextToSize(`${i + 1}. ${tx}`, colW - 2).length + 1, 0);   // alto real del pie: si no cabe, sube o pasa de hoja (28-nov-2026, Cot 3445 cortaba la garantía)
+  // Harold 28-nov-2026: si la cotización ya pasó a la 2.ª hoja, los términos van justo después del total (al pie quedan lejos y no se leen); en 1 sola hoja, al pie si caben.
+  y = doc.getNumberOfPages() > 1 ? y + 8 : Math.max(y + 8, Math.min(228, 285 - hTyc)); if (y + hTyc > 287) { doc.addPage(); y = 20; }
   doc.setDrawColor(216); doc.line(M, y, W - M, y); y += 6;
-  const colW = (A - 10) / 2; doc.setFont('helvetica', 'bold'); doc.setFontSize(6.3); doc.setTextColor(153); doc.text('T É R M I N O S  Y  C O N D I C I O N E S', M, y); doc.text('D A T O S  B A N C A R I O S', M + colW + 10, y); doc.setFont('helvetica', 'normal');
+ doc.setFont('helvetica', 'bold'); doc.setFontSize(6.3); doc.setTextColor(153); doc.text('T É R M I N O S  Y  C O N D I C I O N E S', M, y); doc.text('D A T O S  B A N C A R I O S', M + colW + 10, y); doc.setFont('helvetica', 'normal');
   let yt = y + 5; doc.setFontSize(7); doc.setTextColor(...GRIS);
   tycDe(c).forEach((tx, i) => { const lin = doc.splitTextToSize(`${i + 1}. ${tx}`, colW - 2); doc.text(lin, M + 2, yt); yt += 3.4 * lin.length + 1; });
   const ct = CTAS_COT[c.cuenta] || CTAS_COT.empresa; let yb = y + 5; const bxx = M + colW + 10; doc.setFontSize(7.8);
